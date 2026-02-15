@@ -1,0 +1,80 @@
+{
+  "name": "beamcode",
+  "version": "0.1.0",
+  "description": "Universal adapter bridging consumers (web, mobile) to coding agent CLIs — code anywhere",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown && node scripts/fix-dts.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint src/",
+    "format": "biome format --write src/",
+    "check": "biome check src/",
+    "check:fix": "biome check --write src/",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
+  },
+  "keywords": [
+    "beamcode",
+    "coding-agent",
+    "claude-code",
+    "codex",
+    "remote-access",
+    "websocket",
+    "adapter"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "node-pty": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.14",
+    "@types/node": "^22.13.4",
+    "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^3.0.0",
+    "lint-staged": "^16.2.7",
+    "node-pty": "^1.1.0",
+    "simple-git-hooks": "^2.13.1",
+    "tsdown": "^0.12.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
