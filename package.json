@@ -13,6 +13,31 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist/testing.cjs"
+    },
+    "./adapters/acp": {
+      "types": "./dist/adapters/acp.d.ts",
+      "import": "./dist/adapters/acp.js",
+      "require": "./dist/adapters/acp.cjs"
+    },
+    "./adapters/codex": {
+      "types": "./dist/adapters/codex.d.ts",
+      "import": "./dist/adapters/codex.js",
+      "require": "./dist/adapters/codex.cjs"
+    },
+    "./adapters/agent-sdk": {
+      "types": "./dist/adapters/agent-sdk.d.ts",
+      "import": "./dist/adapters/agent-sdk.js",
+      "require": "./dist/adapters/agent-sdk.cjs"
+    },
+    "./adapters/sdk-url": {
+      "types": "./dist/adapters/sdk-url.d.ts",
+      "import": "./dist/adapters/sdk-url.js",
+      "require": "./dist/adapters/sdk-url.cjs"
+    },
+    "./daemon": {
+      "types": "./dist/daemon.d.ts",
+      "import": "./dist/daemon.js",
+      "require": "./dist/daemon.cjs"
     }
   },
   "main": "./dist/index.cjs",

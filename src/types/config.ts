@@ -22,7 +22,7 @@ export interface ProviderConfig {
 
   // Rate limiting
   consumerMessageRateLimit?: {
-    tokensPerSecond: number; // default: 1000 messages/sec
+    tokensPerSecond: number; // default: 50 tokens/sec
     burstSize: number; // default: 100 (max tokens to accumulate)
   };
 

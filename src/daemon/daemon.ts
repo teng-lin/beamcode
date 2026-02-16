@@ -19,11 +19,21 @@ const DEFAULT_DATA_DIR = join(homedir(), ".beamcode");
 const LOCK_FILE = "daemon.lock";
 const STATE_FILE = "daemon.json";
 
+export interface Stoppable {
+  stopAll(): Promise<void>;
+}
+
 export class Daemon {
   private lockPath = "";
   private statePath = "";
   private healthTimer: NodeJS.Timeout | null = null;
   private running = false;
+  private supervisor: Stoppable | null = null;
+
+  /** Register a supervisor whose processes should be stopped on shutdown. */
+  setSupervisor(supervisor: Stoppable): void {
+    this.supervisor = supervisor;
+  }
 
   async start(options?: DaemonOptions): Promise<{ port: number; controlApiToken: string }> {
     const dataDir = options?.dataDir ?? DEFAULT_DATA_DIR;
@@ -36,24 +46,29 @@ export class Daemon {
 
     await acquireLock(this.lockPath);
 
-    const controlApiToken = randomBytes(32).toString("hex");
+    try {
+      const controlApiToken = randomBytes(32).toString("hex");
 
-    const state: DaemonState = {
-      pid: process.pid,
-      port,
-      heartbeat: Date.now(),
-      version: "0.1.0",
-      controlApiToken,
-    };
+      const state: DaemonState = {
+        pid: process.pid,
+        port,
+        heartbeat: Date.now(),
+        version: "0.1.0",
+        controlApiToken,
+      };
 
-    await writeState(this.statePath, state);
+      await writeState(this.statePath, state);
 
-    this.healthTimer = startHealthCheck(this.statePath);
-    this.running = true;
+      this.healthTimer = startHealthCheck(this.statePath);
+      this.running = true;
 
-    registerSignalHandlers(() => this.stop());
+      registerSignalHandlers(() => this.stop());
 
-    return { port, controlApiToken };
+      return { port, controlApiToken };
+    } catch (err) {
+      await releaseLock(this.lockPath);
+      throw err;
+    }
   }
 
   async stop(): Promise<void> {
@@ -63,6 +78,10 @@ export class Daemon {
     if (this.healthTimer) {
       clearInterval(this.healthTimer);
       this.healthTimer = null;
+    }
+
+    if (this.supervisor) {
+      await this.supervisor.stopAll();
     }
 
     await releaseLock(this.lockPath);
