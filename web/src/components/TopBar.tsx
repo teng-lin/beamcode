@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
+import { send } from "../ws";
 
 export function TopBar() {
   const connectionStatus = useStore(
@@ -14,9 +16,40 @@ export function TopBar() {
     const perms = s.sessionData[s.currentSessionId]?.pendingPermissions;
     return perms ? Object.keys(perms).length : 0;
   });
+  const models = useStore((s) =>
+    s.currentSessionId ? (s.sessionData[s.currentSessionId]?.capabilities?.models ?? null) : null,
+  );
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
+
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleSelectModel = useCallback((value: string) => {
+    send({ type: "set_model", model: value });
+    setModelMenuOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setModelMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [modelMenuOpen]);
 
   return (
     <header className="flex h-11 items-center gap-3 border-b border-bc-border bg-bc-surface px-3">
@@ -63,11 +96,40 @@ export function TopBar() {
         <span className="text-[11px] capitalize text-bc-text-muted">{connectionStatus}</span>
       </div>
 
-      {/* Model badge */}
+      {/* Model badge / picker */}
       {model && (
-        <span className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted">
-          {model}
-        </span>
+        <div className="relative" ref={modelMenuRef}>
+          {models && models.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => setModelMenuOpen((o) => !o)}
+              className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+              aria-label="Change model"
+            >
+              {model}
+            </button>
+          ) : (
+            <span className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted">
+              {model}
+            </span>
+          )}
+          {modelMenuOpen && models && models.length > 1 && (
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
+              {models.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => handleSelectModel(m.value)}
+                  className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bc-hover ${
+                    m.value === model ? "font-semibold text-bc-text" : "text-bc-text-muted"
+                  }`}
+                >
+                  {m.displayName}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="flex-1" />
