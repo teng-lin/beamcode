@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
@@ -377,84 +377,16 @@ describe("SessionManager", () => {
   // -----------------------------------------------------------------------
 
   describe("timeout cleanup and relaunch dedup", () => {
-    it("skips reconnect watchdog when no starting sessions", () => {
+    it("has no starting sessions when none launched", () => {
       mgr.start();
-
-      // No processes launched yet, so no starting sessions
-      const starting = mgr.launcher.getStartingSessions();
-      expect(starting.length).toBe(0);
-
-      // Watchdog should not be set (no starting sessions)
-      expect(true).toBe(true);
+      expect(mgr.launcher.getStartingSessions()).toHaveLength(0);
     });
 
-    it("skips reconnect watchdog for archived sessions", () => {
+    it("launched session is accessible via getSession", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      // The launcher tracks archived state internally
-      // This test verifies the watchdog code path exists
-      // and would skip archived sessions if they were in starting state
-      const session = mgr.launcher.getSession(info.sessionId);
-      expect(session).toBeDefined();
-
-      // Watchdog would skip any archived sessions
-      expect(true).toBe(true);
-    });
-
-    it("idempotent start does not error", () => {
-      mgr.start();
-      expect(() => mgr.start()).not.toThrow();
-
-      expect(true).toBe(true);
-    });
-
-    it("manager lifecycle handles launch and cleanup", () => {
-      mgr.start();
-      const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      expect(info).toBeDefined();
       expect(info.sessionId).toBe("test-session-id");
-
-      // Session should be accessible
-      const session = mgr.launcher.getSession(info.sessionId);
-      expect(session).toBeDefined();
-
-      expect(true).toBe(true);
-    });
-
-    it("reconnect watchdog initializes with starting sessions count", () => {
-      // Create a process before starting manager
-      const _proc = pm.spawn({ cwd: "/tmp", env: {} });
-
-      mgr.start();
-
-      // Get starting sessions - watchdog would be set if any exist
-      const sessions = mgr.launcher.getStartingSessions();
-      expect(Array.isArray(sessions)).toBe(true);
-
-      expect(true).toBe(true);
-    });
-
-    it("handles relaunch dedup for concurrent relaunch requests", () => {
-      mgr.start();
-      const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      // Simulate concurrent relaunch requests
-      // The first one would set the relaunchingSet flag
-      // and subsequent ones would be skipped
-      mgr.bridge.emit("backend:relaunch_needed" as any, {
-        sessionId: info.sessionId,
-      });
-      mgr.bridge.emit("backend:relaunch_needed" as any, {
-        sessionId: info.sessionId,
-      });
-
-      // Multiple requests should be deduplicated
-      // Verify session still exists
       expect(mgr.launcher.getSession(info.sessionId)).toBeDefined();
-
-      expect(true).toBe(true);
     });
   });
 
@@ -505,6 +437,231 @@ describe("SessionManager", () => {
       });
 
       expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Reconnect watchdog (I4)
+  // -----------------------------------------------------------------------
+
+  describe("reconnect watchdog", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("relaunches sessions still in 'starting' state after grace period", async () => {
+      const testStorage = new MemoryStorage();
+      testStorage.saveLauncherState([
+        {
+          sessionId: "watchdog-sess",
+          pid: 99999,
+          state: "connected",
+          cwd: "/tmp",
+          archived: false,
+        },
+      ]);
+
+      // Use a PM that reports pid 99999 as alive so restore sets state to "starting"
+      const alivePm = new MockProcessManager();
+      const origIsAlive = alivePm.isAlive.bind(alivePm);
+      alivePm.isAlive = (pid: number) => pid === 99999 || origIsAlive(pid);
+
+      const watchdogMgr = new SessionManager({
+        config: { port: 3456, reconnectGracePeriodMs: 50 },
+        processManager: alivePm,
+        storage: testStorage,
+        logger: noopLogger,
+      });
+      watchdogMgr.start();
+
+      // Verify there are starting sessions that the watchdog found
+      const starting = watchdogMgr.launcher.getStartingSessions();
+      expect(starting.length).toBeGreaterThan(0);
+      expect(starting[0].state).toBe("starting");
+
+      // Advance past the grace period (50ms) and let async relaunch resolve
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Relaunch calls spawnProcess which calls pm.spawn
+      expect(alivePm.spawnCalls.length).toBeGreaterThan(0);
+
+      // Resolve the spawned process so stop() doesn't hang
+      if (alivePm.lastProcess) {
+        alivePm.lastProcess.resolveExit(0);
+      }
+      await watchdogMgr.stop();
+    });
+
+    it("skips archived sessions in the watchdog", async () => {
+      // Seed launcher state with an archived session
+      const testStorage = new MemoryStorage();
+      testStorage.saveLauncherState([
+        {
+          sessionId: "archived-sess",
+          pid: 88888,
+          state: "connected",
+          cwd: "/tmp",
+          archived: true,
+        },
+      ]);
+
+      const alivePm = new MockProcessManager();
+      const origIsAlive = alivePm.isAlive.bind(alivePm);
+      alivePm.isAlive = (pid: number) => pid === 88888 || origIsAlive(pid);
+
+      const watchdogMgr = new SessionManager({
+        config: { port: 3456, reconnectGracePeriodMs: 500 },
+        processManager: alivePm,
+        storage: testStorage,
+        logger: noopLogger,
+      });
+      watchdogMgr.start();
+
+      // Session is in "starting" state (alive PID), but also archived
+      const starting = watchdogMgr.launcher.getStartingSessions();
+      expect(starting.length).toBeGreaterThan(0);
+      expect(starting[0].archived).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      // No relaunch should happen because session is archived
+      expect(alivePm.spawnCalls.length).toBe(0);
+
+      await watchdogMgr.stop();
+    });
+
+    it("does not set a timer when there are no starting sessions", () => {
+      const timerMgr = new SessionManager({
+        config: { port: 3456, reconnectGracePeriodMs: 500 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+      });
+      timerMgr.start();
+
+      // No sessions launched, so no starting sessions
+      expect(timerMgr.launcher.getStartingSessions().length).toBe(0);
+
+      // Advance timers — nothing should happen (no errors)
+      vi.advanceTimersByTime(1000);
+
+      timerMgr.stop();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Idle reaper
+  // -----------------------------------------------------------------------
+
+  describe("idle reaper", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("closes sessions with no connections that exceed the idle timeout", async () => {
+      const idleMgr = new SessionManager({
+        config: { port: 3456, idleSessionTimeoutMs: 100 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+      });
+      idleMgr.start();
+
+      // Spy on closeSession to verify the reaper actually calls it
+      const closeSpy = vi.spyOn(idleMgr.bridge, "closeSession");
+
+      // Create a session in the bridge (simulate a session that was created)
+      const mockSocket = {
+        send: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn(),
+      };
+      idleMgr.bridge.handleCLIOpen(mockSocket as any, "idle-session");
+      // Now disconnect the CLI so the session has no connections
+      idleMgr.bridge.handleCLIClose("idle-session");
+
+      // Verify session exists and CLI is disconnected
+      const snap1 = idleMgr.bridge.getSession("idle-session");
+      expect(snap1).toBeDefined();
+      expect(snap1!.cliConnected).toBe(false);
+      expect(snap1!.consumerCount).toBe(0);
+
+      // checkInterval = max(1000, 100/10) = 1000, so the first check is at 1000ms.
+      // After advancing 1100ms, the check fires and idle time >= 100ms.
+      await vi.advanceTimersByTimeAsync(1100);
+
+      // Verify the idle reaper called closeSession
+      expect(closeSpy).toHaveBeenCalledWith("idle-session");
+
+      await idleMgr.stop();
+    });
+
+    it("skips sessions with active CLI connections", async () => {
+      const idleMgr = new SessionManager({
+        config: { port: 3456, idleSessionTimeoutMs: 100 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+      });
+      idleMgr.start();
+
+      // Create a session with an active CLI connection
+      const mockSocket = {
+        send: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn(),
+      };
+      idleMgr.bridge.handleCLIOpen(mockSocket as any, "active-session");
+
+      // Verify CLI is connected
+      expect(idleMgr.bridge.isCliConnected("active-session")).toBe(true);
+
+      // Advance well past idle timeout
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Session should still exist since CLI is connected
+      const snap = idleMgr.bridge.getSession("active-session");
+      expect(snap).toBeDefined();
+      expect(snap!.cliConnected).toBe(true);
+
+      await idleMgr.stop();
+    });
+
+    it("does not start when idleSessionTimeoutMs is 0", () => {
+      const noIdleMgr = new SessionManager({
+        config: { port: 3456, idleSessionTimeoutMs: 0 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+      });
+      noIdleMgr.start();
+
+      // Advance timers — nothing should break
+      vi.advanceTimersByTime(5000);
+
+      noIdleMgr.stop();
+    });
+
+    it("does not start when idleSessionTimeoutMs is negative", () => {
+      const negMgr = new SessionManager({
+        config: { port: 3456, idleSessionTimeoutMs: -1 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+      });
+      negMgr.start();
+
+      vi.advanceTimersByTime(5000);
+
+      negMgr.stop();
     });
   });
 });
