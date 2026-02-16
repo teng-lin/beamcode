@@ -1,7 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
-import { makePermission, resetStore, store } from "../test/factories";
+import {
+  makeAssistantContent,
+  makePermission,
+  makeToolUseBlock,
+  resetStore,
+  store,
+} from "../test/factories";
 import { ChatView } from "./ChatView";
 
 vi.mock("./EmptyState", () => ({ EmptyState: () => <div data-testid="empty-state" /> }));
@@ -15,6 +21,9 @@ vi.mock("./PermissionBanner", () => ({
 }));
 vi.mock("./StreamingIndicator", () => ({
   StreamingIndicator: () => <div data-testid="streaming-indicator" />,
+}));
+vi.mock("./AgentGridView", () => ({
+  AgentGridView: () => <div data-testid="agent-grid-view" />,
 }));
 
 const SESSION = "chatview-test";
@@ -31,6 +40,20 @@ function setupSessionWithMessage(): void {
   store().ensureSessionData(SESSION);
   addUserMessage();
   useStore.setState({ currentSessionId: SESSION });
+}
+
+function addTaskToolUse(id: string, name: string): void {
+  store().addMessage(SESSION, {
+    type: "assistant",
+    parent_tool_use_id: null,
+    message: makeAssistantContent([
+      makeToolUseBlock({
+        id,
+        name: "Task",
+        input: { name, subagent_type: "general-purpose" },
+      }),
+    ]),
+  });
 }
 
 describe("ChatView", () => {
@@ -95,5 +118,18 @@ describe("ChatView", () => {
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
     expect(screen.getByTestId("permission-banner")).toBeInTheDocument();
+  });
+
+  it("renders AgentGridView when session has Task tool_use blocks", () => {
+    setupSessionWithMessage();
+    addTaskToolUse("tu-1", "researcher");
+    render(<ChatView />);
+    expect(screen.getByTestId("agent-grid-view")).toBeInTheDocument();
+  });
+
+  it("does not render AgentGridView when no agents", () => {
+    setupSessionWithMessage();
+    render(<ChatView />);
+    expect(screen.queryByTestId("agent-grid-view")).not.toBeInTheDocument();
   });
 });

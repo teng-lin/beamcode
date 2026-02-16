@@ -1,6 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAgentGrid } from "../hooks/useAgentGrid";
 import type { SessionData } from "../store";
 import { useStore } from "../store";
+import { AgentGridView } from "./AgentGridView";
 import { AgentPane } from "./AgentPane";
 import { Composer } from "./Composer";
 import { ConnectionBanner } from "./ConnectionBanner";
@@ -41,6 +44,36 @@ function MainChatContent({
   );
 }
 
+interface SplitLayoutProps {
+  splitRef: React.RefObject<HTMLDivElement | null>;
+  splitRatio: number;
+  onResize: (delta: number) => void;
+  left: ReactNode;
+  right: ReactNode;
+  rightClassName?: string;
+}
+
+function SplitLayout({
+  splitRef,
+  splitRatio,
+  onResize,
+  left,
+  right,
+  rightClassName = "min-w-0",
+}: SplitLayoutProps) {
+  return (
+    <div ref={splitRef} className="flex min-h-0 flex-1">
+      <div style={{ flexBasis: `${splitRatio * 100}%` }} className="flex min-w-0 flex-col">
+        {left}
+      </div>
+      <ResizeDivider onResize={onResize} containerRef={splitRef} value={splitRatio} />
+      <div style={{ flexBasis: `${(1 - splitRatio) * 100}%` }} className={rightClassName}>
+        {right}
+      </div>
+    </div>
+  );
+}
+
 export function ChatView() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessionData = useStore((s) =>
@@ -49,34 +82,61 @@ export function ChatView() {
   const inspectedAgentId = useStore((s) => s.inspectedAgentId);
   const setInspectedAgent = useStore((s) => s.setInspectedAgent);
 
-  const [splitRatio, setSplitRatio] = useState(0.5);
+  const { agents, shouldShowGrid } = useAgentGrid(currentSessionId ?? "");
+
+  const [splitRatio, setSplitRatio] = useState(0.45);
   const splitRef = useRef<HTMLDivElement>(null);
 
+  const MIN_MAIN_RATIO = 0.3;
+  const MAX_MAIN_RATIO = 0.6;
   const handleResize = useCallback((delta: number) => {
-    setSplitRatio((prev) => Math.max(0.25, Math.min(0.75, prev + delta)));
+    setSplitRatio((prev) => Math.max(MIN_MAIN_RATIO, Math.min(MAX_MAIN_RATIO, prev + delta)));
   }, []);
+
+  // Grid supersedes single-agent inspection — clear stale state
+  useEffect(() => {
+    if (shouldShowGrid && inspectedAgentId) setInspectedAgent(null);
+  }, [shouldShowGrid, inspectedAgentId, setInspectedAgent]);
 
   if (!currentSessionId || !sessionData) {
     return <EmptyState />;
   }
 
-  if (!inspectedAgentId) {
-    return <MainChatContent sessionId={currentSessionId} sessionData={sessionData} />;
+  const mainChat = <MainChatContent sessionId={currentSessionId} sessionData={sessionData} />;
+
+  // Grid mode: show all agents in columns beside the main chat
+  if (shouldShowGrid) {
+    return (
+      <SplitLayout
+        splitRef={splitRef}
+        splitRatio={splitRatio}
+        onResize={handleResize}
+        left={mainChat}
+        right={<AgentGridView agents={agents} sessionId={currentSessionId} />}
+        rightClassName="flex min-h-0 min-w-0"
+      />
+    );
   }
 
-  return (
-    <div ref={splitRef} className="flex min-h-0 flex-1">
-      <div style={{ flexBasis: `${splitRatio * 100}%` }} className="flex min-w-0 flex-col">
-        <MainChatContent sessionId={currentSessionId} sessionData={sessionData} />
-      </div>
-      <ResizeDivider onResize={handleResize} containerRef={splitRef} value={splitRatio} />
-      <div style={{ flexBasis: `${(1 - splitRatio) * 100}%` }} className="min-w-0">
-        <AgentPane
-          agentId={inspectedAgentId}
-          sessionId={currentSessionId}
-          onClose={() => setInspectedAgent(null)}
-        />
-      </div>
-    </div>
-  );
+  // Single-agent inspection (legacy split-pane)
+  if (inspectedAgentId) {
+    return (
+      <SplitLayout
+        splitRef={splitRef}
+        splitRatio={splitRatio}
+        onResize={handleResize}
+        left={mainChat}
+        right={
+          <AgentPane
+            agentId={inspectedAgentId}
+            sessionId={currentSessionId}
+            onClose={() => setInspectedAgent(null)}
+          />
+        }
+      />
+    );
+  }
+
+  // Full-width main chat (no agents)
+  return mainChat;
 }

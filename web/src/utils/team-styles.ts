@@ -1,3 +1,5 @@
+import type { ConsumerMessage, ConsumerTeamMember } from "../../../shared/consumer-types";
+
 // ── Shared types for agent/team UI ──────────────────────────────────────────
 
 export interface TaskToolInput {
@@ -6,6 +8,11 @@ export interface TaskToolInput {
   description?: string;
   run_in_background?: boolean;
 }
+
+// ── Stable empty-array sentinels (prevent useShallow re-renders) ────────────
+
+export const EMPTY_MEMBERS: ConsumerTeamMember[] = [];
+export const EMPTY_MESSAGES: ConsumerMessage[] = [];
 
 // ── Status styling constants ────────────────────────────────────────────────
 

@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
-import type { ConsumerTeamMember } from "../../../shared/consumer-types";
 import { useStore } from "../store";
 import type { TaskToolInput } from "../utils/team-styles";
-import { memberStatusDotClass, shortAgentType } from "../utils/team-styles";
-
-const EMPTY_MEMBERS: ConsumerTeamMember[] = [];
+import { EMPTY_MEMBERS, memberStatusDotClass, shortAgentType } from "../utils/team-styles";
 
 interface ToolUseBlock {
   type: "tool_use";

@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/shallow";
-import type { ConsumerMessage, ConsumerTeamMember } from "../../../shared/consumer-types";
 import { useStore } from "../store";
 import type { TaskToolInput } from "../utils/team-styles";
-import { memberStatusDotClass, shortAgentType } from "../utils/team-styles";
+import {
+  EMPTY_MEMBERS,
+  EMPTY_MESSAGES,
+  memberStatusDotClass,
+  shortAgentType,
+} from "../utils/team-styles";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageBubble } from "./MessageBubble";
-
-const EMPTY_MEMBERS: ConsumerTeamMember[] = [];
-const EMPTY_MESSAGES: ConsumerMessage[] = [];
 
 function AgentStreamingIndicator({ sessionId, agentId }: { sessionId: string; agentId: string }) {
   const stream = useStore((s) => s.sessionData[sessionId]?.agentStreaming[agentId]);
