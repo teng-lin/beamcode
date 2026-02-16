@@ -110,10 +110,18 @@ const SessionItem = memo(function SessionItem({
   );
 
   return (
-    <button
-      type="button"
+    // biome-ignore lint/a11y/useSemanticElements: intentional — contains a nested delete <button>
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
-      className={`group flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`group flex w-full cursor-pointer items-start gap-2.5 px-3 py-2 text-left transition-colors ${
         isActive
           ? "border-l-2 border-bc-accent bg-bc-active"
           : "border-l-2 border-transparent hover:bg-bc-hover"
@@ -147,7 +155,7 @@ const SessionItem = memo(function SessionItem({
           <span>{formatTime(info.createdAt)}</span>
         </div>
       </div>
-    </button>
+    </div>
   );
 });
 
