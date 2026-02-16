@@ -71,7 +71,7 @@ export function makeAssistantContent(
 export function makeAssistantMessage(
   parentToolUseId: string | null = null,
   id = "msg-1",
-): ConsumerMessage {
+): Extract<ConsumerMessage, { type: "assistant" }> {
   return {
     type: "assistant",
     parent_tool_use_id: parentToolUseId,
@@ -81,7 +81,7 @@ export function makeAssistantMessage(
 
 export function makeToolUseBlock(
   overrides?: Partial<{ id: string; name: string; input: Record<string, unknown> }>,
-): { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } {
+): Extract<ConsumerContentBlock, { type: "tool_use" }> {
   return {
     type: "tool_use",
     id: overrides?.id ?? "t1",
