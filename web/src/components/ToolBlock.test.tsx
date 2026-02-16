@@ -53,6 +53,34 @@ describe("ToolBlock", () => {
     expect(screen.getByText(/"command": "ls"/)).toBeInTheDocument();
   });
 
+  it("shows DiffView when Edit tool is expanded", async () => {
+    const user = userEvent.setup();
+    store().ensureSessionData(SESSION);
+    render(
+      <ToolBlock
+        id="t1"
+        name="Edit"
+        input={{ file_path: "/src/app.ts", old_string: "const x = 1;", new_string: "const x = 2;" }}
+        sessionId={SESSION}
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText(/- const x = 1;/)).toBeInTheDocument();
+    expect(screen.getByText(/\+ const x = 2;/)).toBeInTheDocument();
+  });
+
+  it("still shows JSON for non-Edit tools when expanded", async () => {
+    const user = userEvent.setup();
+    store().ensureSessionData(SESSION);
+    render(<ToolBlock id="t1" name="Bash" input={{ command: "ls" }} sessionId={SESSION} />);
+
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText(/"command": "ls"/)).toBeInTheDocument();
+  });
+
   it("displays elapsed time when tool progress exists", () => {
     store().ensureSessionData(SESSION);
     store().setToolProgress(SESSION, "tool-1", "Bash", 5.2);

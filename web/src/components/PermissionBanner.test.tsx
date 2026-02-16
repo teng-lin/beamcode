@@ -112,6 +112,21 @@ describe("PermissionBanner", () => {
     expect(screen.getByText("Edit")).toBeInTheDocument();
   });
 
+  it("renders DiffView for Edit tool permission", () => {
+    renderWithPermission(
+      makePermission({
+        request_id: "req-diff",
+        tool_use_id: "tu-diff",
+        tool_name: "Edit",
+        description: "Edit a file",
+        input: { file_path: "/src/app.ts", old_string: "const x = 1;", new_string: "const x = 2;" },
+      }),
+    );
+
+    expect(screen.getByText(/- const x = 1;/)).toBeInTheDocument();
+    expect(screen.getByText(/\+ const x = 2;/)).toBeInTheDocument();
+  });
+
   // ── Write tool preview ─────────────────────────────────────────────────
 
   describe("Write tool preview", () => {

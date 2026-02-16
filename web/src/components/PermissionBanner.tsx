@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
+import { DiffView } from "./DiffView";
 
 interface PermissionBannerProps {
   sessionId: string;
@@ -16,15 +17,11 @@ function toolPreview(name: string, input: Record<string, unknown>): ReactNode {
       );
     case "Edit":
       return (
-        <div className="mt-1 rounded bg-bc-code-bg p-2 font-mono-code text-xs">
-          <div className="text-bc-text-muted">{String(input.file_path ?? "")}</div>
-          {"old_string" in input && (
-            <div className="mt-1 text-bc-error">- {String(input.old_string).slice(0, 200)}</div>
-          )}
-          {"new_string" in input && (
-            <div className="text-bc-success">+ {String(input.new_string).slice(0, 200)}</div>
-          )}
-        </div>
+        <DiffView
+          oldString={String(input.old_string ?? "")}
+          newString={String(input.new_string ?? "")}
+          filePath={String(input.file_path ?? "")}
+        />
       );
     case "Write":
       return (
