@@ -38,22 +38,22 @@ export function createTestSession(manager: SessionManager): TestSession {
 
 // ── WebSocket Helpers ────────────────────────────────────────────────────────
 
-export async function connectTestConsumer(port: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}`);
-  await new Promise<void>((resolve, reject) => {
-    ws.on("open", () => resolve());
+type ClientRole = "cli" | "consumer";
+
+function connectWebSocket(port: number, role: ClientRole, sessionId: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${port}/ws/${role}/${sessionId}`);
+    ws.on("open", () => resolve(ws));
     ws.on("error", reject);
   });
-  return ws;
 }
 
-export async function connectTestCLI(port: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${port}/ws/cli/${sessionId}`);
-  await new Promise<void>((resolve, reject) => {
-    ws.on("open", () => resolve());
-    ws.on("error", reject);
-  });
-  return ws;
+export function connectTestConsumer(port: number, sessionId: string): Promise<WebSocket> {
+  return connectWebSocket(port, "consumer", sessionId);
+}
+
+export function connectTestCLI(port: number, sessionId: string): Promise<WebSocket> {
+  return connectWebSocket(port, "cli", sessionId);
 }
 
 // ── Message Collection ───────────────────────────────────────────────────────
@@ -107,12 +107,24 @@ export function waitForMessage(
   });
 }
 
-export async function drainInitialMessages(
-  ws: WebSocket,
-  count = 2,
-  timeoutMs = 500,
-): Promise<string[]> {
+export function drainInitialMessages(ws: WebSocket, count = 2, timeoutMs = 500): Promise<string[]> {
   return collectMessages(ws, count, timeoutMs);
+}
+
+export function hasType(type: string): (msg: unknown) => boolean {
+  return (msg: unknown) =>
+    typeof msg === "object" &&
+    msg !== null &&
+    "type" in msg &&
+    (msg as { type: string }).type === type;
+}
+
+export function waitForMessageType(
+  ws: WebSocket,
+  type: string,
+  timeoutMs = 2000,
+): Promise<unknown> {
+  return waitForMessage(ws, hasType(type), timeoutMs);
 }
 
 // ── Assertion Helpers ────────────────────────────────────────────────────────
@@ -138,6 +150,41 @@ export function extractMessageTypes(messages: string[]): string[] {
   return parseMessages(messages)
     .filter((m) => typeof m === "object" && m !== null && "type" in m)
     .map((m) => (m as { type: string }).type);
+}
+
+export function getMessageText(msg: unknown): string {
+  // Validate the message structure before accessing nested properties
+  if (typeof msg !== "object" || msg === null) {
+    throw new Error(`Expected object, got ${typeof msg}. Raw message: ${JSON.stringify(msg)}`);
+  }
+
+  const msgObj = msg as Record<string, unknown>;
+
+  if (!("message" in msgObj) || typeof msgObj.message !== "object" || msgObj.message === null) {
+    throw new Error(`Message missing 'message' property. Raw message: ${JSON.stringify(msg)}`);
+  }
+
+  const message = msgObj.message as Record<string, unknown>;
+
+  if (!("content" in message) || !Array.isArray(message.content) || message.content.length === 0) {
+    throw new Error(`Message missing valid 'content' array. Raw message: ${JSON.stringify(msg)}`);
+  }
+
+  const firstContent = message.content[0];
+
+  if (typeof firstContent !== "object" || firstContent === null || !("text" in firstContent)) {
+    throw new Error(`Content[0] missing 'text' property. Raw message: ${JSON.stringify(msg)}`);
+  }
+
+  const text = (firstContent as { text: unknown }).text;
+
+  if (typeof text !== "string") {
+    throw new Error(
+      `Expected text to be string, got ${typeof text}. Raw message: ${JSON.stringify(msg)}`,
+    );
+  }
+
+  return text;
 }
 
 // ── Mock Data Generators ─────────────────────────────────────────────────────

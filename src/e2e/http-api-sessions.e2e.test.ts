@@ -7,14 +7,36 @@ import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import { createBeamcodeServer } from "../http/server.js";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 describe("E2E: HTTP API /api/sessions", () => {
   let server: ReturnType<typeof createBeamcodeServer>;
   let sessionManager: SessionManager;
   let baseUrl: string;
   const apiKey = `test-api-key-${randomBytes(8).toString("hex")}`;
 
+  /** Fetch with the test API key pre-applied. */
+  function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${apiKey}`);
+    }
+    return fetch(`${baseUrl}${path}`, { ...init, headers });
+  }
+
+  /** POST to /api/sessions with optional JSON body. */
+  function createSession(body?: Record<string, unknown>): Promise<Response> {
+    if (!body) {
+      return apiFetch("/api/sessions", { method: "POST" });
+    }
+    return apiFetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
   beforeEach(async () => {
-    // Setup SessionManager with real components but in-memory storage
     sessionManager = new SessionManager({
       config: { port: 0 },
       processManager: new NodeProcessManager(),
@@ -23,14 +45,12 @@ describe("E2E: HTTP API /api/sessions", () => {
     });
     await sessionManager.start();
 
-    // Create HTTP server
     server = createBeamcodeServer({
       sessionManager,
       activeSessionId: "placeholder",
       apiKey,
     });
 
-    // Start HTTP server on random port
     await new Promise<void>((resolve) => {
       server.listen(0, () => resolve());
     });
@@ -47,9 +67,7 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   it("GET /api/sessions returns empty list initially", async () => {
-    const res = await fetch(`${baseUrl}/api/sessions`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res = await apiFetch("/api/sessions");
 
     expect(res.status).toBe(200);
     const data = (await res.json()) as unknown[];
@@ -58,75 +76,52 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   it("POST /api/sessions creates new session and returns sessionId", async () => {
-    const res = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ cwd: process.cwd() }),
-    });
+    const res = await createSession({ cwd: process.cwd() });
 
     expect(res.status).toBe(201);
     const data = (await res.json()) as { sessionId: string; cwd: string };
     expect(data).toHaveProperty("sessionId");
-    expect(data.sessionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(data.sessionId).toMatch(UUID_PATTERN);
     expect(data.cwd).toBe(process.cwd());
   });
 
   it("GET /api/sessions lists all created sessions", async () => {
-    // Create 2 sessions
-    const res1 = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res1 = await createSession();
+    expect(res1.status).toBe(201);
     const session1 = (await res1.json()) as { sessionId: string };
 
-    const res2 = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res2 = await createSession();
+    expect(res2.status).toBe(201);
     const session2 = (await res2.json()) as { sessionId: string };
 
-    // List all sessions
-    const listRes = await fetch(`${baseUrl}/api/sessions`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const listRes = await apiFetch("/api/sessions");
+    expect(listRes.status).toBe(200);
     const data = (await listRes.json()) as Array<{ sessionId: string }>;
 
     expect(data).toHaveLength(2);
-    expect(data.some((s) => s.sessionId === session1.sessionId)).toBe(true);
-    expect(data.some((s) => s.sessionId === session2.sessionId)).toBe(true);
+    const ids = data.map((s) => s.sessionId);
+    expect(ids).toContain(session1.sessionId);
+    expect(ids).toContain(session2.sessionId);
   });
 
   it("GET /api/sessions/:id returns session info", async () => {
-    const createRes = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ cwd: process.cwd(), model: "claude-sonnet-4-5-20250929" }),
+    const createRes = await createSession({
+      cwd: process.cwd(),
+      model: "claude-sonnet-4-5-20250929",
     });
     const { sessionId } = (await createRes.json()) as { sessionId: string };
 
-    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res = await apiFetch(`/api/sessions/${sessionId}`);
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { sessionId: string; cwd: string; model?: string };
+    const data = (await res.json()) as { sessionId: string; cwd: string };
     expect(data.sessionId).toBe(sessionId);
     expect(data.cwd).toBe(process.cwd());
   });
 
   it("GET /api/sessions/:id returns 404 for non-existent session", async () => {
     const fakeId = "00000000-0000-0000-0000-000000000000";
-    const res = await fetch(`${baseUrl}/api/sessions/${fakeId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res = await apiFetch(`/api/sessions/${fakeId}`);
 
     expect(res.status).toBe(404);
     const data = (await res.json()) as { error: string };
@@ -134,25 +129,19 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   it("DELETE /api/sessions/:id stops session", async () => {
-    const createRes = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const createRes = await createSession();
+    expect(createRes.status).toBe(201);
     const { sessionId } = (await createRes.json()) as { sessionId: string };
 
-    const deleteRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const deleteRes = await apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
 
     expect(deleteRes.status).toBe(200);
     const data = (await deleteRes.json()) as { status: string };
     expect(data.status).toBe("stopped");
 
     // Verify session is marked as exited
-    const listRes = await fetch(`${baseUrl}/api/sessions`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const listRes = await apiFetch("/api/sessions");
+    expect(listRes.status).toBe(200);
     const sessions = (await listRes.json()) as Array<{ sessionId: string; state: string }>;
     const stoppedSession = sessions.find((s) => s.sessionId === sessionId);
     expect(stoppedSession).toBeDefined();
@@ -160,26 +149,17 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   it("rejects API requests without valid API key", async () => {
-    // No auth header
-    const res1 = await fetch(`${baseUrl}/api/sessions`);
-    expect(res1.status).toBe(401);
+    const noAuth = await fetch(`${baseUrl}/api/sessions`);
+    expect(noAuth.status).toBe(401);
 
-    // Wrong API key
-    const res2 = await fetch(`${baseUrl}/api/sessions`, {
+    const wrongAuth = await fetch(`${baseUrl}/api/sessions`, {
       headers: { Authorization: "Bearer wrong-key" },
     });
-    expect(res2.status).toBe(401);
+    expect(wrongAuth.status).toBe(401);
   });
 
   it("rejects POST /api/sessions with invalid cwd", async () => {
-    const res = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ cwd: "/nonexistent/directory/path" }),
-    });
+    const res = await createSession({ cwd: "/nonexistent/directory/path" });
 
     expect(res.status).toBe(400);
     const data = (await res.json()) as { error: string };
@@ -192,32 +172,24 @@ describe("E2E: HTTP API /api/sessions", () => {
     // The server closes the connection when body is too large,
     // which causes a fetch error. This is expected behavior.
     await expect(
-      fetch(`${baseUrl}/api/sessions`, {
+      apiFetch("/api/sessions", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: largeBody,
       }),
     ).rejects.toThrow();
   });
 
   it("POST /api/sessions with empty body uses defaults", async () => {
-    const res = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    const res = await createSession();
 
     expect(res.status).toBe(201);
     const data = (await res.json()) as { sessionId: string; cwd: string };
     expect(data.sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    // cwd should default to server's cwd or user's home
     expect(data.cwd).toBeTruthy();
   });
 
   it("allows health endpoint access without API key", async () => {
-    // Health endpoint should be accessible without auth
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
     const data = (await res.json()) as { status: string };
@@ -225,13 +197,7 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   it("returns 405 Method Not Allowed for invalid HTTP methods", async () => {
-    // Use PUT on a specific session endpoint (not the list endpoint)
-    // The list endpoint (/api/sessions) doesn't match the pattern when no sessionId
-    const res = await fetch(`${baseUrl}/api/sessions/test-id`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-
+    const res = await apiFetch("/api/sessions/test-id", { method: "PUT" });
     expect(res.status).toBe(405);
   });
 });
