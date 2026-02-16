@@ -161,7 +161,8 @@ describe("launch", () => {
     launcher.launch({ env: { MY_VAR: "hello" } });
     const env = pm.spawnCalls[0].env!;
     expect(env.MY_VAR).toBe("hello");
-    expect(env.CLAUDECODE).toBe("1");
+    // CLAUDECODE should be removed to avoid the nesting guard
+    expect(env.CLAUDECODE).toBeUndefined();
   });
 
   it("throws when max concurrent sessions reached", () => {

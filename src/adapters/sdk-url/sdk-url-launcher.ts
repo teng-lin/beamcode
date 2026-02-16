@@ -332,9 +332,11 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
     // Build environment, stripping denied env vars
     const mergedEnv: Record<string, string | undefined> = {
       ...process.env,
-      CLAUDECODE: "1",
       ...options.env,
     };
+    // Remove CLAUDECODE to avoid the nesting guard — we are intentionally
+    // spawning claude, not running inside another Claude Code session.
+    delete mergedEnv.CLAUDECODE;
 
     for (const key of this.config.envDenyList ?? []) {
       delete mergedEnv[key];
