@@ -366,13 +366,13 @@
       switch (message.type) {
         case 'assistant': return this.renderAssistant(message.message);
         case 'result': return this.renderResult(message.data);
-        case 'status_change': return this._renderStatus(message.status);
-        case 'error': return this._system(message.message, 'error');
-        case 'cli_connected': return this._system('CLI connected', 'success');
-        case 'cli_disconnected': return this._system('CLI disconnected', 'warning');
-        case 'user_message': return this._renderUser(message.content);
-        case 'slash_command_result': return this._commandResult(message.command, message.content);
-        case 'slash_command_error': return this._system(message.error, 'error');
+        case 'status_change': return this.renderStatus(message.status);
+        case 'error': return this.renderSystem(message.message, 'error');
+        case 'cli_connected': return this.renderSystem('CLI connected', 'success');
+        case 'cli_disconnected': return this.renderSystem('CLI disconnected', 'warning');
+        case 'user_message': return this.renderUserMessage(message.content);
+        case 'slash_command_result': return this.renderCommandResult(message.command, message.content);
+        case 'slash_command_error': return this.renderSystem(message.error, 'error');
         default: return null;
       }
     }
@@ -392,7 +392,7 @@
       w.appendChild(lbl);
       const body = document.createElement('div');
       body.className = 'msg-body';
-      for (const block of content.content) body.appendChild(this._block(block));
+      for (const block of content.content) body.appendChild(this.renderBlock(block));
       w.appendChild(body);
       return w;
     }
@@ -410,7 +410,7 @@
       return el;
     }
 
-    _block(block) {
+    renderBlock(block) {
       switch (block.type) {
         case 'text': {
           const el = document.createElement('div');
@@ -440,7 +440,7 @@
             pre.textContent = truncate(block.content, 2000);
             el.appendChild(pre);
           } else if (Array.isArray(block.content)) {
-            for (const b of block.content) el.appendChild(this._block(b));
+            for (const b of block.content) el.appendChild(this.renderBlock(b));
           }
           return el;
         }
@@ -459,7 +459,7 @@
       }
     }
 
-    _renderUser(content) {
+    renderUserMessage(content) {
       const el = document.createElement('div');
       el.className = 'msg msg-user';
       const lbl = document.createElement('div');
@@ -473,7 +473,7 @@
       return el;
     }
 
-    _renderStatus(status) {
+    renderStatus(status) {
       if (!status || status === 'idle') return null;
       const el = document.createElement('div');
       el.className = 'msg msg-system';
@@ -481,14 +481,14 @@
       return el;
     }
 
-    _system(text, level) {
+    renderSystem(text, level) {
       const el = document.createElement('div');
       el.className = `msg msg-system msg-${level}`;
       el.textContent = text;
       return el;
     }
 
-    _commandResult(command, content) {
+    renderCommandResult(command, content) {
       const el = document.createElement('div');
       el.className = 'msg msg-command-result';
       const hdr = document.createElement('div');
@@ -600,20 +600,19 @@
     }
 
     getAllCommands() {
-      const merged = [...this._consumerCommands];
-      for (const sc of this._serverCommands) {
-        if (!merged.some((c) => c.name === sc.name)) merged.push(sc);
-      }
-      return merged;
+      const consumerNames = new Set(this._consumerCommands.map((c) => c.name));
+      const uniqueServer = this._serverCommands.filter((c) => !consumerNames.has(c.name));
+      return [...this._consumerCommands, ...uniqueServer];
     }
   }
 
   // ── AutocompleteUI ────────────────────────────────────────────────────────
 
   class AutocompleteUI {
-    constructor(containerEl, handler) {
+    constructor(containerEl, handler, onSelect) {
       this._el = containerEl;
       this._handler = handler;
+      this._onSelect = onSelect;
       this._selectedIdx = -1;
       this._items = [];
       this._visible = false;
@@ -652,9 +651,11 @@
       return null;
     }
 
-    /** Returns true if the key was consumed. */
+    // Returns true if the key was consumed by the autocomplete, false otherwise.
+    // Tab/Enter selection is handled via the onSelect callback.
     handleKey(e) {
       if (!this._visible) return false;
+
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         this._selectedIdx = Math.min(this._selectedIdx + 1, this._items.length - 1);
@@ -667,12 +668,18 @@
         this._render();
         return true;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && this._visible)) {
-        const sel = this.getSelected();
-        if (sel) { e.preventDefault(); this.hide(); return sel; }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        const selected = this.getSelected();
+        if (selected) {
+          e.preventDefault();
+          this.hide();
+          this._onSelect(selected);
+          return true;
+        }
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         this.hide();
         return true;
       }
@@ -702,16 +709,14 @@
         div.appendChild(cat);
 
         div.addEventListener('click', () => {
+          this.hide();
           this._onSelect(item.name);
         });
         this._el.appendChild(div);
       }
-      // Scroll selected into view
-      const selected = this._el.querySelector('.ac-item.selected');
-      if (selected) selected.scrollIntoView({ block: 'nearest' });
+      const selectedEl = this._el.querySelector('.ac-item.selected');
+      if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
     }
-
-    setOnSelect(fn) { this._onSelect = fn; }
   }
 
   // ── CryptoClient (stub) ────────────────────────────────────────────────────
@@ -761,13 +766,12 @@
     const slashHandler = new SlashCommandHandler();
     const autocomplete = new AutocompleteUI(
       document.getElementById('slash-autocomplete'),
-      slashHandler
+      slashHandler,
+      (name) => {
+        inputEl.value = name + ' ';
+        inputEl.focus();
+      }
     );
-    autocomplete.setOnSelect((name) => {
-      inputEl.value = name + ' ';
-      inputEl.focus();
-      autocomplete.hide();
-    });
 
     let cliStatus = null;
     let autoScroll = true;
@@ -871,6 +875,29 @@
       autocomplete.update(inputEl.value);
     });
 
+    function resetInput() {
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+    }
+
+    function formatHelpText(commands) {
+      const grouped = {};
+      for (const c of commands) {
+        const cat = c.category || 'other';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(c);
+      }
+      const lines = [];
+      for (const [cat, list] of Object.entries(grouped)) {
+        lines.push(`[${cat}]`);
+        for (const c of list) {
+          lines.push(`  ${c.name.padEnd(20)} ${c.description}`);
+        }
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
     function sendMessage() {
       const content = inputEl.value.trim();
       if (!content) return;
@@ -879,60 +906,36 @@
       if (slashHandler.isSlashCommand(content)) {
         const { name } = slashHandler.parse(content);
 
-        // Consumer-local commands
         if (name === '/clear') {
           while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
-          inputEl.value = '';
-          inputEl.style.height = 'auto';
+          resetInput();
           return;
         }
         if (name === '/help') {
-          const cmds = slashHandler.getAllCommands();
-          const grouped = {};
-          for (const c of cmds) {
-            const cat = c.category || 'other';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push(c);
-          }
-          const lines = [];
-          for (const [cat, list] of Object.entries(grouped)) {
-            lines.push(`[${cat}]`);
-            for (const c of list) {
-              lines.push(`  ${c.name.padEnd(20)} ${c.description}`);
-            }
-            lines.push('');
-          }
-          appendElement(renderer._commandResult('/help', lines.join('\n')));
-          inputEl.value = '';
-          inputEl.style.height = 'auto';
+          const helpText = formatHelpText(slashHandler.getAllCommands());
+          appendElement(renderer.renderCommandResult('/help', helpText));
+          resetInput();
           return;
         }
 
-        // Server slash commands — send as slash_command type
-        const requestId = window.crypto.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+        // Server slash command
+        const requestId = window.crypto.randomUUID
+          ? window.crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
         client.send({ type: 'slash_command', command: content, request_id: requestId });
-        appendElement(renderer._renderUser(content));
-        inputEl.value = '';
-        inputEl.style.height = 'auto';
+        appendElement(renderer.renderUserMessage(content));
+        resetInput();
         return;
       }
 
       // Regular message
       client.send({ type: 'user_message', content: content, session_id: sessionId });
-      appendElement(renderer._renderUser(content));
-      inputEl.value = '';
-      inputEl.style.height = 'auto';
+      appendElement(renderer.renderUserMessage(content));
+      resetInput();
     }
 
     inputEl.addEventListener('keydown', (e) => {
-      const acResult = autocomplete.handleKey(e);
-      if (acResult === true) return; // key consumed (arrow/escape)
-      if (typeof acResult === 'string') {
-        // Tab/Enter selected a command
-        inputEl.value = acResult + ' ';
-        autocomplete.hide();
-        return;
-      }
+      if (autocomplete.handleKey(e)) return;
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
