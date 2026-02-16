@@ -82,6 +82,9 @@ export const SlashMenu = forwardRef<SlashMenuHandle, SlashMenuProps>(function Sl
 
   const flatList = useMemo(() => categories.flatMap((c) => c.commands), [categories]);
 
+  // Pre-compute index lookup to avoid O(n) indexOf per item during render
+  const indexMap = useMemo(() => new Map(flatList.map((cmd, i) => [cmd, i])), [flatList]);
+
   // Reset active index when query changes
   const prevQueryRef = useRef(query);
   if (prevQueryRef.current !== query) {
@@ -136,7 +139,7 @@ export const SlashMenu = forwardRef<SlashMenuHandle, SlashMenuProps>(function Sl
             {cat.label}
           </div>
           {cat.commands.map((cmd) => {
-            const idx = flatList.indexOf(cmd);
+            const idx = indexMap.get(cmd) ?? -1;
             return (
               <button
                 type="button"
@@ -149,7 +152,9 @@ export const SlashMenu = forwardRef<SlashMenuHandle, SlashMenuProps>(function Sl
                 aria-selected={idx === activeIndex}
                 id={`slash-option-${cmd.name}`}
               >
-                <span className="font-mono-code text-bc-accent">/{cmd.name}</span>
+                <span className="font-mono-code text-bc-accent">
+                  {cmd.name.startsWith("/") ? cmd.name : `/${cmd.name}`}
+                </span>
                 <span className="truncate text-xs text-bc-text-muted">{cmd.description}</span>
               </button>
             );

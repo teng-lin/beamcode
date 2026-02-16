@@ -69,14 +69,12 @@ const PTY_DISABLED_CONFIG: Partial<ResolvedConfig> = {
 function createExecutor(options?: {
   commandRunner?: MockCommandRunner;
   config?: Partial<ResolvedConfig>;
-  registry?: SlashCommandRegistry;
 }) {
   const runner = options?.commandRunner ?? new MockCommandRunner();
   return {
     executor: new SlashCommandExecutor({
       commandRunner: runner,
       config: { ...DEFAULT_CONFIG, ...options?.config },
-      registry: options?.registry,
     }),
     runner,
   };
@@ -409,26 +407,24 @@ describe("SlashCommandExecutor", () => {
     it("isSkillCommand identifies skill commands from registry", () => {
       const registry = new SlashCommandRegistry();
       registry.registerSkills(["commit"]);
-      const { executor } = createExecutor({ registry });
-      expect(executor.isSkillCommand("/commit")).toBe(true);
-      expect(executor.isSkillCommand("/help")).toBe(false);
-      expect(executor.isSkillCommand("/nonexistent")).toBe(false);
+      const { executor } = createExecutor();
+      expect(executor.isSkillCommand("/commit", registry)).toBe(true);
+      expect(executor.isSkillCommand("/help", registry)).toBe(false);
+      expect(executor.isSkillCommand("/nonexistent", registry)).toBe(false);
     });
 
     it("isSkillCommand returns false when no registry", () => {
       const { executor } = createExecutor();
-      expect(executor.isSkillCommand("/commit")).toBe(false);
+      expect(executor.isSkillCommand("/commit", null)).toBe(false);
     });
 
     it("registry-reported commands appear in /help", async () => {
       const registry = new SlashCommandRegistry();
-      registry.registerFromCLI([
-        { name: "/vim", description: "Toggle vim mode" },
-      ]);
+      registry.registerFromCLI([{ name: "/vim", description: "Toggle vim mode" }]);
       registry.registerSkills(["commit"]);
-      const { executor } = createExecutor({ registry });
+      const { executor } = createExecutor();
       const state = makeState();
-      const result = await executor.execute(state, "/help", "cli-123");
+      const result = await executor.execute(state, "/help", "cli-123", registry);
       expect(result.content).toContain("/vim");
       expect(result.content).toContain("/commit");
     });
@@ -436,9 +432,9 @@ describe("SlashCommandExecutor", () => {
     it("/help prefers capabilities over registry when both available", async () => {
       const registry = new SlashCommandRegistry();
       registry.registerSkills(["commit"]);
-      const { executor } = createExecutor({ registry });
+      const { executor } = createExecutor();
       const state = makeStateWithCapabilities();
-      const result = await executor.execute(state, "/help", "cli-123");
+      const result = await executor.execute(state, "/help", "cli-123", registry);
       // Capabilities descriptions should be used
       expect(result.content).toContain("/compact — Compact conversation history");
       // Skills from registry should also appear

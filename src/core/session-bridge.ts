@@ -73,6 +73,8 @@ interface Session {
   } | null;
   /** Per-session correlation buffer for team tool_use↔tool_result pairing. */
   teamCorrelationBuffer: TeamToolCorrelationBuffer;
+  /** Per-session slash command registry. */
+  registry: SlashCommandRegistry;
 }
 
 function makeDefaultState(sessionId: string): SessionState {
@@ -132,7 +134,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
   private slashCommandExecutor: SlashCommandExecutor;
-  private registry: SlashCommandRegistry;
   private adapter: BackendAdapter | null;
 
   constructor(options?: {
@@ -154,11 +155,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.config = resolveConfig(options?.config ?? { port: 3456 });
     this.metrics = options?.metrics ?? null;
     this.adapter = options?.adapter ?? null;
-    this.registry = new SlashCommandRegistry();
     this.slashCommandExecutor = new SlashCommandExecutor({
       commandRunner: options?.commandRunner,
       config: this.config,
-      registry: this.registry,
     });
   }
 
@@ -186,6 +185,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         lastActivity: Date.now(),
         pendingInitialize: null,
         teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
+        registry: new SlashCommandRegistry(),
       };
       this.sessions.set(p.id, session);
       count++;
@@ -228,6 +228,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         lastActivity: Date.now(),
         pendingInitialize: null,
         teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
+        registry: new SlashCommandRegistry(),
       };
       this.sessions.set(sessionId, session);
       // Emit metrics event
@@ -840,15 +841,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.state.slash_commands = msg.slash_commands ?? [];
       session.state.skills = msg.skills ?? [];
 
-      // Populate registry from init data
-      this.registry.clearDynamic();
+      // Populate registry from init data (per-session)
+      session.registry.clearDynamic();
       if (session.state.slash_commands.length > 0) {
-        this.registry.registerFromCLI(
+        session.registry.registerFromCLI(
           session.state.slash_commands.map((name: string) => ({ name, description: "" })),
         );
       }
       if (session.state.skills.length > 0) {
-        this.registry.registerSkills(session.state.skills);
+        session.registry.registerSkills(session.state.skills);
       }
 
       // Resolve git info from session cwd using injected resolver
@@ -1093,9 +1094,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
     );
 
-    // Enrich registry with rich command metadata from capabilities
+    // Enrich per-session registry with rich command metadata from capabilities
     if (commands.length > 0) {
-      this.registry.registerFromCLI(commands);
+      session.registry.registerFromCLI(commands);
     }
 
     this.broadcastToConsumers(session, {
@@ -1199,7 +1200,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     // Skill commands are also forwarded to CLI as user messages
-    if (this.slashCommandExecutor.isSkillCommand(command)) {
+    if (this.slashCommandExecutor.isSkillCommand(command, session.registry)) {
       this.sendUserMessage(session.id, command);
       return;
     }
@@ -1221,7 +1222,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     this.slashCommandExecutor
-      .execute(session.state, command, session.cliSessionId ?? session.id)
+      .execute(session.state, command, session.cliSessionId ?? session.id, session.registry)
       .then((result) => {
         this.broadcastToConsumers(session, {
           type: "slash_command_result",
@@ -1266,6 +1267,12 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       return null; // result comes back via normal CLI message flow
     }
 
+    // Skill commands are forwarded to CLI as user messages
+    if (this.slashCommandExecutor.isSkillCommand(command, session.registry)) {
+      this.sendUserMessage(sessionId, command);
+      return null;
+    }
+
     if (!this.slashCommandExecutor.canHandle(command, session.state)) {
       return null;
     }
@@ -1274,6 +1281,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.state,
       command,
       session.cliSessionId ?? session.id,
+      session.registry,
     );
     return { content: result.content, source: result.source };
   }
@@ -1911,9 +1919,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
     );
 
-    // Enrich registry with rich command metadata from capabilities
+    // Enrich per-session registry with rich command metadata from capabilities
     if (commands.length > 0) {
-      this.registry.registerFromCLI(commands);
+      session.registry.registerFromCLI(commands);
     }
 
     this.broadcastToConsumers(session, {

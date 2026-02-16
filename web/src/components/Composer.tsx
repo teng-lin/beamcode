@@ -177,7 +177,8 @@ export function Composer({ sessionId }: ComposerProps) {
   }, []);
 
   const handleSlashSelect = useCallback((command: string) => {
-    setValue(`/${command} `);
+    const normalized = command.startsWith("/") ? command : `/${command}`;
+    setValue(`${normalized} `);
     setShowSlash(false);
     textareaRef.current?.focus();
   }, []);

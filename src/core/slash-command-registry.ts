@@ -114,7 +114,8 @@ export class SlashCommandRegistry {
     }>,
   ): void {
     for (const cmd of commands) {
-      const key = cmd.name.toLowerCase();
+      const name = cmd.name.startsWith("/") ? cmd.name : `/${cmd.name}`;
+      const key = name.toLowerCase();
       const existing = this.commands.get(key);
       if (existing && existing.source === "built-in") {
         // Enrich built-in with CLI metadata but keep source as built-in
@@ -122,7 +123,7 @@ export class SlashCommandRegistry {
         if (cmd.argumentHint) existing.argumentHint = cmd.argumentHint;
       } else {
         this.commands.set(key, {
-          name: cmd.name,
+          name,
           description: cmd.description,
           source: "cli",
           argumentHint: cmd.argumentHint,

@@ -298,6 +298,7 @@ describe("Composer", () => {
       store().setCapabilities(SESSION, {
         commands: [{ name: "model", description: "Show or switch model", argumentHint: "[model]" }],
         models: [],
+        skills: [],
       });
       render(<Composer sessionId={SESSION} />);
 
@@ -311,6 +312,7 @@ describe("Composer", () => {
       store().setCapabilities(SESSION, {
         commands: [{ name: "help", description: "Show help" }],
         models: [],
+        skills: [],
       });
       render(<Composer sessionId={SESSION} />);
 
@@ -324,6 +326,7 @@ describe("Composer", () => {
       store().setCapabilities(SESSION, {
         commands: [{ name: "model", description: "Show or switch model", argumentHint: "[model]" }],
         models: [],
+        skills: [],
       });
       render(<Composer sessionId={SESSION} />);
 
@@ -341,6 +344,7 @@ describe("Composer", () => {
       store().setCapabilities(SESSION, {
         commands: [{ name: "/config", description: "Show config", argumentHint: "[key]" }],
         models: [],
+        skills: [],
       });
       render(<Composer sessionId={SESSION} />);
 
