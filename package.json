@@ -18,12 +18,17 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "beamcode": "./dist/bin/beamcode.js"
+  },
   "files": [
     "dist",
+    "dist/consumer",
     "README.md"
   ],
   "scripts": {
-    "build": "tsdown && node scripts/fix-dts.js",
+    "build": "tsdown && node scripts/fix-dts.js && node scripts/copy-consumer.js",
+    "start": "node dist/bin/beamcode.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

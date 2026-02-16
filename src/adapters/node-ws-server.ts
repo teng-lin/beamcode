@@ -24,12 +24,14 @@ function wrapSocket(ws: WebSocket): Parameters<OnCLIConnection>[0] {
 }
 
 export interface NodeWebSocketServerOptions {
-  /** Port to listen on. Use 0 for a random free port. */
+  /** Port to listen on. Use 0 for a random free port. Ignored when `server` is provided. */
   port: number;
-  /** Optional hostname to bind to. Defaults to "127.0.0.1" (localhost only). */
+  /** Optional hostname to bind to. Defaults to "127.0.0.1" (localhost only). Ignored when `server` is provided. */
   host?: string;
   /** Optional origin validator to reject connections from untrusted origins. */
   originValidator?: OriginValidator;
+  /** Optional external HTTP server to attach to. When provided, WS piggybacks on this server instead of creating its own. */
+  server?: import("http").Server;
 }
 
 /**
@@ -48,6 +50,11 @@ export class NodeWebSocketServer implements WebSocketServerLike {
   get port(): number | undefined {
     const addr = this.wss?.address();
     if (addr && typeof addr === "object") return addr.port;
+    // When attached to an external server, fall back to the HTTP server's address
+    if (this.options.server) {
+      const httpAddr = this.options.server.address();
+      if (httpAddr && typeof httpAddr === "object") return httpAddr.port;
+    }
     return undefined;
   }
 
@@ -55,68 +62,89 @@ export class NodeWebSocketServer implements WebSocketServerLike {
     onCLIConnection: OnCLIConnection,
     onConsumerConnection?: OnConsumerConnection,
   ): Promise<void> {
+    const { originValidator } = this.options;
+    const verifyClient = originValidator
+      ? (info: { origin: string; req: import("http").IncomingMessage }) => {
+          const origin = info.origin || undefined;
+          if (!originValidator.isAllowed(origin)) {
+            console.warn(
+              `[beamcode] Rejected WebSocket connection from origin: ${origin ?? "(none)"}`,
+            );
+            return false;
+          }
+          return true;
+        }
+      : undefined;
+
+    if (this.options.server) {
+      // Attach to an external HTTP server — no standalone listen needed
+      this.wss = new WSServer({
+        server: this.options.server,
+        ...(verifyClient && { verifyClient }),
+      });
+      this.wireConnectionHandler(onCLIConnection, onConsumerConnection);
+      return;
+    }
+
     return new Promise((resolve, reject) => {
-      const { originValidator } = this.options;
       this.wss = new WSServer({
         port: this.options.port,
         host: this.options.host ?? "127.0.0.1",
-        ...(originValidator && {
-          verifyClient: (info: { origin: string; req: import("http").IncomingMessage }) => {
-            const origin = info.origin || undefined;
-            if (!originValidator.isAllowed(origin)) {
-              console.warn(
-                `[beamcode] Rejected WebSocket connection from origin: ${origin ?? "(none)"}`,
-              );
-              return false;
-            }
-            return true;
-          },
-        }),
+        ...(verifyClient && { verifyClient }),
       });
 
       this.wss.on("listening", () => resolve());
       this.wss.on("error", (err) => reject(err));
 
-      this.wss.on("connection", (ws, req) => {
-        const reqUrl = req.url ?? "";
-        // Strip query string for path matching
-        const pathOnly = reqUrl.split("?")[0];
+      this.wireConnectionHandler(onCLIConnection, onConsumerConnection);
+    });
+  }
 
-        const cliMatch = pathOnly.match(CLI_PATH_RE);
-        if (cliMatch) {
-          const sessionId = decodeURIComponent(cliMatch[1]);
-          // Validate session ID format (UUID)
-          if (!SESSION_ID_PATTERN.test(sessionId)) {
-            ws.close(1008, "Invalid session ID format");
-            return;
-          }
-          onCLIConnection(wrapSocket(ws), sessionId);
+  private wireConnectionHandler(
+    onCLIConnection: OnCLIConnection,
+    onConsumerConnection?: OnConsumerConnection,
+  ): void {
+    if (!this.wss) return;
+
+    this.wss.on("connection", (ws, req) => {
+      const reqUrl = req.url ?? "";
+      // Strip query string for path matching
+      const pathOnly = reqUrl.split("?")[0];
+
+      const cliMatch = pathOnly.match(CLI_PATH_RE);
+      if (cliMatch) {
+        const sessionId = decodeURIComponent(cliMatch[1]);
+        // Validate session ID format (UUID)
+        if (!SESSION_ID_PATTERN.test(sessionId)) {
+          ws.close(1008, "Invalid session ID format");
           return;
         }
+        onCLIConnection(wrapSocket(ws), sessionId);
+        return;
+      }
 
-        const consumerMatch = pathOnly.match(CONSUMER_PATH_RE);
-        if (consumerMatch && onConsumerConnection) {
-          const sessionId = decodeURIComponent(consumerMatch[1]);
-          // Validate session ID format (UUID)
-          if (!SESSION_ID_PATTERN.test(sessionId)) {
-            ws.close(1008, "Invalid session ID format");
-            return;
-          }
-          const url = new URL(reqUrl, `http://${req.headers.host ?? "localhost"}`);
-          const context: AuthContext = {
-            sessionId,
-            transport: {
-              headers: { ...req.headers } as Record<string, string>,
-              query: Object.fromEntries(url.searchParams),
-              remoteAddress: req.socket.remoteAddress,
-            },
-          };
-          onConsumerConnection(wrapSocket(ws), context);
+      const consumerMatch = pathOnly.match(CONSUMER_PATH_RE);
+      if (consumerMatch && onConsumerConnection) {
+        const sessionId = decodeURIComponent(consumerMatch[1]);
+        // Validate session ID format (UUID)
+        if (!SESSION_ID_PATTERN.test(sessionId)) {
+          ws.close(1008, "Invalid session ID format");
           return;
         }
+        const url = new URL(reqUrl, `http://${req.headers.host ?? "localhost"}`);
+        const context: AuthContext = {
+          sessionId,
+          transport: {
+            headers: { ...req.headers } as Record<string, string>,
+            query: Object.fromEntries(url.searchParams),
+            remoteAddress: req.socket.remoteAddress,
+          },
+        };
+        onConsumerConnection(wrapSocket(ws), context);
+        return;
+      }
 
-        ws.close(4000, "Invalid path");
-      });
+      ws.close(4000, "Invalid path");
     });
   }
 
@@ -131,6 +159,7 @@ export class NodeWebSocketServer implements WebSocketServerLike {
         client.close(1001, "Server shutting down");
       }
 
+      // When attached to an external server, only close the WSServer (caller manages the HTTP server)
       this.wss.close(() => {
         this.wss = null;
         resolve();
