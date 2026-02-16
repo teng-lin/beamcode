@@ -57,6 +57,21 @@ export function TaskPanel() {
           </div>
         </div>
 
+        {/* Lines changed */}
+        {(state?.total_lines_added != null || state?.total_lines_removed != null) && (
+          <div className="mb-5 grid grid-cols-2 gap-3">
+            <div className="rounded-lg bg-bc-surface-2/50 p-2.5">
+              <div className="text-[10px] uppercase tracking-wider text-bc-text-muted/60">
+                Lines
+              </div>
+              <div className="mt-0.5 flex gap-2 font-mono-code text-sm tabular-nums">
+                <span className="text-bc-success">+{state?.total_lines_added ?? 0}</span>
+                <span className="text-bc-error">-{state?.total_lines_removed ?? 0}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Model usage breakdown */}
         {state?.last_model_usage && (
           <div>
