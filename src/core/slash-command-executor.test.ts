@@ -254,7 +254,7 @@ describe("SlashCommandExecutor", () => {
       // Launch two commands concurrently for the same session
       const [r1, r2] = await Promise.all([
         executor.execute(state, "/usage", "cli-123"),
-        executor.execute(state, "/help", "cli-123"),
+        executor.execute(state, "/usage", "cli-123"),
       ]);
 
       expect(r1.source).toBe("pty");
