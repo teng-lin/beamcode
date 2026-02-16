@@ -530,8 +530,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       identity,
     });
 
-    // Notify if CLI is not connected and request relaunch
-    if (!session.cliSocket) {
+    // Notify consumer of current CLI/backend connection state
+    if (session.cliSocket || session.backendSession) {
+      this.sendToConsumer(ws, { type: "cli_connected" });
+    } else {
       this.sendToConsumer(ws, { type: "cli_disconnected" });
       this.logger.info(
         `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
@@ -654,33 +656,27 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    // Store user message in history for replay
-    session.messageHistory.push({
+    // Store user message in history for replay and broadcast to all consumers
+    const userMsg: ConsumerMessage = {
       type: "user_message",
       content,
       timestamp: Date.now(),
-    });
+    };
+    session.messageHistory.push(userMsg);
     this.trimMessageHistory(session);
+    this.broadcastToConsumers(session, userMsg);
 
     // Build content: if images are present, use content block array; otherwise plain string
-    let messageContent: string | unknown[];
-    if (options?.images?.length) {
-      const blocks: unknown[] = [];
-      for (const img of options.images) {
-        blocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: img.media_type,
-            data: img.data,
-          },
-        });
-      }
-      blocks.push({ type: "text", text: content });
-      messageContent = blocks;
-    } else {
-      messageContent = content;
-    }
+    const images = options?.images;
+    const messageContent: string | unknown[] = images?.length
+      ? [
+          ...images.map((img) => ({
+            type: "image",
+            source: { type: "base64", media_type: img.media_type, data: img.data },
+          })),
+          { type: "text", text: content },
+        ]
+      : content;
 
     const ndjson = serializeNDJSON({
       type: "user",

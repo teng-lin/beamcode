@@ -14,7 +14,7 @@ export const MessageBubble = memo(function MessageBubble({
   switch (message.type) {
     case "user_message":
       return (
-        <div className="animate-fadeSlideIn self-end rounded-xl bg-bc-user-bg px-4 py-2.5 text-sm max-w-[85%]">
+        <div className="animate-fadeSlideIn self-start rounded-2xl bg-bc-user-bg px-4 py-2.5 text-sm max-w-[85%] border border-bc-border/30">
           {message.content}
         </div>
       );
@@ -24,16 +24,28 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "error":
       return (
-        <div className="rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
-          {message.message}
+        <div className="animate-fadeSlideIn flex items-start gap-2 rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="currentColor"
+            className="mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M7 0a7 7 0 110 14A7 7 0 017 0zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zM7 3a.75.75 0 00-.75.75v4a.75.75 0 001.5 0v-4A.75.75 0 007 3z" />
+          </svg>
+          <span>{message.message}</span>
         </div>
       );
 
     case "slash_command_result":
       return (
-        <div className="rounded-lg bg-bc-surface-2 px-3 py-2 text-sm">
-          <span className="mb-1 block text-xs text-bc-accent">/{message.command}</span>
-          <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted">
+        <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+          <span className="mb-1.5 inline-block rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
+            {message.command}
+          </span>
+          <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted leading-relaxed">
             {message.content}
           </pre>
         </div>
@@ -41,9 +53,13 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "slash_command_error":
       return (
-        <div className="rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm">
-          <span className="mb-1 block text-xs text-bc-error">/{message.command} failed</span>
-          <pre className="whitespace-pre-wrap font-mono-code text-xs">{message.error}</pre>
+        <div className="animate-fadeSlideIn rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
+          <span className="mb-1.5 inline-block rounded bg-bc-error/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-error">
+            {message.command} failed
+          </span>
+          <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted">
+            {message.error}
+          </pre>
         </div>
       );
 

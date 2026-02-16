@@ -16,40 +16,60 @@ export function TaskPanel() {
   const contextPercent = state?.context_used_percent ?? 0;
 
   return (
-    <aside className="flex h-full w-[280px] flex-col border-l border-bc-border bg-bc-sidebar">
-      <div className="border-b border-bc-border px-4 py-3">
-        <h2 className="text-xs font-medium uppercase tracking-wider text-bc-text-muted">
+    <aside className="flex h-full w-[280px] flex-shrink-0 flex-col border-l border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40">
+      <div className="flex items-center gap-2 border-b border-bc-border px-4 py-3">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          className="text-bc-text-muted"
+          aria-hidden="true"
+        >
+          <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M4 4.5h6M4 7h4.5M4 9.5h5" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+        </svg>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-bc-text-muted">
           Session Info
         </h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
         {/* Context gauge */}
-        <div className="mb-4">
-          <div className="mb-1 text-xs text-bc-text-muted">Context Window</div>
+        <div className="mb-5">
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+            Context Window
+          </div>
           <ContextGauge percent={contextPercent} />
         </div>
 
         {/* Stats */}
-        <div className="mb-4 grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-xs text-bc-text-muted">Cost</div>
-            <div className="font-mono-code text-sm text-bc-text">{formatCost(cost)}</div>
+        <div className="mb-5 grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-bc-surface-2/50 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-bc-text-muted/60">Cost</div>
+            <div className="mt-0.5 font-mono-code text-sm tabular-nums text-bc-text">
+              {formatCost(cost)}
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-bc-text-muted">Turns</div>
-            <div className="font-mono-code text-sm text-bc-text">{turns}</div>
+          <div className="rounded-lg bg-bc-surface-2/50 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-bc-text-muted/60">Turns</div>
+            <div className="mt-0.5 font-mono-code text-sm tabular-nums text-bc-text">{turns}</div>
           </div>
         </div>
 
         {/* Model usage breakdown */}
         {state?.last_model_usage && (
           <div>
-            <div className="mb-2 text-xs text-bc-text-muted">Model Usage</div>
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+              Model Usage
+            </div>
             {Object.entries(state.last_model_usage).map(([model, usage]) => (
-              <div key={model} className="mb-2 rounded bg-bc-surface-2 p-2 text-xs">
+              <div
+                key={model}
+                className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs"
+              >
                 <div className="font-medium text-bc-text">{model}</div>
-                <div className="mt-1 text-bc-text-muted">
+                <div className="mt-1 tabular-nums text-bc-text-muted">
                   {formatCost(usage.costUSD)} · {usage.inputTokens + usage.outputTokens} tokens
                 </div>
               </div>

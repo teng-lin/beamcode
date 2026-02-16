@@ -1,10 +1,38 @@
 export function EmptyState() {
   return (
     <div className="flex flex-1 items-center justify-center p-8">
-      <div className="text-center">
-        <div className="mb-3 text-4xl opacity-20">⚡</div>
-        <h2 className="mb-1 font-sans-ui text-lg font-medium text-bc-text">BeamCode</h2>
+      <div className="relative text-center">
+        {/* Amber glow backdrop */}
+        <div className="absolute left-1/2 top-1/2 -z-10 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-bc-accent/[0.06] blur-3xl" />
+
+        {/* Logo mark */}
+        <div className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-bc-border bg-bc-surface">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path
+              d="M14 3L24 8.5v11L14 25 4 19.5v-11L14 3z"
+              stroke="var(--color-bc-accent)"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+            <circle cx="14" cy="14" r="3" fill="var(--color-bc-accent)" opacity="0.8" />
+            <path
+              d="M14 8v3M14 17v3M8.5 11l2.6 1.5M16.9 15.5l2.6 1.5M8.5 17l2.6-1.5M16.9 12.5l2.6-1.5"
+              stroke="var(--color-bc-accent)"
+              strokeWidth="1"
+              opacity="0.4"
+            />
+          </svg>
+        </div>
+
+        <h2 className="mb-1.5 text-lg font-semibold tracking-tight text-bc-text">BeamCode</h2>
         <p className="text-sm text-bc-text-muted">Send a message to start coding</p>
+        <p className="mt-3 text-xs text-bc-text-muted/60">
+          Type{" "}
+          <kbd className="rounded border border-bc-border bg-bc-surface-2 px-1.5 py-0.5 font-mono-code text-[10px]">
+            /
+          </kbd>{" "}
+          for commands
+        </p>
       </div>
     </div>
   );

@@ -127,15 +127,29 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
                 ? block.content
                 : JSON.stringify(block.content, null, 2);
             return (
-              <details key={group.key} className="rounded border border-bc-border">
+              <details key={group.key} className="rounded-lg border border-bc-border/40">
                 <summary
-                  className={`cursor-pointer px-2 py-1 text-xs ${
+                  className={`flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-xs transition-colors hover:bg-bc-hover ${
                     block.is_error ? "text-bc-error" : "text-bc-text-muted"
                   }`}
                 >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 10 10"
+                    className="flex-shrink-0 opacity-50"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3.5 2L7 5 3.5 8"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                    />
+                  </svg>
                   Tool result {block.is_error ? "(error)" : ""}
                 </summary>
-                <pre className="max-h-40 overflow-auto p-2 font-mono-code text-xs text-bc-text-muted">
+                <pre className="max-h-40 overflow-auto border-t border-bc-border/30 bg-bc-code-bg p-3 font-mono-code text-xs text-bc-text-muted leading-relaxed">
                   {content}
                 </pre>
               </details>

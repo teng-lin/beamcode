@@ -77,11 +77,46 @@ export function MessageFeed({ messages, sessionId }: MessageFeedProps) {
         {groups.map((group) => {
           if (group.type === "subagent") {
             return (
-              <details key={group.key} className="rounded-md border border-bc-border">
-                <summary className="cursor-pointer px-3 py-1.5 text-xs text-bc-text-muted hover:bg-bc-hover">
-                  Subagent ({group.messages.length} messages)
+              <details
+                key={group.key}
+                className="rounded-lg border border-bc-border/50 bg-bc-surface/30"
+              >
+                <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    className="flex-shrink-0"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="1"
+                      y="3"
+                      width="7"
+                      height="6"
+                      rx="1"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                      opacity="0.5"
+                    />
+                    <rect
+                      x="4"
+                      y="1"
+                      width="7"
+                      height="6"
+                      rx="1"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                      opacity="0.3"
+                    />
+                  </svg>
+                  <span>Subagent</span>
+                  <span className="rounded-full bg-bc-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums">
+                    {group.messages.length}
+                  </span>
                 </summary>
-                <div className="flex flex-col gap-2 p-2">
+                <div className="flex flex-col gap-2 border-t border-bc-border/30 p-2.5">
                   {group.messages.map((msg, j) => (
                     <MessageBubble key={`${group.key}-${j}`} message={msg} sessionId={sessionId} />
                   ))}

@@ -8,7 +8,7 @@ import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
-import { loadConsumerHtml } from "../http/consumer-html.js";
+import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
 import { createBeamcodeServer } from "../http/server.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
 import { OriginValidator } from "../server/origin-validator.js";
@@ -109,7 +109,8 @@ async function main(): Promise<void> {
   const config = parseArgs(process.argv);
   const logger = new ConsoleLogger();
 
-  // Pre-load consumer HTML (also caches gzipped version)
+  // Pre-load consumer HTML (also caches gzipped version).
+  // API key injection happens after key generation (step 4).
   loadConsumerHtml();
 
   // 1. Start daemon (lock file, state file, health check)
@@ -163,8 +164,9 @@ async function main(): Promise<void> {
     logger: config.verbose ? logger : undefined,
   });
 
-  // 4. Generate API key and create HTTP server
+  // 4. Generate API key, inject into HTML, and create HTTP server
   const apiKey = randomBytes(24).toString("base64url");
+  injectApiKey(apiKey);
   const httpServer = createBeamcodeServer({
     sessionManager,
     activeSessionId: "",

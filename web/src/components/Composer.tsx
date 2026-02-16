@@ -53,7 +53,6 @@ export function Composer({ sessionId }: ComposerProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Delegate to SlashMenu first if it's open
       if (showSlash && slashMenuRef.current?.handleKeyDown(e)) {
         return;
       }
@@ -86,7 +85,7 @@ export function Composer({ sessionId }: ComposerProps) {
   }, []);
 
   return (
-    <div className="relative border-t border-bc-border bg-bc-surface p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="relative border-t border-bc-border bg-bc-surface px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {showSlash && (
         <SlashMenu
           ref={slashMenuRef}
@@ -98,24 +97,26 @@ export function Composer({ sessionId }: ComposerProps) {
       )}
 
       <div className="mx-auto flex max-w-3xl items-end gap-2">
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder={isRunning ? "Press Enter or Esc to interrupt..." : "Message BeamCode..."}
-          rows={1}
-          className="min-h-[40px] flex-1 resize-none rounded-lg border border-bc-border bg-bc-bg px-3 py-2.5 text-sm text-bc-text placeholder:text-bc-text-muted focus:border-bc-accent focus:outline-none"
-          aria-label="Message input"
-        />
+        <div className="relative flex-1">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={isRunning ? "Press Enter or Esc to interrupt..." : "Message BeamCode..."}
+            rows={1}
+            className="min-h-[42px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-2.5 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none"
+            aria-label="Message input"
+          />
+        </div>
         <button
           type="button"
           onClick={isRunning ? handleInterrupt : handleSubmit}
           disabled={!isRunning && !value.trim()}
-          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors ${
+          className={`flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl transition-all ${
             isRunning
-              ? "bg-bc-error text-white hover:bg-bc-error/80"
-              : "bg-bc-accent text-bc-bg hover:bg-bc-accent-hover disabled:opacity-30"
+              ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
+              : "bg-bc-accent text-bc-bg shadow-sm hover:bg-bc-accent-hover disabled:bg-bc-surface-2 disabled:text-bc-text-muted/30 disabled:shadow-none"
           }`}
           aria-label={isRunning ? "Interrupt" : "Send message"}
         >
@@ -125,7 +126,7 @@ export function Composer({ sessionId }: ComposerProps) {
             </svg>
           ) : (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M2 14l12-6L2 2v5l8 1-8 1z" />
+              <path d="M3 13l10-5L3 3v4l6 1-6 1z" />
             </svg>
           )}
         </button>

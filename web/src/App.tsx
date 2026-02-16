@@ -1,9 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
+import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { TopBar } from "./components/TopBar";
 import { useStore } from "./store";
+import { connectToSession } from "./ws";
 
 // ── Error Boundary ──────────────────────────────────────────────────────────
 
@@ -14,13 +16,14 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   hasError: boolean;
+  error: Error | null;
 }
 
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+  state: ErrorBoundaryState = { hasError: false, error: null };
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -30,12 +33,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex items-center gap-2 p-4 text-bc-error">
-          {this.props.fallback}
+        <div className="flex flex-col gap-2 p-4">
+          <div className="text-sm text-bc-error">{this.props.fallback}</div>
+          {this.state.error && (
+            <pre className="max-h-20 overflow-auto rounded bg-bc-surface-2 p-2 font-mono-code text-xs text-bc-text-muted">
+              {this.state.error.message}
+            </pre>
+          )}
           <button
             type="button"
-            onClick={() => this.setState({ hasError: false })}
-            className="rounded bg-bc-surface-2 px-2 py-1 text-xs text-bc-text-muted hover:bg-bc-hover"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="w-fit rounded bg-bc-surface-2 px-2 py-1 text-xs text-bc-text-muted hover:bg-bc-hover"
           >
             Retry
           </button>
@@ -46,9 +54,35 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
+// ── Bootstrap: read ?session= from URL, load sessions, connect WS ──────────
+
+function useBootstrap() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session");
+
+    // Load session list from API (non-blocking, populates sidebar)
+    listSessions()
+      .then((sessions) => {
+        const byId: Record<string, (typeof sessions)[0]> = {};
+        for (const s of sessions) byId[s.sessionId] = s;
+        useStore.getState().setSessions(byId);
+      })
+      .catch((err) => console.warn("[bootstrap] Failed to load sessions:", err));
+
+    // Connect WebSocket to the session from URL
+    if (sessionId) {
+      useStore.getState().setCurrentSession(sessionId);
+      connectToSession(sessionId);
+    }
+  }, []);
+}
+
 // ── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  useBootstrap();
+
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const darkMode = useStore((s) => s.darkMode);

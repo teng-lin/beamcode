@@ -1,6 +1,10 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# TypeScript build output (tsc -b emits .js next to .ts sources)
+web/src/**/*.js
+shared/**/*.js
 .DS_Store
 
 # Coverage

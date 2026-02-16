@@ -140,7 +140,7 @@ export const useStore = create<AppState>()((set, get) => ({
   currentSessionId: null,
 
   darkMode: true,
-  sidebarOpen: false,
+  sidebarOpen: typeof window !== "undefined" && window.innerWidth >= 768,
   taskPanelOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),

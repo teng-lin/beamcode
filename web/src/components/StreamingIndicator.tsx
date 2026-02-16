@@ -25,10 +25,10 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
     <div className="mx-auto w-full max-w-3xl px-3">
       {data.streaming && <MarkdownContent content={data.streaming} />}
 
-      <div className="flex items-center gap-2 py-1 text-xs text-bc-text-muted">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-bc-accent" />
-        <span>Generating...</span>
-        {stats && <span>{stats}</span>}
+      <div className="flex items-center gap-2 py-1.5 text-xs text-bc-text-muted">
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bc-accent shadow-[0_0_6px_var(--color-bc-accent-glow)]" />
+        <span className="text-bc-accent/80">Generating...</span>
+        {stats && <span className="tabular-nums">{stats}</span>}
       </div>
     </div>
   );
