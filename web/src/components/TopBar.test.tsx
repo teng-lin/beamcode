@@ -9,8 +9,7 @@ vi.mock("../ws", () => ({
   send: vi.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-const { send } = (await import("../ws")) as { send: ReturnType<typeof vi.fn> };
+const { send } = (await import("../ws")) as unknown as { send: ReturnType<typeof vi.fn> };
 
 const SESSION = "topbar-test";
 

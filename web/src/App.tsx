@@ -1,6 +1,7 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
+import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
+import { QuickSwitcher } from "./components/QuickSwitcher";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { TopBar } from "./components/TopBar";
@@ -87,10 +88,31 @@ export default function App() {
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const darkMode = useStore((s) => s.darkMode);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "k") {
+        e.preventDefault();
+        setQuickSwitcherOpen((v) => !v);
+      }
+      if (mod && e.key === "b") {
+        e.preventDefault();
+        useStore.getState().toggleSidebar();
+      }
+      if (mod && e.key === ".") {
+        e.preventDefault();
+        useStore.getState().toggleTaskPanel();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-bc-bg text-bc-text">
@@ -124,6 +146,9 @@ export default function App() {
       <ErrorBoundary fallback={<div className="p-4 text-bc-error">Panel error</div>}>
         {taskPanelOpen && <TaskPanel />}
       </ErrorBoundary>
+
+      {/* Quick session switcher (Cmd+K / Ctrl+K) */}
+      {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
     </div>
   );
 }
