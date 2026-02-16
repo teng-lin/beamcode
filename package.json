@@ -58,6 +58,8 @@
     "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.js",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint src/",
