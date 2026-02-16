@@ -137,15 +137,24 @@ async function main(): Promise<void> {
     throw err;
   }
 
-  // 2. Create HTTP server (serves consumer HTML at /)
+  // 2. Create HTTP server (serves consumer HTML; sessionId set after launch)
+  let activeSessionId = "";
   const httpServer = createServer((req, res) => {
-    if (req.url === "/" || req.url === "/index.html") {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+    // Redirect bare / to /?session=<id> so the consumer connects automatically
+    if (url.pathname === "/" && !url.searchParams.has("session") && activeSessionId) {
+      res.writeHead(302, { Location: `/?session=${activeSessionId}` });
+      res.end();
+      return;
+    }
+    if (url.pathname === "/" || url.pathname === "/index.html") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
       return;
     }
     // Health check endpoint
-    if (req.url === "/health") {
+    if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
       return;
@@ -214,13 +223,25 @@ async function main(): Promise<void> {
 
   await sessionManager.start();
 
-  // 7. Print startup banner
+  // 7. Auto-launch a session so the browser "just works"
+  const session = sessionManager.launcher.launch({
+    cwd: config.cwd,
+    model: config.model,
+  });
+  activeSessionId = session.sessionId;
+
+  // 8. Print startup banner
+  const localUrl = `http://localhost:${config.port}`;
+  const tunnelSessionUrl = tunnelUrl ? `${tunnelUrl}/?session=${activeSessionId}` : null;
   console.log(`
   BeamCode v0.1.0
 
-  Local:   http://localhost:${config.port}${tunnelUrl ? `\n  Tunnel:  ${tunnelUrl}` : ""}
+  Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
 
-  Open ${tunnelUrl ? "the tunnel URL" : "the local URL"} on your phone to start coding remotely.
+  Session: ${activeSessionId}
+  CWD:     ${config.cwd}
+
+  Open ${tunnelSessionUrl ? "the tunnel URL" : "the local URL"} on your phone to start coding remotely.
 
   Press Ctrl+C to stop
 `);
