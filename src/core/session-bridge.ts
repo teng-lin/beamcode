@@ -553,6 +553,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.logger.warn(
         `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${SessionBridge.MAX_CONSUMER_MESSAGE_SIZE})`,
       );
+      ws.close(1009, "Message Too Big");
       return;
     }
 

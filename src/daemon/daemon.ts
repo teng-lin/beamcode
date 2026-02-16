@@ -83,8 +83,9 @@ export class Daemon {
     if (this.supervisor) {
       try {
         await this.supervisor.stopAll();
-      } catch {
-        // Ensure lock is still released even if child process cleanup fails.
+      } catch (err) {
+        // Log but continue to ensure lock is released.
+        console.error("[daemon] Error stopping child processes:", err);
       }
     }
 
