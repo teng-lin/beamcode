@@ -81,7 +81,11 @@ export class Daemon {
     }
 
     if (this.supervisor) {
-      await this.supervisor.stopAll();
+      try {
+        await this.supervisor.stopAll();
+      } catch {
+        // Ensure lock is still released even if child process cleanup fails.
+      }
     }
 
     await releaseLock(this.lockPath);

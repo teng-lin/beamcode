@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type { ChildProcessSupervisor, CreateSessionOptions } from "./child-process-supervisor.js";
@@ -74,9 +74,8 @@ export class ControlApi {
     if (!authHeader) return false;
     const [scheme, value] = authHeader.split(" ", 2);
     if (scheme !== "Bearer" || !value) return false;
-    const a = Buffer.from(value);
-    const b = Buffer.from(this.token);
-    if (a.length !== b.length) return false;
+    const a = createHash("sha256").update(value).digest();
+    const b = createHash("sha256").update(this.token).digest();
     return timingSafeEqual(a, b);
   }
 
@@ -155,16 +154,23 @@ function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
+    let destroyed = false;
     req.on("data", (chunk: Buffer) => {
+      if (destroyed) return;
       totalBytes += chunk.length;
       if (totalBytes > MAX_BODY_SIZE) {
-        req.destroy();
+        destroyed = true;
+        req.destroy(new Error("Request body too large"));
         reject(new Error("Request body too large"));
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject);
+    req.on("end", () => {
+      if (!destroyed) resolve(Buffer.concat(chunks).toString("utf-8"));
+    });
+    req.on("error", (err) => {
+      if (!destroyed) reject(err);
+    });
   });
 }

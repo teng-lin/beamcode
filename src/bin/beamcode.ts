@@ -155,7 +155,7 @@ async function main(): Promise<void> {
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy":
-          "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+          "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws: wss:;",
       });
       res.end(html);
       return;
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
   Press Ctrl+C to stop
 `);
 
-  // 8. Graceful shutdown
+  // 9. Graceful shutdown
   let shuttingDown = false;
   let forceExitTimer: ReturnType<typeof setTimeout> | null = null;
 

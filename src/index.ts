@@ -82,12 +82,13 @@ export {
   isToolUseContent,
   isUnifiedMessage,
 } from "./core/types/unified-message.js";
+
 // Daemon
 export type { CreateSessionOptions, DaemonSessionInfo } from "./daemon/child-process-supervisor.js";
 export { ChildProcessSupervisor } from "./daemon/child-process-supervisor.js";
 export type { ControlApiOptions } from "./daemon/control-api.js";
 export { ControlApi } from "./daemon/control-api.js";
-export type { DaemonOptions } from "./daemon/daemon.js";
+export type { DaemonOptions, Stoppable } from "./daemon/daemon.js";
 export { Daemon } from "./daemon/daemon.js";
 export { startHealthCheck } from "./daemon/health-check.js";
 export { acquireLock, isLockStale, releaseLock } from "./daemon/lock-file.js";

@@ -548,11 +548,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     session.lastActivity = Date.now();
 
-    // Reject oversized messages before parsing (256KB limit)
-    const MAX_CONSUMER_MESSAGE_SIZE = 262_144;
-    if (raw.length > MAX_CONSUMER_MESSAGE_SIZE) {
+    // Reject oversized messages before parsing
+    if (raw.length > SessionBridge.MAX_CONSUMER_MESSAGE_SIZE) {
       this.logger.warn(
-        `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${MAX_CONSUMER_MESSAGE_SIZE})`,
+        `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${SessionBridge.MAX_CONSUMER_MESSAGE_SIZE})`,
       );
       return;
     }
@@ -1290,6 +1289,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
   }
 
+  private static readonly MAX_CONSUMER_MESSAGE_SIZE = 262_144; // 256 KB
   private static readonly BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB
 
   private broadcastToConsumers(session: Session, msg: ConsumerMessage): void {

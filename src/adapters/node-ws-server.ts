@@ -17,6 +17,9 @@ function wrapSocket(ws: WebSocket): Parameters<OnCLIConnection>[0] {
   return {
     send: (data: string) => ws.send(data),
     close: (code?: number, reason?: string) => ws.close(code, reason),
+    get bufferedAmount() {
+      return ws.bufferedAmount;
+    },
     on: ((event: string, handler: (...args: unknown[]) => void) => {
       ws.on(event, handler);
     }) as Parameters<OnCLIConnection>[0]["on"],

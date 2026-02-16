@@ -32,28 +32,23 @@ export class SlidingWindowBreaker implements CircuitBreaker {
   }
 
   canExecute(): boolean {
-    if (this.state === "closed") {
-      return true;
-    }
-
-    if (this.state === "open") {
-      // Check if recovery time has passed
-      const timeSinceLastFailure = Date.now() - this.lastFailureTime;
-      if (timeSinceLastFailure > this.recoveryTimeMs) {
-        // Transition to HALF_OPEN to test if system recovered
-        this.state = "half_open";
-        this.successCount = 0;
+    switch (this.state) {
+      case "closed":
         return true;
+
+      case "open": {
+        const timeSinceLastFailure = Date.now() - this.lastFailureTime;
+        if (timeSinceLastFailure > this.recoveryTimeMs) {
+          this.state = "half_open";
+          this.successCount = 0;
+          return true;
+        }
+        return false;
       }
-      return false; // Still in OPEN, block the request
-    }
 
-    if (this.state === "half_open") {
-      // Allow requests in HALF_OPEN state
-      return true;
+      case "half_open":
+        return true;
     }
-
-    return false;
   }
 
   recordSuccess(): void {
