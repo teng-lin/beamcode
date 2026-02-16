@@ -1,37 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
+import { makeDefaultSessionState, makeToolUseMessage } from "../../testing/fixtures.js";
 import type { SessionState } from "../../types/session-state.js";
 import { reduce } from "./state-reducer.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeDefaultState(): SessionState {
-  return {
-    session_id: "sess-1",
-    model: "",
-    cwd: "",
-    tools: [],
-    permissionMode: "default",
-    claude_code_version: "",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    total_cost_usd: 0,
-    num_turns: 0,
-    context_used_percent: 0,
-    is_compacting: false,
-    git_branch: "",
-    is_worktree: false,
-    repo_root: "",
-    git_ahead: 0,
-    git_behind: 0,
-    total_lines_added: 0,
-    total_lines_removed: 0,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -40,7 +11,7 @@ function makeDefaultState(): SessionState {
 describe("state-reducer", () => {
   describe("session_init", () => {
     it("updates model, cwd, tools, and other init fields", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "session_init",
         role: "system",
@@ -72,7 +43,7 @@ describe("state-reducer", () => {
     });
 
     it("preserves fields not present in metadata", () => {
-      const state = { ...makeDefaultState(), total_cost_usd: 0.5, num_turns: 3 };
+      const state = { ...makeDefaultSessionState(), total_cost_usd: 0.5, num_turns: 3 };
       const msg = createUnifiedMessage({
         type: "session_init",
         role: "system",
@@ -86,7 +57,7 @@ describe("state-reducer", () => {
     });
 
     it("does not mutate original state", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const original = { ...state };
       const msg = createUnifiedMessage({
         type: "session_init",
@@ -101,7 +72,7 @@ describe("state-reducer", () => {
 
   describe("status_change", () => {
     it("sets is_compacting true when status is compacting", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "status_change",
         role: "system",
@@ -113,7 +84,7 @@ describe("state-reducer", () => {
     });
 
     it("sets is_compacting false when status is not compacting", () => {
-      const state = { ...makeDefaultState(), is_compacting: true };
+      const state = { ...makeDefaultSessionState(), is_compacting: true };
       const msg = createUnifiedMessage({
         type: "status_change",
         role: "system",
@@ -125,7 +96,7 @@ describe("state-reducer", () => {
     });
 
     it("updates permissionMode when provided", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "status_change",
         role: "system",
@@ -137,7 +108,7 @@ describe("state-reducer", () => {
     });
 
     it("leaves permissionMode unchanged when not provided", () => {
-      const state = { ...makeDefaultState(), permissionMode: "default" };
+      const state = { ...makeDefaultSessionState(), permissionMode: "default" };
       const msg = createUnifiedMessage({
         type: "status_change",
         role: "system",
@@ -151,7 +122,7 @@ describe("state-reducer", () => {
 
   describe("result", () => {
     it("updates cost and turn counts", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "result",
         role: "system",
@@ -167,7 +138,7 @@ describe("state-reducer", () => {
     });
 
     it("updates line counts when present", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "result",
         role: "system",
@@ -185,7 +156,7 @@ describe("state-reducer", () => {
     });
 
     it("computes context_used_percent from modelUsage", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "result",
         role: "system",
@@ -212,7 +183,7 @@ describe("state-reducer", () => {
     });
 
     it("updates duration fields", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "result",
         role: "system",
@@ -230,7 +201,7 @@ describe("state-reducer", () => {
     });
 
     it("does not mutate original state", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const original = { ...state };
       const msg = createUnifiedMessage({
         type: "result",
@@ -245,7 +216,7 @@ describe("state-reducer", () => {
 
   describe("control_response", () => {
     it("sets capabilities on success", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "control_response",
         role: "system",
@@ -269,7 +240,7 @@ describe("state-reducer", () => {
     });
 
     it("returns original state on error subtype", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "control_response",
         role: "system",
@@ -285,7 +256,7 @@ describe("state-reducer", () => {
     });
 
     it("returns original state when response is missing", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "control_response",
         role: "system",
@@ -300,7 +271,7 @@ describe("state-reducer", () => {
     });
 
     it("defaults commands/models to empty arrays if not present in response", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "control_response",
         role: "system",
@@ -318,9 +289,45 @@ describe("state-reducer", () => {
     });
   });
 
+  describe("optimistic team state (no tool_result)", () => {
+    it("applies TeamCreate immediately on tool_use without tool_result", () => {
+      const state = makeDefaultSessionState();
+      const next = reduce(state, makeToolUseMessage("TeamCreate", "tu-opt-1", { team_name: "opt-team" }));
+      expect(next.team).toBeDefined();
+      expect(next.team!.name).toBe("opt-team");
+      expect(next.team!.role).toBe("lead");
+    });
+
+    it("applies Task spawn immediately on tool_use without tool_result", () => {
+      const state: SessionState = {
+        ...makeDefaultSessionState(),
+        team: { name: "opt-team", role: "lead", members: [], tasks: [] },
+      };
+      const next = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-opt-2", { team_name: "opt-team", name: "worker-1", model: "haiku" }),
+      );
+      expect(next.team!.members).toHaveLength(1);
+      expect(next.team!.members[0]!.name).toBe("worker-1");
+      expect(next.agents).toEqual(["worker-1"]);
+    });
+
+    it("applies TaskCreate with synthetic ID when no tool_result", () => {
+      const state: SessionState = {
+        ...makeDefaultSessionState(),
+        team: { name: "opt-team", role: "lead", members: [], tasks: [] },
+      };
+      const toolUseId = "abcd1234-5678-9abc-def0";
+      const next = reduce(state, makeToolUseMessage("TaskCreate", toolUseId, { subject: "Optimistic task" }));
+      expect(next.team!.tasks).toHaveLength(1);
+      expect(next.team!.tasks[0]!.id).toBe(`tu-${toolUseId}`);
+      expect(next.team!.tasks[0]!.subject).toBe("Optimistic task");
+    });
+  });
+
   describe("unhandled message types", () => {
     it("returns original state for assistant messages (no state mutation)", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "assistant",
         role: "assistant",
@@ -332,7 +339,7 @@ describe("state-reducer", () => {
     });
 
     it("returns original state for stream_event messages", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "stream_event",
         role: "system",
@@ -344,7 +351,7 @@ describe("state-reducer", () => {
     });
 
     it("returns original state for tool_progress messages", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "tool_progress",
         role: "tool",
@@ -356,7 +363,7 @@ describe("state-reducer", () => {
     });
 
     it("returns original state for auth_status messages", () => {
-      const state = makeDefaultState();
+      const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "auth_status",
         role: "system",

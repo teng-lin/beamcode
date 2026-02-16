@@ -12,8 +12,10 @@
  */
 
 import { reduceTeamState } from "../../core/team-state-reducer.js";
+import type { CorrelatedToolUse } from "../../core/team-tool-correlation.js";
 import { TeamToolCorrelationBuffer } from "../../core/team-tool-correlation.js";
 import { recognizeTeamToolUses } from "../../core/team-tool-recognizer.js";
+import type { TeamState } from "../../core/types/team-types.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { isToolResultContent } from "../../core/types/unified-message.js";
 import type { SessionState } from "../../types/session-state.js";
@@ -192,9 +194,32 @@ function asMcpServers(
 // ---------------------------------------------------------------------------
 
 /**
+ * Apply a reduced TeamState to the session, updating backward-compat agents[].
+ * Returns the original state if the team state is unchanged (reference equality).
+ */
+function applyTeamState(
+  currentState: SessionState,
+  newTeamState: TeamState | undefined,
+): SessionState {
+  if (newTeamState === undefined) {
+    if (currentState.team === undefined) return currentState;
+    const { team: _team, ...rest } = currentState;
+    return { ...rest, agents: [] } as SessionState;
+  }
+  if (newTeamState === currentState.team) {
+    return currentState;
+  }
+  return {
+    ...currentState,
+    team: newTeamState,
+    agents: newTeamState.members.map((m) => m.name),
+  };
+}
+
+/**
  * Process team-related tool_use and tool_result content blocks.
  *
- * 1. Scans for team tool_use blocks → buffers them in the correlation buffer
+ * 1. Scans for team tool_use blocks → buffers and optimistically applies them
  * 2. Scans for tool_result blocks → correlates with buffered tool_uses
  * 3. When correlated, applies reduceTeamState and updates backward-compat agents[]
  * 4. Flushes stale correlation buffer entries (30s TTL)
@@ -206,36 +231,26 @@ function reduceTeamTools(
 ): SessionState {
   let currentState = state;
 
-  // 1. Buffer any team tool_use blocks found in this message
+  // 1. Buffer + optimistic apply: apply team state immediately on tool_use
+  //    without waiting for tool_result (which the CLI stream may never send).
+  //    The correlation path (step 2) remains as a secondary mechanism for
+  //    environments where tool_result blocks do arrive.
   const teamUses = recognizeTeamToolUses(message);
   for (const use of teamUses) {
     correlationBuffer.onToolUse(use);
+    const optimistic: CorrelatedToolUse = { recognized: use, result: undefined };
+    currentState = applyTeamState(currentState, reduceTeamState(currentState.team, optimistic));
   }
 
   // 2. Correlate any tool_result blocks with buffered team tool_uses
   for (const block of message.content) {
     if (!isToolResultContent(block)) continue;
-
     const correlated = correlationBuffer.onToolResult(block);
     if (!correlated) continue;
-
-    // 3. Apply team state reduction
-    const newTeamState = reduceTeamState(currentState.team, correlated);
-
-    if (newTeamState === undefined) {
-      // TeamDelete — remove team field entirely
-      const { team: _team, ...rest } = currentState;
-      currentState = { ...rest, agents: [] } as SessionState;
-    } else if (newTeamState !== currentState.team) {
-      currentState = {
-        ...currentState,
-        team: newTeamState,
-        agents: newTeamState.members.map((m) => m.name),
-      };
-    }
+    currentState = applyTeamState(currentState, reduceTeamState(currentState.team, correlated));
   }
 
-  // 4. Flush stale entries (30s TTL)
+  // 3. Flush stale entries (30s TTL)
   correlationBuffer.flush(30_000);
 
   return currentState;

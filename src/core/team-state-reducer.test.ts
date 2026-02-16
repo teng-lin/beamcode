@@ -222,16 +222,18 @@ describe("reduceTeamState", () => {
       expect(result!.tasks[0]!.subject).toBe("Original");
     });
 
-    it("handles missing result (no id extraction)", () => {
+    it("creates task with synthetic ID when result is missing (optimistic)", () => {
       const state = makeTeamState();
       const correlated = makeCorrelated({
         toolName: "TaskCreate",
         category: "team_task_update",
         input: { subject: "Fix bug" },
       });
-      // No result means we can't extract the task ID — state unchanged
+      // No result → synthetic ID from toolUseId
       const result = reduceTeamState(state, correlated);
-      expect(result!.tasks).toHaveLength(0);
+      expect(result!.tasks).toHaveLength(1);
+      expect(result!.tasks[0]!.id).toBe(`tu-${correlated.recognized.toolUseId}`);
+      expect(result!.tasks[0]!.subject).toBe("Fix bug");
     });
 
     it("returns state unchanged when state is undefined", () => {
