@@ -100,6 +100,9 @@ function handleMessage(sessionId: string, data: string): void {
 
     case "session_init":
       store.setSessionState(sessionId, {
+        // Spread first to preserve optional fields (git_branch, tools, etc.)
+        ...msg.session,
+        // Override required fields with safe defaults
         session_id: msg.session.session_id ?? sessionId,
         model: msg.session.model ?? "",
         cwd: msg.session.cwd ?? "",
@@ -107,7 +110,6 @@ function handleMessage(sessionId: string, data: string): void {
         num_turns: msg.session.num_turns ?? 0,
         context_used_percent: msg.session.context_used_percent ?? 0,
         is_compacting: msg.session.is_compacting ?? false,
-        team: msg.session.team,
       });
       break;
 
@@ -116,7 +118,7 @@ function handleMessage(sessionId: string, data: string): void {
       if (prev) {
         // Auto-open task panel when team first appears
         if (!prev.team && msg.session.team && !store.taskPanelOpen) {
-          store.toggleTaskPanel();
+          store.setTaskPanelOpen(true);
         }
         store.setSessionState(sessionId, { ...prev, ...msg.session });
       } else {

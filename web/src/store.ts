@@ -60,6 +60,7 @@ export interface AppState {
   setCurrentSession: (id: string) => void;
   toggleSidebar: () => void;
   toggleTaskPanel: () => void;
+  setTaskPanelOpen: (open: boolean) => void;
   toggleDarkMode: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
 
@@ -179,6 +180,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return { sidebarOpen: next };
     }),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
+  setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;
