@@ -88,6 +88,7 @@ export default function App() {
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const darkMode = useStore((s) => s.darkMode);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
 
   useEffect(() => {
@@ -109,20 +110,20 @@ export default function App() {
         case "b":
           if (!isInput) {
             e.preventDefault();
-            useStore.getState().toggleSidebar();
+            toggleSidebar();
           }
           break;
         case ".":
           if (!isInput) {
             e.preventDefault();
-            useStore.getState().toggleTaskPanel();
+            toggleTaskPanel();
           }
           break;
       }
     }
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [toggleSidebar, toggleTaskPanel]);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-bc-bg text-bc-text">
