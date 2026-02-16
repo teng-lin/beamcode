@@ -68,6 +68,13 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
   );
 
   const permList = Object.values(permissions ?? {});
+
+  const handleAllowAll = useCallback(() => {
+    for (const perm of permList) {
+      send({ type: "permission_response", request_id: perm.request_id, behavior: "allow" });
+      useStore.getState().removePermission(sessionId, perm.request_id);
+    }
+  }, [sessionId, permList]);
   if (permList.length === 0) return null;
 
   return (
@@ -76,6 +83,19 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
       role="alert"
       aria-label="Permission requests"
     >
+      {permList.length > 1 && (
+        <div className="flex items-center justify-between border-b border-bc-border bg-bc-surface-2/50 px-4 py-2">
+          <span className="text-xs text-bc-text-muted">{permList.length} pending permissions</span>
+          <button
+            type="button"
+            onClick={handleAllowAll}
+            className="rounded-lg bg-bc-success/20 px-4 py-1.5 text-xs font-medium text-bc-success transition-colors hover:bg-bc-success/30"
+            aria-label={`Allow all ${permList.length} permissions`}
+          >
+            Allow All
+          </button>
+        </div>
+      )}
       {permList.map((perm) => (
         <div key={perm.request_id} className="border-b border-bc-border px-4 py-3">
           <div className="flex items-center gap-2">
