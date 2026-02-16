@@ -51,8 +51,6 @@ describe("SlashCommandExecutor", () => {
     it("identifies native commands", () => {
       const { executor } = createExecutor();
       expect(executor.isNativeCommand("/compact")).toBe(true);
-      expect(executor.isNativeCommand("/cost")).toBe(true);
-      expect(executor.isNativeCommand("/context")).toBe(true);
       expect(executor.isNativeCommand("/files")).toBe(true);
       expect(executor.isNativeCommand("/release-notes")).toBe(true);
     });
@@ -62,6 +60,8 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/model")).toBe(false);
       expect(executor.isNativeCommand("/usage")).toBe(false);
       expect(executor.isNativeCommand("/status")).toBe(false);
+      expect(executor.isNativeCommand("/cost")).toBe(false);
+      expect(executor.isNativeCommand("/context")).toBe(false);
     });
   });
 

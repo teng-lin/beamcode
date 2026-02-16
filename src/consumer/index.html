@@ -201,6 +201,48 @@
     }
     #empty-state h2 { font-size: 18px; color: var(--text); font-weight: 600; }
     #empty-state p { font-size: 13px; }
+
+    /* Autocomplete popup */
+    #slash-autocomplete {
+      display: none; position: absolute; bottom: 100%; left: 0; right: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px 8px 0 0; max-height: 240px; overflow-y: auto;
+      margin-bottom: 4px; z-index: 10;
+    }
+    #slash-autocomplete.visible { display: block; }
+    .ac-item {
+      padding: 8px 12px; cursor: pointer; display: flex;
+      align-items: baseline; gap: 8px;
+    }
+    .ac-item:hover, .ac-item.selected {
+      background: var(--surface-2);
+    }
+    .ac-item .ac-name {
+      font-weight: 600; font-size: 13px; color: var(--accent);
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+    }
+    .ac-item .ac-desc {
+      font-size: 12px; color: var(--text-muted);
+    }
+    .ac-item .ac-cat {
+      margin-left: auto; font-size: 10px; color: var(--text-muted);
+      background: var(--surface-2); padding: 1px 6px; border-radius: 8px;
+    }
+
+    /* Command result styling */
+    .msg-command-result {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin: 4px 0;
+    }
+    .msg-command-result .cmd-header {
+      font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px;
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+    }
+    .msg-command-result pre {
+      white-space: pre-wrap; font-size: 13px; color: var(--text);
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+      margin: 0; line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -217,7 +259,8 @@
     </div>
   </main>
 
-  <footer id="input-bar">
+  <footer id="input-bar" style="position:relative">
+    <div id="slash-autocomplete"></div>
     <textarea id="input" rows="1" placeholder="Send a message…"></textarea>
     <button type="button" id="send-btn" class="input-btn" title="Send">&#x2191;</button>
     <button type="button" id="interrupt-btn" class="input-btn" title="Interrupt">&#x25A0;</button>
@@ -328,7 +371,7 @@
         case 'cli_connected': return this._system('CLI connected', 'success');
         case 'cli_disconnected': return this._system('CLI disconnected', 'warning');
         case 'user_message': return this._renderUser(message.content);
-        case 'slash_command_result': return this._system(message.content, 'info');
+        case 'slash_command_result': return this._commandResult(message.command, message.content);
         case 'slash_command_error': return this._system(message.error, 'error');
         default: return null;
       }
@@ -444,6 +487,19 @@
       el.textContent = text;
       return el;
     }
+
+    _commandResult(command, content) {
+      const el = document.createElement('div');
+      el.className = 'msg msg-command-result';
+      const hdr = document.createElement('div');
+      hdr.className = 'cmd-header';
+      hdr.textContent = command || 'command';
+      el.appendChild(hdr);
+      const pre = document.createElement('pre');
+      pre.textContent = content;
+      el.appendChild(pre);
+      return el;
+    }
   }
 
   // ── PermissionUI ───────────────────────────────────────────────────────────
@@ -508,6 +564,156 @@
     }
   }
 
+  // ── SlashCommandHandler ────────────────────────────────────────────────────
+
+  class SlashCommandHandler {
+    constructor() {
+      this._consumerCommands = [
+        { name: '/help', description: 'Show all available commands', category: 'consumer' },
+        { name: '/clear', description: 'Clear the message display', category: 'consumer' },
+      ];
+      this._serverCommands = [];
+    }
+
+    isSlashCommand(input) {
+      return input.trimStart().startsWith('/');
+    }
+
+    parse(input) {
+      const trimmed = input.trim();
+      const spaceIdx = trimmed.indexOf(' ');
+      if (spaceIdx === -1) return { name: trimmed, args: '' };
+      return { name: trimmed.slice(0, spaceIdx), args: trimmed.slice(spaceIdx + 1).trim() };
+    }
+
+    isConsumerLocal(name) {
+      return this._consumerCommands.some((c) => c.name === name);
+    }
+
+    setServerCommands(commands) {
+      this._serverCommands = (commands || []).map((c) => ({
+        name: c.name.startsWith('/') ? c.name : `/${c.name}`,
+        description: c.description || '',
+        category: 'server',
+        argumentHint: c.argumentHint,
+      }));
+    }
+
+    getAllCommands() {
+      const merged = [...this._consumerCommands];
+      for (const sc of this._serverCommands) {
+        if (!merged.some((c) => c.name === sc.name)) merged.push(sc);
+      }
+      return merged;
+    }
+  }
+
+  // ── AutocompleteUI ────────────────────────────────────────────────────────
+
+  class AutocompleteUI {
+    constructor(containerEl, handler) {
+      this._el = containerEl;
+      this._handler = handler;
+      this._selectedIdx = -1;
+      this._items = [];
+      this._visible = false;
+    }
+
+    update(value) {
+      const trimmed = value.trimStart();
+      if (!trimmed.startsWith('/') || trimmed.includes(' ') || trimmed === '') {
+        this.hide();
+        return;
+      }
+      const prefix = trimmed.toLowerCase();
+      this._items = this._handler.getAllCommands().filter(
+        (c) => c.name.toLowerCase().startsWith(prefix)
+      );
+      if (this._items.length === 0) { this.hide(); return; }
+      this._selectedIdx = 0;
+      this._render();
+      this._el.classList.add('visible');
+      this._visible = true;
+    }
+
+    hide() {
+      this._el.classList.remove('visible');
+      this._visible = false;
+      this._items = [];
+      this._selectedIdx = -1;
+    }
+
+    isVisible() { return this._visible; }
+
+    getSelected() {
+      if (this._selectedIdx >= 0 && this._selectedIdx < this._items.length) {
+        return this._items[this._selectedIdx].name;
+      }
+      return null;
+    }
+
+    /** Returns true if the key was consumed. */
+    handleKey(e) {
+      if (!this._visible) return false;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this._selectedIdx = Math.min(this._selectedIdx + 1, this._items.length - 1);
+        this._render();
+        return true;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this._selectedIdx = Math.max(this._selectedIdx - 1, 0);
+        this._render();
+        return true;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && this._visible)) {
+        const sel = this.getSelected();
+        if (sel) { e.preventDefault(); this.hide(); return sel; }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hide();
+        return true;
+      }
+      return false;
+    }
+
+    _render() {
+      this._el.innerHTML = '';
+      for (let i = 0; i < this._items.length; i++) {
+        const item = this._items[i];
+        const div = document.createElement('div');
+        div.className = 'ac-item' + (i === this._selectedIdx ? ' selected' : '');
+
+        const name = document.createElement('span');
+        name.className = 'ac-name';
+        name.textContent = item.name;
+        div.appendChild(name);
+
+        const desc = document.createElement('span');
+        desc.className = 'ac-desc';
+        desc.textContent = item.description;
+        div.appendChild(desc);
+
+        const cat = document.createElement('span');
+        cat.className = 'ac-cat';
+        cat.textContent = item.category;
+        div.appendChild(cat);
+
+        div.addEventListener('click', () => {
+          this._onSelect(item.name);
+        });
+        this._el.appendChild(div);
+      }
+      // Scroll selected into view
+      const selected = this._el.querySelector('.ac-item.selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    setOnSelect(fn) { this._onSelect = fn; }
+  }
+
   // ── CryptoClient (stub) ────────────────────────────────────────────────────
 
   class CryptoClient {
@@ -552,6 +758,16 @@
     const renderer = new MessageRenderer();
     const permissionUI = new PermissionUI(messagesEl);
     const crypto = new CryptoClient();
+    const slashHandler = new SlashCommandHandler();
+    const autocomplete = new AutocompleteUI(
+      document.getElementById('slash-autocomplete'),
+      slashHandler
+    );
+    autocomplete.setOnSelect((name) => {
+      inputEl.value = name + ' ';
+      inputEl.focus();
+      autocomplete.hide();
+    });
 
     let cliStatus = null;
     let autoScroll = true;
@@ -586,6 +802,10 @@
           if (msg.session?.model) {
             document.title = `BeamCode — ${msg.session.cwd || ''}`;
           }
+          break;
+
+        case 'capabilities_ready':
+          slashHandler.setServerCommands(msg.commands || []);
           break;
 
         case 'message_history':
@@ -648,19 +868,71 @@
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
       inputEl.style.height = `${Math.min(inputEl.scrollHeight, 120)}px`;
+      autocomplete.update(inputEl.value);
     });
 
     function sendMessage() {
       const content = inputEl.value.trim();
       if (!content) return;
+      autocomplete.hide();
+
+      if (slashHandler.isSlashCommand(content)) {
+        const { name } = slashHandler.parse(content);
+
+        // Consumer-local commands
+        if (name === '/clear') {
+          while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+          inputEl.value = '';
+          inputEl.style.height = 'auto';
+          return;
+        }
+        if (name === '/help') {
+          const cmds = slashHandler.getAllCommands();
+          const grouped = {};
+          for (const c of cmds) {
+            const cat = c.category || 'other';
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(c);
+          }
+          const lines = [];
+          for (const [cat, list] of Object.entries(grouped)) {
+            lines.push(`[${cat}]`);
+            for (const c of list) {
+              lines.push(`  ${c.name.padEnd(20)} ${c.description}`);
+            }
+            lines.push('');
+          }
+          appendElement(renderer._commandResult('/help', lines.join('\n')));
+          inputEl.value = '';
+          inputEl.style.height = 'auto';
+          return;
+        }
+
+        // Server slash commands — send as slash_command type
+        const requestId = window.crypto.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+        client.send({ type: 'slash_command', command: content, request_id: requestId });
+        appendElement(renderer._renderUser(content));
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+        return;
+      }
+
+      // Regular message
       client.send({ type: 'user_message', content: content, session_id: sessionId });
-      // Show user message locally immediately
       appendElement(renderer._renderUser(content));
       inputEl.value = '';
       inputEl.style.height = 'auto';
     }
 
     inputEl.addEventListener('keydown', (e) => {
+      const acResult = autocomplete.handleKey(e);
+      if (acResult === true) return; // key consumed (arrow/escape)
+      if (typeof acResult === 'string') {
+        // Tab/Enter selected a command
+        inputEl.value = acResult + ' ';
+        autocomplete.hide();
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
