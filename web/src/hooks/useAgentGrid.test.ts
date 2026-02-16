@@ -45,13 +45,13 @@ describe("useAgentGrid", () => {
     addTaskToolUse("tu-2", "tester", "Bash");
     const { result } = renderHook(() => useAgentGrid(SESSION));
     expect(result.current.agents).toHaveLength(2);
-    expect(result.current.agents[0]).toEqual({
+    expect(result.current.agents[0]).toMatchObject({
       blockId: "tu-1",
       name: "researcher",
       type: "general-purpose",
       status: "active",
     });
-    expect(result.current.agents[1]).toEqual({
+    expect(result.current.agents[1]).toMatchObject({
       blockId: "tu-2",
       name: "tester",
       type: "Bash",
@@ -68,7 +68,7 @@ describe("useAgentGrid", () => {
   });
 
   it("ignores tool_use blocks from agent messages (parent_tool_use_id set)", () => {
-    // Agent messages have parent_tool_use_id — should be skipped
+    // Agent messages have parent_tool_use_id — should be skipped as agent discovery
     store().addMessage(SESSION, {
       type: "assistant",
       parent_tool_use_id: "tu-parent",
@@ -110,5 +110,22 @@ describe("useAgentGrid", () => {
     const { result } = renderHook(() => useAgentGrid(SESSION));
     expect(result.current.agents[0].name).toBe("Agent");
     expect(result.current.agents[0].type).toBe("");
+  });
+
+  it("groups child messages by parent_tool_use_id", () => {
+    addTaskToolUse("tu-1", "researcher", "general-purpose");
+    addTaskToolUse("tu-2", "tester", "Bash");
+    // Add messages for agent tu-1
+    store().addMessage(SESSION, makeAssistantMessage("tu-1", "msg-a1"));
+    store().addMessage(SESSION, makeAssistantMessage("tu-1", "msg-a2"));
+    // Add a message for agent tu-2
+    store().addMessage(SESSION, makeAssistantMessage("tu-2", "msg-b1"));
+
+    const { result } = renderHook(() => useAgentGrid(SESSION));
+    expect(result.current.agents[0].messages).toHaveLength(2);
+    expect(result.current.agents[0].messages[0].message.id).toBe("msg-a1");
+    expect(result.current.agents[0].messages[1].message.id).toBe("msg-a2");
+    expect(result.current.agents[1].messages).toHaveLength(1);
+    expect(result.current.agents[1].messages[0].message.id).toBe("msg-b1");
   });
 });

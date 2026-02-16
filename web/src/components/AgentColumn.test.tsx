@@ -1,12 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
-import {
-  makeAssistantContent,
-  makeAssistantMessage,
-  makeToolUseBlock,
-  resetStore,
-} from "../test/factories";
+import { makeAssistantMessage, resetStore } from "../test/factories";
 import { AgentColumn } from "./AgentColumn";
 
 vi.mock("./MessageBubble", () => ({
@@ -21,34 +16,25 @@ vi.mock("./MarkdownContent", () => ({
 const SESSION = "col-test";
 const AGENT_ID = "tu-col-1";
 
-function setupSession() {
-  useStore.getState().ensureSessionData(SESSION);
-  useStore.getState().addMessage(SESSION, {
-    type: "assistant",
-    parent_tool_use_id: null,
-    message: makeAssistantContent([
-      makeToolUseBlock({
-        id: AGENT_ID,
-        name: "Task",
-        input: { name: "researcher", subagent_type: "general-purpose" },
-      }),
-    ]),
-  });
+function agentMsg(id: string) {
+  const msg = makeAssistantMessage(AGENT_ID, id);
+  return msg;
 }
 
 describe("AgentColumn", () => {
   beforeEach(() => {
     resetStore({ currentSessionId: SESSION });
+    useStore.getState().ensureSessionData(SESSION);
   });
 
   it("renders agent name and type in header", () => {
-    setupSession();
     render(
       <AgentColumn
         agentId={AGENT_ID}
         name="researcher"
         type="general-purpose"
         status="active"
+        messages={[]}
         sessionId={SESSION}
       />,
     );
@@ -57,47 +43,43 @@ describe("AgentColumn", () => {
   });
 
   it("shows waiting state when no messages", () => {
-    setupSession();
     render(
       <AgentColumn
         agentId={AGENT_ID}
         name="researcher"
         type="general-purpose"
         status="active"
+        messages={[]}
         sessionId={SESSION}
       />,
     );
     expect(screen.getByText("Waiting...")).toBeInTheDocument();
   });
 
-  it("renders filtered agent messages", () => {
-    setupSession();
-    useStore.getState().addMessage(SESSION, makeAssistantMessage(AGENT_ID, "msg-a1"));
-    useStore.getState().addMessage(SESSION, makeAssistantMessage("tu-other", "msg-other"));
-    useStore.getState().addMessage(SESSION, makeAssistantMessage(AGENT_ID, "msg-a2"));
-
+  it("renders passed messages", () => {
+    const messages = [agentMsg("msg-a1"), agentMsg("msg-a2")];
     render(
       <AgentColumn
         agentId={AGENT_ID}
         name="researcher"
         type="general-purpose"
         status="active"
+        messages={messages}
         sessionId={SESSION}
       />,
     );
     expect(screen.getByTestId("msg-msg-a1")).toBeInTheDocument();
     expect(screen.getByTestId("msg-msg-a2")).toBeInTheDocument();
-    expect(screen.queryByTestId("msg-msg-other")).not.toBeInTheDocument();
   });
 
   it("renders status dot with correct class for idle status", () => {
-    setupSession();
     const { container } = render(
       <AgentColumn
         agentId={AGENT_ID}
         name="researcher"
         type="general-purpose"
         status="idle"
+        messages={[]}
         sessionId={SESSION}
       />,
     );
@@ -106,7 +88,6 @@ describe("AgentColumn", () => {
   });
 
   it("shows streaming indicator when agent is streaming", () => {
-    setupSession();
     useStore.getState().initAgentStreaming(SESSION, AGENT_ID);
     useStore.getState().appendAgentStreaming(SESSION, AGENT_ID, "Streaming...");
 
@@ -116,6 +97,7 @@ describe("AgentColumn", () => {
         name="researcher"
         type="general-purpose"
         status="active"
+        messages={[]}
         sessionId={SESSION}
       />,
     );
@@ -123,18 +105,17 @@ describe("AgentColumn", () => {
   });
 
   it("omits type badge when type is empty", () => {
-    setupSession();
     render(
       <AgentColumn
         agentId={AGENT_ID}
         name="researcher"
         type=""
         status="active"
+        messages={[]}
         sessionId={SESSION}
       />,
     );
     expect(screen.getByText("researcher")).toBeInTheDocument();
-    // Only the name should be in the header, no type span
     const header = screen.getByText("researcher").parentElement;
     expect(header?.querySelectorAll("span")).toHaveLength(2); // dot + name
   });

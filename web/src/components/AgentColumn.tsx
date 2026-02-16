@@ -1,8 +1,7 @@
-import { memo, useEffect, useMemo, useRef } from "react";
-import { useShallow } from "zustand/shallow";
+import { memo, useEffect, useRef } from "react";
 import type { ConsumerMessage } from "../../../shared/consumer-types";
 import { useStore } from "../store";
-import { EMPTY_MESSAGES, memberStatusDotClass, shortAgentType } from "../utils/team-styles";
+import { memberStatusDotClass, shortAgentType } from "../utils/team-styles";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageBubble } from "./MessageBubble";
 
@@ -33,6 +32,7 @@ interface AgentColumnProps {
   name: string;
   type: string;
   status: "active" | "idle" | "shutdown";
+  messages: AssistantMessage[];
   sessionId: string;
 }
 
@@ -41,22 +41,10 @@ export const AgentColumn = memo(function AgentColumn({
   name,
   type,
   status,
+  messages,
   sessionId,
 }: AgentColumnProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const messages = useStore(
-    useShallow((s) => s.sessionData[sessionId]?.messages ?? EMPTY_MESSAGES),
-  );
-
-  const agentMessages = useMemo(
-    () =>
-      messages.filter(
-        (m): m is AssistantMessage => m.type === "assistant" && m.parent_tool_use_id === agentId,
-      ),
-    [messages, agentId],
-  );
-
   const statusDotClass = memberStatusDotClass(status);
 
   // Auto-scroll on new messages
@@ -66,7 +54,7 @@ export const AgentColumn = memo(function AgentColumn({
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [agentMessages.length]);
+  }, [messages.length]);
 
   return (
     <div className="flex min-w-[200px] flex-col border-l border-bc-border bg-bc-bg">
@@ -83,14 +71,14 @@ export const AgentColumn = memo(function AgentColumn({
       </div>
 
       {/* Messages */}
-      {agentMessages.length === 0 ? (
+      {messages.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-[10px] text-bc-text-muted">
           Waiting...
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-2">
           <div className="flex flex-col gap-1.5">
-            {agentMessages.map((msg) => (
+            {messages.map((msg) => (
               <MessageBubble key={msg.message.id} message={msg} sessionId={sessionId} />
             ))}
             <div ref={bottomRef} />

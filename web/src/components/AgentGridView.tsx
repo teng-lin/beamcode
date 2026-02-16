@@ -16,6 +16,7 @@ export function AgentGridView({ agents, sessionId }: AgentGridViewProps) {
           name={agent.name}
           type={agent.type}
           status={agent.status}
+          messages={agent.messages}
           sessionId={sessionId}
         />
       ))}
