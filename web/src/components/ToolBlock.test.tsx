@@ -1,15 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useStore } from "../store";
+import { resetStore, store } from "../test/factories";
 import { ToolBlock } from "./ToolBlock";
 
 const SESSION = "tool-test";
-const store = () => useStore.getState();
 
 describe("ToolBlock", () => {
   beforeEach(() => {
-    useStore.setState({ sessionData: {}, sessions: {}, currentSessionId: null });
+    resetStore();
   });
 
   it("renders tool name", () => {
@@ -37,7 +36,7 @@ describe("ToolBlock", () => {
   it("shows tool name as fallback preview for unknown tools", () => {
     render(<ToolBlock id="t1" name="WebSearch" input={{ query: "test" }} sessionId={SESSION} />);
     const nameElements = screen.getAllByText("WebSearch");
-    expect(nameElements.length).toBeGreaterThanOrEqual(2);
+    expect(nameElements).toHaveLength(2);
   });
 
   it("does not show input JSON by default", () => {
