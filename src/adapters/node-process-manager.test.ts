@@ -78,8 +78,8 @@ describe("NodeProcessManager", () => {
         cwd: "/tmp",
       });
 
-      // Give the process time to start
-      await new Promise((r) => setTimeout(r, 100));
+      // Poll until process is alive before sending signal
+      await vi.waitFor(() => expect(manager.isAlive(handle.pid)).toBe(true), { timeout: 2000 });
 
       handle.kill("SIGKILL");
 
@@ -94,7 +94,7 @@ describe("NodeProcessManager", () => {
         cwd: "/tmp",
       });
 
-      await new Promise((r) => setTimeout(r, 100));
+      await vi.waitFor(() => expect(manager.isAlive(handle.pid)).toBe(true), { timeout: 2000 });
 
       // Should not throw
       handle.kill("SIGTERM");
@@ -110,7 +110,7 @@ describe("NodeProcessManager", () => {
         cwd: "/tmp",
       });
 
-      await new Promise((r) => setTimeout(r, 100));
+      await vi.waitFor(() => expect(manager.isAlive(handle.pid)).toBe(true), { timeout: 2000 });
 
       // Call kill with no arguments (uses default SIGTERM)
       handle.kill();
@@ -196,7 +196,7 @@ describe("NodeProcessManager", () => {
         }),
       ).toThrow("Failed to spawn process: bad-command");
 
-      mockSpawn.mockImplementation(undefined as unknown as (...args: unknown[]) => unknown);
+      mockSpawn.mockReset();
     });
   });
 
@@ -221,9 +221,7 @@ describe("NodeProcessManager", () => {
         cwd: "/tmp",
       });
 
-      await new Promise((r) => setTimeout(r, 100));
-
-      expect(manager.isAlive(handle.pid)).toBe(true);
+      await vi.waitFor(() => expect(manager.isAlive(handle.pid)).toBe(true), { timeout: 2000 });
 
       handle.kill("SIGKILL");
       await handle.exited;

@@ -98,6 +98,8 @@ class TestSupervisor extends ProcessSupervisor<SupervisorEventMap> {
 // Tests
 // ---------------------------------------------------------------------------
 
+const noopLogger = { info() {}, warn() {}, error() {} };
+
 let supervisor: TestSupervisor;
 let pm: MockProcessManager;
 
@@ -105,7 +107,7 @@ beforeEach(() => {
   pm = new MockProcessManager();
   supervisor = new TestSupervisor({
     processManager: pm,
-    logger: { info() {}, warn() {}, error() {} },
+    logger: noopLogger,
     killGracePeriodMs: 50,
     crashThresholdMs: 100,
   });
@@ -239,7 +241,7 @@ describe("circuit breaker", () => {
   it("records success when process runs longer than crash threshold", async () => {
     const longSupervisor = new TestSupervisor({
       processManager: pm,
-      logger: { info() {}, warn() {}, error() {} },
+      logger: noopLogger,
       killGracePeriodMs: 50,
       crashThresholdMs: 10, // Very short for testing
     });
@@ -332,74 +334,42 @@ function createErrorStream(): ReadableStream<Uint8Array> {
   });
 }
 
-/** MockProcessManager that can produce handles with stdout/stderr streams. */
-class StreamMockProcessManager implements ProcessManager {
-  readonly spawnCalls: SpawnOptions[] = [];
-  readonly spawnedProcesses: MockProcessHandle[] = [];
-  private nextPid = 20000;
-
+/** MockProcessManager that attaches stdout/stderr streams to spawned handles. */
+class StreamMockProcessManager extends MockProcessManager {
   stdout: ReadableStream<Uint8Array> | null = null;
   stderr: ReadableStream<Uint8Array> | null = null;
 
-  spawn(options: SpawnOptions): ProcessHandle {
-    this.spawnCalls.push(options);
-    const pid = this.nextPid++;
-    let resolveExit: (code: number | null) => void;
-    const exited = new Promise<number | null>((resolve) => {
-      resolveExit = resolve;
-    });
-    const killCalls: string[] = [];
-    const handle: MockProcessHandle = {
-      pid,
-      exited,
-      kill(signal: "SIGTERM" | "SIGKILL" | "SIGINT" = "SIGTERM") {
-        killCalls.push(signal);
-      },
-      stdout: this.stdout,
-      stderr: this.stderr,
-      resolveExit: (code: number | null) => resolveExit!(code),
-      killCalls,
-    };
-    this.spawnedProcesses.push(handle);
-    return handle;
-  }
-
-  isAlive(_pid: number): boolean {
-    return false;
-  }
-
-  get lastProcess(): MockProcessHandle | undefined {
-    return this.spawnedProcesses[this.spawnedProcesses.length - 1];
+  override spawn(options: SpawnOptions): ProcessHandle {
+    const handle = super.spawn(options);
+    // Replace the null streams with configured ones
+    return { ...handle, stdout: this.stdout, stderr: this.stderr };
   }
 }
 
+function createStreamSupervisor(streamPm: StreamMockProcessManager): TestSupervisor {
+  return new TestSupervisor({
+    processManager: streamPm,
+    logger: noopLogger,
+    killGracePeriodMs: 50,
+    crashThresholdMs: 100,
+  });
+}
+
 describe("stdout/stderr piping", () => {
+  const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+
   it("emits process:stdout events when stdout stream has data", async () => {
     const streamPm = new StreamMockProcessManager();
     streamPm.stdout = createMockStream(["hello\n", "world\n"]);
-
-    const streamSupervisor = new TestSupervisor({
-      processManager: streamPm,
-      logger: { info() {}, warn() {}, error() {} },
-      killGracePeriodMs: 50,
-      crashThresholdMs: 100,
-    });
+    const sv = createStreamSupervisor(streamPm);
 
     const stdoutEvents: any[] = [];
-    streamSupervisor.on("process:stdout", (e) => stdoutEvents.push(e));
-
-    streamSupervisor.testSpawn("sess-stdout", {
-      command: "test",
-      args: [],
-      cwd: "/",
-    });
-
-    // Wait for the async stream piping to complete
-    await new Promise((r) => setTimeout(r, 50));
+    sv.on("process:stdout", (e) => stdoutEvents.push(e));
+    sv.testSpawn("sess-stdout", { command: "test", args: [], cwd: "/" });
+    await tick();
 
     expect(stdoutEvents.length).toBeGreaterThanOrEqual(1);
     expect(stdoutEvents[0].sessionId).toBe("sess-stdout");
-    // The data should contain our streamed text
     const allData = stdoutEvents.map((e) => e.data).join("");
     expect(allData).toContain("hello");
     expect(allData).toContain("world");
@@ -408,24 +378,12 @@ describe("stdout/stderr piping", () => {
   it("emits process:stderr events when stderr stream has data", async () => {
     const streamPm = new StreamMockProcessManager();
     streamPm.stderr = createMockStream(["error output\n"]);
-
-    const streamSupervisor = new TestSupervisor({
-      processManager: streamPm,
-      logger: { info() {}, warn() {}, error() {} },
-      killGracePeriodMs: 50,
-      crashThresholdMs: 100,
-    });
+    const sv = createStreamSupervisor(streamPm);
 
     const stderrEvents: any[] = [];
-    streamSupervisor.on("process:stderr", (e) => stderrEvents.push(e));
-
-    streamSupervisor.testSpawn("sess-stderr", {
-      command: "test",
-      args: [],
-      cwd: "/",
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
+    sv.on("process:stderr", (e) => stderrEvents.push(e));
+    sv.testSpawn("sess-stderr", { command: "test", args: [], cwd: "/" });
+    await tick();
 
     expect(stderrEvents.length).toBeGreaterThanOrEqual(1);
     expect(stderrEvents[0].sessionId).toBe("sess-stderr");
@@ -435,51 +393,24 @@ describe("stdout/stderr piping", () => {
   it("does not throw when stream errors", async () => {
     const streamPm = new StreamMockProcessManager();
     streamPm.stdout = createErrorStream();
+    const sv = createStreamSupervisor(streamPm);
 
-    const streamSupervisor = new TestSupervisor({
-      processManager: streamPm,
-      logger: { info() {}, warn() {}, error() {} },
-      killGracePeriodMs: 50,
-      crashThresholdMs: 100,
-    });
+    sv.testSpawn("sess-err-stream", { command: "test", args: [], cwd: "/" });
+    await tick();
 
-    // Should not throw even though the stream errors
-    streamSupervisor.testSpawn("sess-err-stream", {
-      command: "test",
-      args: [],
-      cwd: "/",
-    });
-
-    // Wait for the async piping to attempt and handle the error
-    await new Promise((r) => setTimeout(r, 50));
-
-    // No crash — the catch block in pipeStream silently swallows the error
-    expect(streamSupervisor.hasProcess("sess-err-stream")).toBe(true);
+    expect(sv.hasProcess("sess-err-stream")).toBe(true);
   });
 
   it("skips empty/whitespace-only chunks", async () => {
     const streamPm = new StreamMockProcessManager();
     streamPm.stdout = createMockStream(["  \n", "real data\n", "\t\n"]);
-
-    const streamSupervisor = new TestSupervisor({
-      processManager: streamPm,
-      logger: { info() {}, warn() {}, error() {} },
-      killGracePeriodMs: 50,
-      crashThresholdMs: 100,
-    });
+    const sv = createStreamSupervisor(streamPm);
 
     const stdoutEvents: any[] = [];
-    streamSupervisor.on("process:stdout", (e) => stdoutEvents.push(e));
+    sv.on("process:stdout", (e) => stdoutEvents.push(e));
+    sv.testSpawn("sess-whitespace", { command: "test", args: [], cwd: "/" });
+    await tick();
 
-    streamSupervisor.testSpawn("sess-whitespace", {
-      command: "test",
-      args: [],
-      cwd: "/",
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Only the "real data" chunk should have been emitted (whitespace-only skipped)
     const nonEmptyEvents = stdoutEvents.filter((e) => e.data.trim().length > 0);
     expect(nonEmptyEvents.length).toBeGreaterThanOrEqual(1);
     expect(nonEmptyEvents[0].data).toContain("real data");
@@ -489,26 +420,14 @@ describe("stdout/stderr piping", () => {
     const streamPm = new StreamMockProcessManager();
     streamPm.stdout = createMockStream(["stdout line\n"]);
     streamPm.stderr = createMockStream(["stderr line\n"]);
-
-    const streamSupervisor = new TestSupervisor({
-      processManager: streamPm,
-      logger: { info() {}, warn() {}, error() {} },
-      killGracePeriodMs: 50,
-      crashThresholdMs: 100,
-    });
+    const sv = createStreamSupervisor(streamPm);
 
     const stdoutEvents: any[] = [];
     const stderrEvents: any[] = [];
-    streamSupervisor.on("process:stdout", (e) => stdoutEvents.push(e));
-    streamSupervisor.on("process:stderr", (e) => stderrEvents.push(e));
-
-    streamSupervisor.testSpawn("sess-both", {
-      command: "test",
-      args: [],
-      cwd: "/",
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
+    sv.on("process:stdout", (e) => stdoutEvents.push(e));
+    sv.on("process:stderr", (e) => stderrEvents.push(e));
+    sv.testSpawn("sess-both", { command: "test", args: [], cwd: "/" });
+    await tick();
 
     expect(stdoutEvents.length).toBeGreaterThanOrEqual(1);
     expect(stderrEvents.length).toBeGreaterThanOrEqual(1);
@@ -542,7 +461,7 @@ describe("error source prefix", () => {
     customPm.failNextSpawn();
     const custom = new CustomPrefixSupervisor({
       processManager: customPm,
-      logger: { info() {}, warn() {}, error() {} },
+      logger: noopLogger,
     });
     const customErrors: any[] = [];
     custom.on("error", (e) => customErrors.push(e));

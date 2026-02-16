@@ -26,10 +26,10 @@ describe("TunnelRelayAdapter", () => {
   });
 
   it("isRunning delegates to manager.isRunning()", () => {
-    (manager.isRunning as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    vi.mocked(manager.isRunning).mockReturnValue(false);
     expect(adapter.isRunning).toBe(false);
 
-    (manager.isRunning as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    vi.mocked(manager.isRunning).mockReturnValue(true);
     expect(adapter.isRunning).toBe(true);
 
     expect(manager.isRunning).toHaveBeenCalledTimes(2);
@@ -37,7 +37,7 @@ describe("TunnelRelayAdapter", () => {
 
   it("start() calls manager.start with config, returns url, and stores tunnelUrl", async () => {
     const expectedUrl = "https://test-tunnel.trycloudflare.com";
-    (manager.start as ReturnType<typeof vi.fn>).mockResolvedValue({ url: expectedUrl });
+    vi.mocked(manager.start).mockResolvedValue({ url: expectedUrl });
 
     const result = await adapter.start();
 
@@ -48,7 +48,7 @@ describe("TunnelRelayAdapter", () => {
 
   it("stop() calls manager.stop and clears tunnelUrl", async () => {
     const expectedUrl = "https://test-tunnel.trycloudflare.com";
-    (manager.start as ReturnType<typeof vi.fn>).mockResolvedValue({ url: expectedUrl });
+    vi.mocked(manager.start).mockResolvedValue({ url: expectedUrl });
 
     await adapter.start();
     expect(adapter.tunnelUrl).toBe(expectedUrl);
@@ -61,22 +61,22 @@ describe("TunnelRelayAdapter", () => {
 
   it("full lifecycle: start -> running -> stop -> not running", async () => {
     const expectedUrl = "https://lifecycle-test.trycloudflare.com";
-    (manager.start as ReturnType<typeof vi.fn>).mockResolvedValue({ url: expectedUrl });
-    (manager.isRunning as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    vi.mocked(manager.start).mockResolvedValue({ url: expectedUrl });
+    vi.mocked(manager.isRunning).mockReturnValue(false);
 
     // Before start
     expect(adapter.tunnelUrl).toBeNull();
     expect(adapter.isRunning).toBe(false);
 
     // Start
-    (manager.isRunning as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    vi.mocked(manager.isRunning).mockReturnValue(true);
     const url = await adapter.start();
     expect(url).toBe(expectedUrl);
     expect(adapter.tunnelUrl).toBe(expectedUrl);
     expect(adapter.isRunning).toBe(true);
 
     // Stop
-    (manager.isRunning as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    vi.mocked(manager.isRunning).mockReturnValue(false);
     await adapter.stop();
     expect(adapter.tunnelUrl).toBeNull();
     expect(adapter.isRunning).toBe(false);

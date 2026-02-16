@@ -23,27 +23,7 @@ describe("SdkUrlAdapter", () => {
   // -----------------------------------------------------------------------
 
   describe("capabilities", () => {
-    it("has streaming enabled", () => {
-      expect(adapter.capabilities.streaming).toBe(true);
-    });
-
-    it("has permissions enabled", () => {
-      expect(adapter.capabilities.permissions).toBe(true);
-    });
-
-    it("has slashCommands enabled", () => {
-      expect(adapter.capabilities.slashCommands).toBe(true);
-    });
-
-    it("has availability set to local", () => {
-      expect(adapter.capabilities.availability).toBe("local");
-    });
-
-    it("has teams enabled", () => {
-      expect(adapter.capabilities.teams).toBe(true);
-    });
-
-    it("has all expected capability keys", () => {
+    it("exposes correct capability values", () => {
       expect(adapter.capabilities).toEqual({
         streaming: true,
         permissions: true,
@@ -63,10 +43,6 @@ describe("SdkUrlAdapter", () => {
       await expect(adapter.connect({ sessionId: "test-session" })).rejects.toThrow(
         "SdkUrlAdapter.connect() not yet implemented",
       );
-    });
-
-    it("rejects with an Error instance", async () => {
-      await expect(adapter.connect({ sessionId: "test-session" })).rejects.toBeInstanceOf(Error);
     });
   });
 });

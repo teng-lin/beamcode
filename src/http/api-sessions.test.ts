@@ -292,22 +292,16 @@ describe("handleApiSessions", () => {
     expect(parseBody(res)).toEqual({ error: "Method not allowed" });
   });
 
-  // ---- Missing session ID with more than 2 segments ----
+  // ---- Unsupported method on collection ----
 
-  it("returns 404 when segments > 2 but sessionId is empty", () => {
+  it("returns 404 for unsupported method on /api/sessions (no sessionId)", () => {
     const sm = mockSessionManager();
-    const req = mockReq("GET");
+    const req = mockReq("PATCH");
     const res = mockRes();
 
-    // /api/sessions/ has 2 segments after filtering, same as /api/sessions
-    // But with PATCH method and 2 segments it falls through:
-    // segments.length === 2, method === "PATCH" => falls through to sessionId check
-    // segments[2] is undefined => 404
-    const reqPatch = mockReq("PATCH");
-    const resPatch = mockRes();
-    handleApiSessions(reqPatch, resPatch, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
 
-    expect(resPatch._status).toBe(404);
-    expect(parseBody(resPatch)).toEqual({ error: "Not found" });
+    expect(res._status).toBe(404);
+    expect(parseBody(res)).toEqual({ error: "Not found" });
   });
 });

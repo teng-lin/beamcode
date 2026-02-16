@@ -120,7 +120,7 @@ describe("consumer-html", () => {
       expect(res._body).toBe(FAKE_HTML);
     });
 
-    it("includes X-Frame-Options DENY header", async () => {
+    it("includes security headers and CSP with sha256 hashes", async () => {
       const { handleConsumerHtml } = await import("./consumer-html.js");
       const req = mockReq("");
       const res = mockRes();
@@ -128,31 +128,13 @@ describe("consumer-html", () => {
       handleConsumerHtml(req, res);
 
       expect(res._headers["X-Frame-Options"]).toBe("DENY");
-    });
-
-    it("includes X-Content-Type-Options nosniff header", async () => {
-      const { handleConsumerHtml } = await import("./consumer-html.js");
-      const req = mockReq("");
-      const res = mockRes();
-
-      handleConsumerHtml(req, res);
-
       expect(res._headers["X-Content-Type-Options"]).toBe("nosniff");
-    });
-
-    it("includes Content-Security-Policy with sha256 hashes for inline scripts and styles", async () => {
-      const { handleConsumerHtml } = await import("./consumer-html.js");
-      const req = mockReq("");
-      const res = mockRes();
-
-      handleConsumerHtml(req, res);
 
       const csp = res._headers["Content-Security-Policy"] as string;
       expect(csp).toBeDefined();
       expect(csp).toContain("script-src");
       expect(csp).toContain("style-src");
 
-      // Verify actual sha256 hashes
       const scriptContent = 'console.log("hello");';
       const expectedScriptHash = createHash("sha256").update(scriptContent).digest("base64");
       expect(csp).toContain(`'sha256-${expectedScriptHash}'`);

@@ -377,84 +377,16 @@ describe("SessionManager", () => {
   // -----------------------------------------------------------------------
 
   describe("timeout cleanup and relaunch dedup", () => {
-    it("skips reconnect watchdog when no starting sessions", () => {
+    it("has no starting sessions when none launched", () => {
       mgr.start();
-
-      // No processes launched yet, so no starting sessions
-      const starting = mgr.launcher.getStartingSessions();
-      expect(starting.length).toBe(0);
-
-      // Watchdog should not be set (no starting sessions)
-      expect(true).toBe(true);
+      expect(mgr.launcher.getStartingSessions()).toHaveLength(0);
     });
 
-    it("skips reconnect watchdog for archived sessions", () => {
+    it("launched session is accessible via getSession", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      // The launcher tracks archived state internally
-      // This test verifies the watchdog code path exists
-      // and would skip archived sessions if they were in starting state
-      const session = mgr.launcher.getSession(info.sessionId);
-      expect(session).toBeDefined();
-
-      // Watchdog would skip any archived sessions
-      expect(true).toBe(true);
-    });
-
-    it("idempotent start does not error", () => {
-      mgr.start();
-      expect(() => mgr.start()).not.toThrow();
-
-      expect(true).toBe(true);
-    });
-
-    it("manager lifecycle handles launch and cleanup", () => {
-      mgr.start();
-      const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      expect(info).toBeDefined();
       expect(info.sessionId).toBe("test-session-id");
-
-      // Session should be accessible
-      const session = mgr.launcher.getSession(info.sessionId);
-      expect(session).toBeDefined();
-
-      expect(true).toBe(true);
-    });
-
-    it("reconnect watchdog initializes with starting sessions count", () => {
-      // Create a process before starting manager
-      const _proc = pm.spawn({ cwd: "/tmp", env: {} });
-
-      mgr.start();
-
-      // Get starting sessions - watchdog would be set if any exist
-      const sessions = mgr.launcher.getStartingSessions();
-      expect(Array.isArray(sessions)).toBe(true);
-
-      expect(true).toBe(true);
-    });
-
-    it("handles relaunch dedup for concurrent relaunch requests", () => {
-      mgr.start();
-      const info = mgr.launcher.launch({ cwd: "/tmp" });
-
-      // Simulate concurrent relaunch requests
-      // The first one would set the relaunchingSet flag
-      // and subsequent ones would be skipped
-      mgr.bridge.emit("backend:relaunch_needed" as any, {
-        sessionId: info.sessionId,
-      });
-      mgr.bridge.emit("backend:relaunch_needed" as any, {
-        sessionId: info.sessionId,
-      });
-
-      // Multiple requests should be deduplicated
-      // Verify session still exists
       expect(mgr.launcher.getSession(info.sessionId)).toBeDefined();
-
-      expect(true).toBe(true);
     });
   });
 
@@ -522,9 +454,6 @@ describe("SessionManager", () => {
     });
 
     it("relaunches sessions still in 'starting' state after grace period", async () => {
-      // Use real timers with a very short grace period for this test
-      vi.useRealTimers();
-
       const testStorage = new MemoryStorage();
       testStorage.saveLauncherState([
         {
@@ -554,8 +483,8 @@ describe("SessionManager", () => {
       expect(starting.length).toBeGreaterThan(0);
       expect(starting[0].state).toBe("starting");
 
-      // Wait for the grace period to fire (50ms) + buffer for async relaunch
-      await new Promise((r) => setTimeout(r, 150));
+      // Advance past the grace period (50ms) and let async relaunch resolve
+      await vi.advanceTimersByTimeAsync(100);
 
       // Relaunch calls spawnProcess which calls pm.spawn
       expect(alivePm.spawnCalls.length).toBeGreaterThan(0);
@@ -646,6 +575,9 @@ describe("SessionManager", () => {
       });
       idleMgr.start();
 
+      // Spy on closeSession to verify the reaper actually calls it
+      const closeSpy = vi.spyOn(idleMgr.bridge, "closeSession");
+
       // Create a session in the bridge (simulate a session that was created)
       const mockSocket = {
         send: vi.fn(),
@@ -662,19 +594,12 @@ describe("SessionManager", () => {
       expect(snap1!.cliConnected).toBe(false);
       expect(snap1!.consumerCount).toBe(0);
 
-      // checkInterval = max(1000, 100/10) = 1000, so the first check is at 1000ms
-      // But lastActivity is set to Date.now() which is the fake timer's current time.
-      // We need to advance past the idle timeout from lastActivity.
-      // The check runs every checkInterval ms (1000ms here).
+      // checkInterval = max(1000, 100/10) = 1000, so the first check is at 1000ms.
       // After advancing 1100ms, the check fires and idle time >= 100ms.
       await vi.advanceTimersByTimeAsync(1100);
 
-      // Session should have been closed by the idle reaper
-      const snap2 = idleMgr.bridge.getSession("idle-session");
-      // closeSession removes sockets but may not remove session from map —
-      // we check it was "closed" by verifying the close was called on the socket
-      // or that the session is gone/cleaned up
-      expect(snap2?.cliConnected ?? false).toBe(false);
+      // Verify the idle reaper called closeSession
+      expect(closeSpy).toHaveBeenCalledWith("idle-session");
 
       await idleMgr.stop();
     });

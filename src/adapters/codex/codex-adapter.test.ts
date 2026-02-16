@@ -429,7 +429,6 @@ describe("CodexAdapter", () => {
       adapter = new CodexAdapter({
         processManager: createMockProcessManager(),
       });
-      // Mock CodexLauncher.prototype.launch to avoid real process spawning
       launchSpy = vi
         .spyOn(CodexLauncher.prototype, "launch")
         .mockResolvedValue({ url: "ws://127.0.0.1:9999", pid: 12345 });
@@ -440,52 +439,57 @@ describe("CodexAdapter", () => {
       mockWsConstructor.mockReset();
     });
 
-    it("returns a CodexSession on successful connect and handshake", async () => {
-      const mockWs = new MockWebSocket();
-
-      // When CodexAdapter does `new WebSocket(url)`, return our mock
+    /** Configure mockWsConstructor to return a MockWebSocket that emits "open". */
+    function setupOpenableWs(): MockWebSocket {
+      const ws = new MockWebSocket();
       mockWsConstructor.mockImplementation(() => {
-        queueMicrotask(() => mockWs.emit("open"));
-        return mockWs;
+        queueMicrotask(() => ws.emit("open"));
+        return ws;
       });
+      return ws;
+    }
 
-      // Intercept send to respond to the initialize handshake
-      const origSend = mockWs.send.bind(mockWs);
-      mockWs.send = vi.fn((data: string) => {
+    /** Intercept `send` so that when the adapter sends an "initialize" request,
+     *  the mock WebSocket responds with the given JSON-RPC reply. */
+    function interceptInitialize(ws: MockWebSocket, replyFn: (requestId: number) => void): void {
+      const origSend = ws.send.bind(ws);
+      ws.send = vi.fn((data: string) => {
         origSend(data);
         const parsed = JSON.parse(data);
         if (parsed.method === "initialize") {
-          queueMicrotask(() => {
-            mockWs.emit(
-              "message",
-              Buffer.from(
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: parsed.id,
-                  result: { capabilities: { streaming: true }, version: "1.0.0" },
-                }),
-              ),
-            );
-          });
+          queueMicrotask(() => replyFn(parsed.id));
         }
+      });
+    }
+
+    it("returns a CodexSession on successful connect and handshake", async () => {
+      const ws = setupOpenableWs();
+      interceptInitialize(ws, (id) => {
+        ws.emit(
+          "message",
+          Buffer.from(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id,
+              result: { capabilities: { streaming: true }, version: "1.0.0" },
+            }),
+          ),
+        );
       });
 
       const session = await adapter.connect({ sessionId: "test-codex-session" });
 
       expect(session).toBeInstanceOf(CodexSession);
       expect(launchSpy).toHaveBeenCalledWith("test-codex-session", expect.any(Object));
-
-      // Verify the initialized notification was sent after handshake
-      const sentMessages = mockWs.sent.map((s) => JSON.parse(s));
+      const sentMessages = ws.sent.map((s) => JSON.parse(s));
       expect(sentMessages.some((m: any) => m.method === "initialized")).toBe(true);
     });
 
     it("rejects when WebSocket emits error during connection", async () => {
-      const mockWs = new MockWebSocket();
-
+      const ws = new MockWebSocket();
       mockWsConstructor.mockImplementation(() => {
-        queueMicrotask(() => mockWs.emit("error", new Error("Connection refused")));
-        return mockWs;
+        queueMicrotask(() => ws.emit("error", new Error("Connection refused")));
+        return ws;
       });
 
       await expect(adapter.connect({ sessionId: "err-session" })).rejects.toThrow(
@@ -494,31 +498,18 @@ describe("CodexAdapter", () => {
     });
 
     it("rejects when handshake returns an error response", async () => {
-      const mockWs = new MockWebSocket();
-
-      mockWsConstructor.mockImplementation(() => {
-        queueMicrotask(() => mockWs.emit("open"));
-        return mockWs;
-      });
-
-      const origSend = mockWs.send.bind(mockWs);
-      mockWs.send = vi.fn((data: string) => {
-        origSend(data);
-        const parsed = JSON.parse(data);
-        if (parsed.method === "initialize") {
-          queueMicrotask(() => {
-            mockWs.emit(
-              "message",
-              Buffer.from(
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: parsed.id,
-                  error: { message: "unsupported client version" },
-                }),
-              ),
-            );
-          });
-        }
+      const ws = setupOpenableWs();
+      interceptInitialize(ws, (id) => {
+        ws.emit(
+          "message",
+          Buffer.from(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id,
+              error: { message: "unsupported client version" },
+            }),
+          ),
+        );
       });
 
       await expect(adapter.connect({ sessionId: "hs-err-session" })).rejects.toThrow(
@@ -527,22 +518,9 @@ describe("CodexAdapter", () => {
     });
 
     it("rejects when WebSocket emits error during handshake", async () => {
-      const mockWs = new MockWebSocket();
-
-      mockWsConstructor.mockImplementation(() => {
-        queueMicrotask(() => mockWs.emit("open"));
-        return mockWs;
-      });
-
-      const origSend = mockWs.send.bind(mockWs);
-      mockWs.send = vi.fn((data: string) => {
-        origSend(data);
-        const parsed = JSON.parse(data);
-        if (parsed.method === "initialize") {
-          queueMicrotask(() => {
-            mockWs.emit("error", new Error("socket hung up"));
-          });
-        }
+      const ws = setupOpenableWs();
+      interceptInitialize(ws, () => {
+        ws.emit("error", new Error("socket hung up"));
       });
 
       await expect(adapter.connect({ sessionId: "hs-ws-err" })).rejects.toThrow(
