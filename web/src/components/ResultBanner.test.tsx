@@ -66,6 +66,19 @@ describe("ResultBanner", () => {
     expect(container.firstChild).toHaveClass("bg-bc-success/5");
   });
 
+  it("displays lines added and removed when present", () => {
+    const data = makeResult({ total_lines_added: 15, total_lines_removed: 3 });
+    render(<ResultBanner data={data} />);
+    expect(screen.getByText("+15")).toBeInTheDocument();
+    expect(screen.getByText("-3")).toBeInTheDocument();
+  });
+
+  it("does not display lines when absent", () => {
+    render(<ResultBanner data={makeResult()} />);
+    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^-\d/)).not.toBeInTheDocument();
+  });
+
   it("shows error styling", () => {
     const { container } = render(
       <ResultBanner data={makeResult({ is_error: true, subtype: "error_during_execution" })} />,

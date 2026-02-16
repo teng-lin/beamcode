@@ -1,22 +1,66 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AppState } from "../store";
 import { useStore } from "../store";
+import { send } from "../ws";
+
+const CONNECTION_DOT_STYLES: Record<string, string> = {
+  connected: "bg-bc-success",
+  connecting: "bg-bc-warning animate-pulse",
+};
+const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
+
+/** Get the current session's data, or undefined if no session is active. */
+function currentData(s: AppState) {
+  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
+}
 
 export function TopBar() {
-  const connectionStatus = useStore(
-    (s) =>
-      (s.currentSessionId ? s.sessionData[s.currentSessionId]?.connectionStatus : null) ??
-      "disconnected",
-  );
-  const model = useStore(
-    (s) => (s.currentSessionId ? s.sessionData[s.currentSessionId]?.state?.model : null) ?? "",
-  );
+  const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
+  const model = useStore((s) => currentData(s)?.state?.model ?? "");
   const pendingCount = useStore((s) => {
-    if (!s.currentSessionId) return 0;
-    const perms = s.sessionData[s.currentSessionId]?.pendingPermissions;
+    const perms = currentData(s)?.pendingPermissions;
     return perms ? Object.keys(perms).length : 0;
   });
+  const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
+  const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);
+  const currentSessionId = useStore((s) => s.currentSessionId);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
+
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+
+  // Close model dropdown when switching sessions
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentSessionId is an intentional trigger
+  useEffect(() => {
+    setModelMenuOpen(false);
+  }, [currentSessionId]);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleSelectModel = useCallback((value: string) => {
+    send({ type: "set_model", model: value });
+    setModelMenuOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setModelMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [modelMenuOpen]);
 
   return (
     <header className="flex h-11 items-center gap-3 border-b border-bc-border bg-bc-surface px-3">
@@ -52,22 +96,67 @@ export function TopBar() {
       {/* Connection status */}
       <div className="flex items-center gap-1.5">
         <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            connectionStatus === "connected"
-              ? "bg-bc-success"
-              : connectionStatus === "connecting"
-                ? "bg-bc-warning animate-pulse"
-                : "bg-bc-text-muted"
-          }`}
+          className={`h-1.5 w-1.5 rounded-full ${CONNECTION_DOT_STYLES[connectionStatus] ?? CONNECTION_DOT_DEFAULT}`}
         />
         <span className="text-[11px] capitalize text-bc-text-muted">{connectionStatus}</span>
       </div>
 
-      {/* Model badge */}
+      {/* Model badge / picker */}
       {model && (
-        <span className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted">
-          {model}
-        </span>
+        <div className="relative" ref={modelMenuRef}>
+          {models && models.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => setModelMenuOpen((o) => !o)}
+              className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+              aria-label="Change model"
+            >
+              {model}
+            </button>
+          ) : (
+            <span className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted">
+              {model}
+            </span>
+          )}
+          {modelMenuOpen && models && models.length > 1 && (
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
+              {models.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => handleSelectModel(m.value)}
+                  className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bc-hover ${
+                    m.value === model ? "font-semibold text-bc-text" : "text-bc-text-muted"
+                  }`}
+                >
+                  {m.displayName}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {gitBranch && (
+        <output
+          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted"
+          aria-label="Git branch"
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            aria-hidden="true"
+          >
+            <circle cx="5" cy="2" r="1.2" />
+            <circle cx="5" cy="8" r="1.2" />
+            <path d="M5 3.2V6.8" />
+          </svg>
+          {gitBranch}
+        </output>
       )}
 
       <div className="flex-1" />

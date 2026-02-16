@@ -1,6 +1,7 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
+import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
+import { QuickSwitcher } from "./components/QuickSwitcher";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { TopBar } from "./components/TopBar";
@@ -87,10 +88,42 @@ export default function App() {
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const darkMode = useStore((s) => s.darkMode);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (!e.metaKey && !e.ctrlKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInput =
+        tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+
+      switch (e.key) {
+        case "k":
+          e.preventDefault();
+          setQuickSwitcherOpen((v) => !v);
+          break;
+        case "b":
+          if (!isInput) {
+            e.preventDefault();
+            toggleSidebar();
+          }
+          break;
+        case ".":
+          if (!isInput) {
+            e.preventDefault();
+            toggleTaskPanel();
+          }
+          break;
+      }
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [toggleSidebar, toggleTaskPanel]);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-bc-bg text-bc-text">
@@ -124,6 +157,9 @@ export default function App() {
       <ErrorBoundary fallback={<div className="p-4 text-bc-error">Panel error</div>}>
         {taskPanelOpen && <TaskPanel />}
       </ErrorBoundary>
+
+      {/* Quick session switcher (Cmd+K / Ctrl+K) */}
+      {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
     </div>
   );
 }

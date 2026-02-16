@@ -60,7 +60,11 @@ describe("store", () => {
 
     it("ensureSessionData is idempotent", () => {
       store().ensureSessionData(SESSION_ID);
-      store().addMessage(SESSION_ID, { type: "user_message", content: "hello", timestamp: Date.now() });
+      store().addMessage(SESSION_ID, {
+        type: "user_message",
+        content: "hello",
+        timestamp: Date.now(),
+      });
       store().ensureSessionData(SESSION_ID);
       expect(store().sessionData[SESSION_ID].messages).toHaveLength(1);
     });
@@ -81,7 +85,11 @@ describe("store", () => {
     });
 
     it("setMessages replaces messages", () => {
-      store().addMessage(SESSION_ID, { type: "user_message", content: "old", timestamp: Date.now() });
+      store().addMessage(SESSION_ID, {
+        type: "user_message",
+        content: "old",
+        timestamp: Date.now(),
+      });
       store().setMessages(SESSION_ID, []);
       expect(store().sessionData[SESSION_ID].messages).toHaveLength(0);
     });
@@ -186,6 +194,28 @@ describe("store", () => {
       const progress = store().sessionData[SESSION_ID].toolProgress;
       expect(progress["tu-1"]).toEqual({ toolName: "Bash", elapsedSeconds: 5 });
       expect(progress["tu-2"]).toEqual({ toolName: "Read", elapsedSeconds: 2 });
+    });
+  });
+
+  describe("localStorage persistence", () => {
+    beforeEach(() => {
+      localStorage.removeItem("beamcode_dark_mode");
+      localStorage.removeItem("beamcode_sidebar_open");
+    });
+
+    it("persists darkMode to localStorage on toggle", () => {
+      useStore.getState().toggleDarkMode();
+      expect(localStorage.getItem("beamcode_dark_mode")).toBe("false");
+      useStore.getState().toggleDarkMode();
+      expect(localStorage.getItem("beamcode_dark_mode")).toBe("true");
+    });
+
+    it("persists sidebarOpen to localStorage on toggle", () => {
+      useStore.setState({ sidebarOpen: true });
+      useStore.getState().toggleSidebar();
+      expect(localStorage.getItem("beamcode_sidebar_open")).toBe("false");
+      useStore.getState().toggleSidebar();
+      expect(localStorage.getItem("beamcode_sidebar_open")).toBe("true");
     });
   });
 });
