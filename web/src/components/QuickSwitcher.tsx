@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type SdkSessionInfo, useStore } from "../store";
+import { useStore } from "../store";
 import { cwdBasename } from "../utils/format";
+import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
 import { connectToSession } from "../ws";
-
-function updateSessionUrl(sessionId: string): void {
-  const url = new URL(window.location.href);
-  url.searchParams.set("session", sessionId);
-  window.history.pushState({}, "", url);
-}
 
 interface QuickSwitcherProps {
   onClose: () => void;
@@ -20,36 +15,30 @@ export function QuickSwitcher({ onClose }: QuickSwitcherProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const sessionList = useMemo(() => {
-    const list = Object.values(sessions)
-      .filter(
-        (s): s is SdkSessionInfo =>
-          s != null && typeof s.sessionId === "string" && typeof s.createdAt === "number",
-      )
-      .sort((a, b) => b.createdAt - a.createdAt);
-
-    if (!query) return list;
-    const q = query.toLowerCase();
-    return list.filter((s) => {
-      const name = s.name ?? cwdBasename(s.cwd ?? "");
-      return name.toLowerCase().includes(q);
-    });
-  }, [sessions, query]);
+  const sessionList = useMemo(
+    () => filterSessionsByQuery(sortedSessions(sessions), query),
+    [sessions, query],
+  );
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
+  // Reset selection when the list changes (query change or external WebSocket update)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionList is an intentional trigger
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [sessionList]);
+
   const updateQuery = useCallback((value: string) => {
     setQuery(value);
-    setSelectedIndex(0);
   }, []);
 
   const selectSession = useCallback(
     (sessionId: string) => {
       setCurrentSession(sessionId);
       connectToSession(sessionId);
-      updateSessionUrl(sessionId);
+      updateSessionUrl(sessionId, "push");
       onClose();
     },
     [setCurrentSession, onClose],

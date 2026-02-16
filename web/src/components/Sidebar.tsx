@@ -2,22 +2,8 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { createSession, deleteSession } from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
+import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
 import { connectToSession, disconnect } from "../ws";
-
-/** Update the browser URL's `session` query param without a full navigation. */
-function updateSessionUrl(sessionId: string | null, method: "push" | "replace" = "replace"): void {
-  const url = new URL(window.location.href);
-  if (sessionId) {
-    url.searchParams.set("session", sessionId);
-  } else {
-    url.searchParams.delete("session");
-  }
-  if (method === "push") {
-    window.history.pushState({}, "", url);
-  } else {
-    window.history.replaceState({}, "", url);
-  }
-}
 
 const ADAPTER_COLORS: Record<string, string> = {
   claude: "bg-bc-adapter-claude",
@@ -186,25 +172,12 @@ export function Sidebar() {
     }
   }, [updateSession, setCurrentSession]);
 
-  const sessionList = useMemo(
-    () =>
-      Object.values(sessions)
-        .filter(
-          (s): s is SdkSessionInfo =>
-            s != null && typeof s.sessionId === "string" && typeof s.createdAt === "number",
-        )
-        .sort((a, b) => b.createdAt - a.createdAt),
-    [sessions],
-  );
+  const sessionList = useMemo(() => sortedSessions(sessions), [sessions]);
 
-  const filteredList = useMemo(() => {
-    if (!search) return sessionList;
-    const q = search.toLowerCase();
-    return sessionList.filter((s) => {
-      const name = s.name ?? cwdBasename(s.cwd ?? "");
-      return name.toLowerCase().includes(q);
-    });
-  }, [sessionList, search]);
+  const filteredList = useMemo(
+    () => filterSessionsByQuery(sessionList, search),
+    [sessionList, search],
+  );
 
   return (
     <aside className="flex h-full w-[260px] flex-shrink-0 flex-col border-r border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40">

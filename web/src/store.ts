@@ -43,7 +43,7 @@ export interface SessionData {
   toolProgress: Record<string, { toolName: string; elapsedSeconds: number }>;
 }
 
-interface AppState {
+export interface AppState {
   // Session data (grouped per session)
   sessionData: Record<string, SessionData>;
   sessions: Record<string, SdkSessionInfo>;
@@ -134,9 +134,21 @@ const MAX_MESSAGES_PER_SESSION = 2000;
 
 function readBool(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
-  const val = localStorage.getItem(key);
-  if (val === null) return fallback;
-  return val !== "false";
+  try {
+    const val = localStorage.getItem(key);
+    if (val === null) return fallback;
+    return val !== "false";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBool(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage unavailable (SSR, private browsing quota, etc.)
+  }
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────
@@ -157,14 +169,14 @@ export const useStore = create<AppState>()((set, get) => ({
   toggleSidebar: () =>
     set((s) => {
       const next = !s.sidebarOpen;
-      localStorage.setItem("beamcode_sidebar_open", String(next));
+      writeBool("beamcode_sidebar_open", next);
       return { sidebarOpen: next };
     }),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;
-      localStorage.setItem("beamcode_dark_mode", String(next));
+      writeBool("beamcode_dark_mode", next);
       return { darkMode: next };
     }),
 

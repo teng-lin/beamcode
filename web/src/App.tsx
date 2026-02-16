@@ -97,18 +97,26 @@ export default function App() {
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (!e.metaKey && !e.ctrlKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInput =
+        tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+
       switch (e.key) {
         case "k":
           e.preventDefault();
           setQuickSwitcherOpen((v) => !v);
           break;
         case "b":
-          e.preventDefault();
-          useStore.getState().toggleSidebar();
+          if (!isInput) {
+            e.preventDefault();
+            useStore.getState().toggleSidebar();
+          }
           break;
         case ".":
-          e.preventDefault();
-          useStore.getState().toggleTaskPanel();
+          if (!isInput) {
+            e.preventDefault();
+            useStore.getState().toggleTaskPanel();
+          }
           break;
       }
     }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AppState } from "../store";
 import { useStore } from "../store";
 import { send } from "../ws";
 
@@ -8,31 +9,32 @@ const CONNECTION_DOT_STYLES: Record<string, string> = {
 };
 const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
 
+/** Get the current session's data, or undefined if no session is active. */
+function currentData(s: AppState) {
+  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
+}
+
 export function TopBar() {
-  const connectionStatus = useStore(
-    (s) =>
-      (s.currentSessionId ? s.sessionData[s.currentSessionId]?.connectionStatus : null) ??
-      "disconnected",
-  );
-  const model = useStore(
-    (s) => (s.currentSessionId ? s.sessionData[s.currentSessionId]?.state?.model : null) ?? "",
-  );
+  const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
+  const model = useStore((s) => currentData(s)?.state?.model ?? "");
   const pendingCount = useStore((s) => {
-    if (!s.currentSessionId) return 0;
-    const perms = s.sessionData[s.currentSessionId]?.pendingPermissions;
+    const perms = currentData(s)?.pendingPermissions;
     return perms ? Object.keys(perms).length : 0;
   });
-  const models = useStore((s) =>
-    s.currentSessionId ? (s.sessionData[s.currentSessionId]?.capabilities?.models ?? null) : null,
-  );
-  const gitBranch = useStore((s) =>
-    s.currentSessionId ? (s.sessionData[s.currentSessionId]?.state?.git_branch ?? null) : null,
-  );
+  const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
+  const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);
+  const currentSessionId = useStore((s) => s.currentSessionId);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+
+  // Close model dropdown when switching sessions
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentSessionId is an intentional trigger
+  useEffect(() => {
+    setModelMenuOpen(false);
+  }, [currentSessionId]);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
   const handleSelectModel = useCallback((value: string) => {
