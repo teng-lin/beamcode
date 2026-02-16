@@ -26,6 +26,13 @@ function computeInlineHashes(html: string): { scriptHashes: string[]; styleHashe
   return { scriptHashes, styleHashes };
 }
 
+function buildCsp(html: string): string {
+  const { scriptHashes, styleHashes } = computeInlineHashes(html);
+  const scriptSrc = scriptHashes.length > 0 ? scriptHashes.join(" ") : "'none'";
+  const styleSrc = styleHashes.length > 0 ? styleHashes.join(" ") : "'none'";
+  return `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; connect-src 'self' ws: wss:; img-src 'self' data:;`;
+}
+
 export function loadConsumerHtml(): string {
   if (cachedHtml) return cachedHtml;
 
@@ -33,14 +40,20 @@ export function loadConsumerHtml(): string {
   const htmlPath = join(dirname(fileURLToPath(import.meta.url)), "..", "consumer", "index.html");
   cachedHtml = readFileSync(htmlPath, "utf-8");
   cachedGzip = gzipSync(cachedHtml);
-
-  // Build hash-based CSP from inline content (avoids 'unsafe-inline')
-  const { scriptHashes, styleHashes } = computeInlineHashes(cachedHtml);
-  const scriptSrc = scriptHashes.length > 0 ? scriptHashes.join(" ") : "'none'";
-  const styleSrc = styleHashes.length > 0 ? styleHashes.join(" ") : "'none'";
-  cachedCsp = `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; connect-src 'self' ws: wss:; img-src 'self' data:;`;
+  cachedCsp = buildCsp(cachedHtml);
 
   return cachedHtml;
+}
+
+/** Inject API key as a <meta> tag and recompute cached gzip + CSP. */
+export function injectApiKey(apiKey: string): void {
+  const baseHtml = loadConsumerHtml();
+  cachedHtml = baseHtml.replace(
+    "<head>",
+    `<head>\n  <meta name="beamcode-api-key" content="${apiKey}">`,
+  );
+  cachedGzip = gzipSync(cachedHtml);
+  cachedCsp = buildCsp(cachedHtml);
 }
 
 export function handleConsumerHtml(req: IncomingMessage, res: ServerResponse): void {

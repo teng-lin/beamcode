@@ -1,9 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
+import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { TopBar } from "./components/TopBar";
 import { useStore } from "./store";
+import { connectToSession } from "./ws";
 
 // ── Error Boundary ──────────────────────────────────────────────────────────
 
@@ -46,9 +48,35 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
+// ── Bootstrap: read ?session= from URL, load sessions, connect WS ──────────
+
+function useBootstrap() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session");
+
+    // Load session list from API (non-blocking, populates sidebar)
+    listSessions()
+      .then((sessions) => {
+        const byId: Record<string, (typeof sessions)[0]> = {};
+        for (const s of sessions) byId[s.sessionId] = s;
+        useStore.getState().setSessions(byId);
+      })
+      .catch((err) => console.warn("[bootstrap] Failed to load sessions:", err));
+
+    // Connect WebSocket to the session from URL
+    if (sessionId) {
+      useStore.getState().setCurrentSession(sessionId);
+      connectToSession(sessionId);
+    }
+  }, []);
+}
+
 // ── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  useBootstrap();
+
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const darkMode = useStore((s) => s.darkMode);

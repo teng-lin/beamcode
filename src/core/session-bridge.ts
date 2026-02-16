@@ -530,8 +530,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       identity,
     });
 
-    // Notify if CLI is not connected and request relaunch
-    if (!session.cliSocket) {
+    // Notify consumer of current CLI/backend connection state
+    if (session.cliSocket || session.backendSession) {
+      this.sendToConsumer(ws, { type: "cli_connected" });
+    } else {
       this.sendToConsumer(ws, { type: "cli_disconnected" });
       this.logger.info(
         `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
