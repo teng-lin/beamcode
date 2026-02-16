@@ -111,4 +111,130 @@ describe("PermissionBanner", () => {
     expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByText("Edit")).toBeInTheDocument();
   });
+
+  // ── Write tool preview ─────────────────────────────────────────────────
+
+  describe("Write tool preview", () => {
+    it("renders file path and content preview", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-write",
+          tool_use_id: "tu-write",
+          tool_name: "Write",
+          description: "Write a file",
+          input: { file_path: "/tmp/output.ts", content: "export const x = 42;" },
+        }),
+      );
+
+      expect(screen.getByText("Write")).toBeInTheDocument();
+      expect(screen.getByText("/tmp/output.ts")).toBeInTheDocument();
+      expect(screen.getByText("export const x = 42;")).toBeInTheDocument();
+    });
+
+    it("renders file path without content when content is missing", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-write2",
+          tool_use_id: "tu-write2",
+          tool_name: "Write",
+          description: "Write a file",
+          input: { file_path: "/tmp/empty.ts" },
+        }),
+      );
+
+      expect(screen.getByText("/tmp/empty.ts")).toBeInTheDocument();
+    });
+  });
+
+  // ── Read / Glob / Grep tool previews ───────────────────────────────────
+
+  describe("Read/Glob/Grep tool preview", () => {
+    it("renders Read tool with file_path", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-read",
+          tool_use_id: "tu-read",
+          tool_name: "Read",
+          description: "Read a file",
+          input: { file_path: "/tmp/readme.md" },
+        }),
+      );
+
+      expect(screen.getByText("Read")).toBeInTheDocument();
+      expect(screen.getByText(/\/tmp\/readme\.md/)).toBeInTheDocument();
+    });
+
+    it("renders Glob tool with pattern and path", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-glob",
+          tool_use_id: "tu-glob",
+          tool_name: "Glob",
+          description: "Search files",
+          input: { pattern: "**/*.ts", path: "/src" },
+        }),
+      );
+
+      expect(screen.getByText("Glob")).toBeInTheDocument();
+      expect(screen.getByText(/\*\*\/\*\.ts/)).toBeInTheDocument();
+      expect(screen.getByText(/in \/src/)).toBeInTheDocument();
+    });
+
+    it("renders Grep tool with pattern and file_path", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-grep",
+          tool_use_id: "tu-grep",
+          tool_name: "Grep",
+          description: "Search content",
+          input: { pattern: "TODO", file_path: "/src/app.ts" },
+        }),
+      );
+
+      expect(screen.getByText("Grep")).toBeInTheDocument();
+      expect(screen.getByText(/TODO/)).toBeInTheDocument();
+      expect(screen.getByText(/\/src\/app\.ts/)).toBeInTheDocument();
+    });
+  });
+
+  // ── Default tool preview ───────────────────────────────────────────────
+
+  describe("default tool preview", () => {
+    it("renders JSON fallback for unknown tool", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-unknown",
+          tool_use_id: "tu-unknown",
+          tool_name: "CustomTool",
+          description: "Custom operation",
+          input: { foo: "bar", baz: 123 },
+        }),
+      );
+
+      expect(screen.getByText("CustomTool")).toBeInTheDocument();
+      // JSON.stringify output should be in a <pre>
+      expect(screen.getByText(/"foo": "bar"/)).toBeInTheDocument();
+    });
+  });
+
+  // ── Permission without description ─────────────────────────────────────
+
+  describe("permission without description", () => {
+    it("renders permission without description text", () => {
+      renderWithPermission(
+        makePermission({
+          request_id: "req-nodesc",
+          tool_use_id: "tu-nodesc",
+          tool_name: "Bash",
+          description: "",
+          input: { command: "echo hello" },
+        }),
+      );
+
+      expect(screen.getByText("Bash")).toBeInTheDocument();
+      expect(screen.getByText("$ echo hello")).toBeInTheDocument();
+      // When description is empty, no description text should appear
+      expect(screen.queryByText("Run a command")).not.toBeInTheDocument();
+    });
+  });
 });
