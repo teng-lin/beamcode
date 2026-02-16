@@ -1,4 +1,4 @@
-// Core
+// Core interfaces
 
 // Adapters
 export { ConsoleLogger } from "./adapters/console-logger.js";
@@ -14,6 +14,20 @@ export { PtyCommandRunner } from "./adapters/pty-command-runner.js";
 export type { SdkUrlLauncherOptions } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { CLILauncher } from "./core/cli-launcher.js";
+export type {
+  BackendAdapter,
+  BackendCapabilities,
+  BackendSession,
+  ConnectOptions,
+} from "./core/interfaces/backend-adapter.js";
+export type {
+  Configurable,
+  Encryptable,
+  Interruptible,
+  PermissionHandler,
+  PermissionRequestEvent,
+  Reconnectable,
+} from "./core/interfaces/extensions.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
 export { SessionBridge } from "./core/session-bridge.js";
@@ -21,6 +35,33 @@ export { SessionManager } from "./core/session-manager.js";
 export type { SlashCommandResult } from "./core/slash-command-executor.js";
 export { SlashCommandExecutor } from "./core/slash-command-executor.js";
 export { TypedEventEmitter } from "./core/typed-emitter.js";
+// Core types
+export type {
+  CoreSessionState,
+  DevToolSessionState,
+} from "./core/types/core-session-state.js";
+export type { SequencedMessage } from "./core/types/sequenced-message.js";
+// UnifiedMessage
+export type {
+  CodeContent,
+  ImageContent,
+  TextContent,
+  ToolResultContent,
+  ToolUseContent,
+  UnifiedContent,
+  UnifiedMessage,
+  UnifiedMessageType,
+} from "./core/types/unified-message.js";
+export {
+  canonicalize,
+  createUnifiedMessage,
+  isCodeContent,
+  isImageContent,
+  isTextContent,
+  isToolResultContent,
+  isToolUseContent,
+  isUnifiedMessage,
+} from "./core/types/unified-message.js";
 
 // Interfaces
 export type {
