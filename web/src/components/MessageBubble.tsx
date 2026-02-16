@@ -14,7 +14,7 @@ export const MessageBubble = memo(function MessageBubble({
   switch (message.type) {
     case "user_message":
       return (
-        <div className="animate-fadeSlideIn self-end rounded-2xl bg-bc-user-bg px-4 py-2.5 text-sm max-w-[85%] border border-bc-border/30">
+        <div className="animate-fadeSlideIn self-start rounded-2xl bg-bc-user-bg px-4 py-2.5 text-sm max-w-[85%] border border-bc-border/30">
           {message.content}
         </div>
       );
@@ -43,7 +43,7 @@ export const MessageBubble = memo(function MessageBubble({
       return (
         <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
-            /{message.command}
+            {message.command}
           </span>
           <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted leading-relaxed">
             {message.content}
@@ -55,7 +55,7 @@ export const MessageBubble = memo(function MessageBubble({
       return (
         <div className="animate-fadeSlideIn rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-error/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-error">
-            /{message.command} failed
+            {message.command} failed
           </span>
           <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted">
             {message.error}

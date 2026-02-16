@@ -656,13 +656,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    // Store user message in history for replay
-    session.messageHistory.push({
+    // Store user message in history for replay and broadcast to all consumers
+    const userMsg: ConsumerMessage = {
       type: "user_message",
       content,
       timestamp: Date.now(),
-    });
+    };
+    session.messageHistory.push(userMsg);
     this.trimMessageHistory(session);
+    this.broadcastToConsumers(session, userMsg);
 
     // Build content: if images are present, use content block array; otherwise plain string
     let messageContent: string | unknown[];

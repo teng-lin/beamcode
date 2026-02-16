@@ -57,7 +57,7 @@ function toolPreview(name: string, input: Record<string, unknown>): ReactNode {
 }
 
 export function PermissionBanner({ sessionId }: PermissionBannerProps) {
-  const permissions = useStore((s) => s.sessionData[sessionId]?.pendingPermissions ?? {});
+  const permissions = useStore((s) => s.sessionData[sessionId]?.pendingPermissions);
 
   const handleResponse = useCallback(
     (requestId: string, behavior: "allow" | "deny") => {
@@ -67,7 +67,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
     [sessionId],
   );
 
-  const permList = Object.values(permissions);
+  const permList = Object.values(permissions ?? {});
   if (permList.length === 0) return null;
 
   return (

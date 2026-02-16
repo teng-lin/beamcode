@@ -29,8 +29,9 @@ function computeInlineHashes(html: string): { scriptHashes: string[]; styleHashe
 function buildCsp(html: string): string {
   const { scriptHashes, styleHashes } = computeInlineHashes(html);
   const scriptSrc = scriptHashes.length > 0 ? scriptHashes.join(" ") : "'none'";
-  const styleSrc = styleHashes.length > 0 ? styleHashes.join(" ") : "'none'";
-  return `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; connect-src 'self' ws: wss:; img-src 'self' data:;`;
+  const styleSrc =
+    styleHashes.length > 0 ? `${styleHashes.join(" ")} https://fonts.googleapis.com` : "'none'";
+  return `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:; img-src 'self' data:;`;
 }
 
 export function loadConsumerHtml(): string {

@@ -18,11 +18,14 @@ interface ErrorBoundaryState {
   hasError: boolean;
 }
 
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState & { error: Error | null }
+> {
+  state = { hasError: false, error: null as Error | null };
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -32,12 +35,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex items-center gap-2 p-4 text-bc-error">
-          {this.props.fallback}
+        <div className="flex flex-col gap-2 p-4">
+          <div className="text-sm text-bc-error">{this.props.fallback}</div>
+          {this.state.error && (
+            <pre className="max-h-20 overflow-auto rounded bg-bc-surface-2 p-2 font-mono-code text-xs text-bc-text-muted">
+              {this.state.error.message}
+            </pre>
+          )}
           <button
             type="button"
-            onClick={() => this.setState({ hasError: false })}
-            className="rounded bg-bc-surface-2 px-2 py-1 text-xs text-bc-text-muted hover:bg-bc-hover"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="w-fit rounded bg-bc-surface-2 px-2 py-1 text-xs text-bc-text-muted hover:bg-bc-hover"
           >
             Retry
           </button>

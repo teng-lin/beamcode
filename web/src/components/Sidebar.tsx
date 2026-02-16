@@ -39,20 +39,58 @@ function formatTime(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Individual session row — subscribes only to its own status (primitive selector). */
+function SessionItem({
+  info,
+  isActive,
+  onSelect,
+}: {
+  info: SdkSessionInfo;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  // Primitive return (string | null) — stable with Object.is, no derived objects.
+  const sessionStatus = useStore((s) => s.sessionData[info.sessionId]?.sessionStatus ?? null);
+  const status = sessionStatus ?? info.state;
+  const name = info.name ?? cwdBasename(info.cwd ?? "untitled");
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`group flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors ${
+        isActive
+          ? "border-l-2 border-bc-accent bg-bc-active"
+          : "border-l-2 border-transparent hover:bg-bc-hover"
+      }`}
+      aria-current={isActive ? "page" : undefined}
+    >
+      <span className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${adapterColor(info)}`} />
+      <div className="min-w-0 flex-1">
+        <div
+          className={`truncate text-sm ${isActive ? "font-medium text-bc-text" : "text-bc-text-muted group-hover:text-bc-text"}`}
+        >
+          {name}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-bc-text-muted/70">
+          <StatusDot status={status} />
+          <span>{formatTime(info.createdAt)}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export function Sidebar() {
   const sessions = useStore((s) => s.sessions);
-  const sessionStatuses = useStore((s) => {
-    const statuses: Record<string, string | null> = {};
-    for (const id of Object.keys(s.sessions)) {
-      statuses[id] = s.sessionData[id]?.sessionStatus ?? null;
-    }
-    return statuses;
-  });
   const currentSessionId = useStore((s) => s.currentSessionId);
   const setCurrentSession = useStore((s) => s.setCurrentSession);
 
   const sessionList = Object.values(sessions)
-    .filter((s): s is SdkSessionInfo => s != null)
+    .filter(
+      (s): s is SdkSessionInfo =>
+        s != null && typeof s.sessionId === "string" && typeof s.createdAt === "number",
+    )
     .sort((a, b) => b.createdAt - a.createdAt);
 
   return (
@@ -97,40 +135,14 @@ export function Sidebar() {
         {sessionList.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-bc-text-muted">No sessions</div>
         ) : (
-          sessionList.map((info) => {
-            const status = sessionStatuses[info.sessionId] ?? info.state;
-            const isActive = info.sessionId === currentSessionId;
-            const name = info.name ?? cwdBasename(info.cwd ?? "untitled");
-
-            return (
-              <button
-                type="button"
-                key={info.sessionId}
-                onClick={() => setCurrentSession(info.sessionId)}
-                className={`group flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors ${
-                  isActive
-                    ? "border-l-2 border-bc-accent bg-bc-active"
-                    : "border-l-2 border-transparent hover:bg-bc-hover"
-                }`}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <span
-                  className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${adapterColor(info)}`}
-                />
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`truncate text-sm ${isActive ? "font-medium text-bc-text" : "text-bc-text-muted group-hover:text-bc-text"}`}
-                  >
-                    {name}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-bc-text-muted/70">
-                    <StatusDot status={status} />
-                    <span>{formatTime(info.createdAt)}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })
+          sessionList.map((info) => (
+            <SessionItem
+              key={info.sessionId}
+              info={info}
+              isActive={info.sessionId === currentSessionId}
+              onSelect={() => setCurrentSession(info.sessionId)}
+            />
+          ))
         )}
       </nav>
     </aside>

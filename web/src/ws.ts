@@ -65,13 +65,14 @@ function handleMessage(sessionId: string, data: string): void {
         store.setStreaming(sessionId, "");
         store.setSessionStatus(sessionId, "running");
       } else if (event.type === "content_block_delta") {
-        const { delta } = event;
-        if (delta.type === "text_delta") {
+        const delta = (event as { delta?: { type: string; text?: string } }).delta;
+        if (delta?.type === "text_delta" && delta.text) {
           store.appendStreaming(sessionId, delta.text);
         }
       } else if (event.type === "message_delta") {
-        if (event.usage?.output_tokens) {
-          store.setStreamingOutputTokens(sessionId, event.usage.output_tokens);
+        const usage = (event as { usage?: { output_tokens?: number } }).usage;
+        if (usage?.output_tokens) {
+          store.setStreamingOutputTokens(sessionId, usage.output_tokens);
         }
       }
       break;
