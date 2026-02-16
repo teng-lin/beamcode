@@ -61,6 +61,10 @@ function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionSt
   });
 }
 
+const PTY_DISABLED_CONFIG: Partial<ResolvedConfig> = {
+  slashCommand: { ptyTimeoutMs: 15000, ptySilenceThresholdMs: 500, ptyEnabled: false },
+};
+
 function createExecutor(options?: {
   commandRunner?: MockCommandRunner;
   config?: Partial<ResolvedConfig>;
@@ -144,15 +148,7 @@ describe("SlashCommandExecutor", () => {
     });
 
     it("rejects unknown commands when PTY is disabled", () => {
-      const { executor } = createExecutor({
-        config: {
-          slashCommand: {
-            ptyTimeoutMs: 15000,
-            ptySilenceThresholdMs: 500,
-            ptyEnabled: false,
-          },
-        },
-      });
+      const { executor } = createExecutor({ config: PTY_DISABLED_CONFIG });
       const state = makeState();
       expect(executor.canHandle("/usage", state)).toBe(false);
     });
@@ -274,15 +270,7 @@ describe("SlashCommandExecutor", () => {
     });
 
     it("throws when PTY is disabled", async () => {
-      const { executor } = createExecutor({
-        config: {
-          slashCommand: {
-            ptyTimeoutMs: 15000,
-            ptySilenceThresholdMs: 500,
-            ptyEnabled: false,
-          },
-        },
-      });
+      const { executor } = createExecutor({ config: PTY_DISABLED_CONFIG });
       await expect(executor.execute(makeState(), "/usage", "cli-123")).rejects.toThrow(
         /PTY execution is disabled/,
       );
@@ -393,6 +381,24 @@ describe("SlashCommandExecutor", () => {
       expect(result.content).toContain("/model");
       expect(result.content).toContain("/status");
       expect(result.content).not.toContain("/compact");
+    });
+
+    it("treats empty capabilities.commands as unavailable (falls back to slash_commands)", () => {
+      const { executor } = createExecutor();
+      const state = makeState({
+        slash_commands: ["/compact", "/files"],
+        capabilities: { commands: [], models: [], account: null, receivedAt: Date.now() },
+      });
+      expect(executor.isNativeCommand("/compact", state)).toBe(true);
+      expect(executor.isNativeCommand("/files", state)).toBe(true);
+    });
+
+    it("handles commands with arguments", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      expect(executor.isNativeCommand("/vim on", state)).toBe(true);
+      expect(executor.isNativeCommand("/compact --force", state)).toBe(true);
+      expect(executor.canHandle("/model gpt-4", state)).toBe(true);
     });
   });
 
