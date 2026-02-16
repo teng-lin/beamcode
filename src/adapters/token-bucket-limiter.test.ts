@@ -133,7 +133,7 @@ describe("TokenBucketLimiter", () => {
     });
 
     it("handles burst traffic within burst size", () => {
-      const limiter = new TokenBucketLimiter(100, 1000, 100); // 100 tokens per second
+      const limiter = new TokenBucketLimiter(100, 100_000, 1); // negligible refill during test
       // Start with full burst bucket (100 tokens)
       for (let i = 0; i < 100; i++) {
         expect(limiter.tryConsume()).toBe(true);
