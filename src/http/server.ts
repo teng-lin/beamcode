@@ -12,26 +12,27 @@ import { handleHealth } from "./health.js";
 export interface HttpServerOptions {
   sessionManager: SessionManager;
   activeSessionId: string;
-  isTunnelActive?: boolean | (() => boolean);
+  apiKey?: string;
 }
 
 export function createBeamcodeServer(
   options: HttpServerOptions,
 ): Server & { setActiveSessionId(id: string): void } {
-  const { sessionManager, isTunnelActive } = options;
+  const { sessionManager, apiKey } = options;
   let { activeSessionId } = options;
 
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-    // Restrict /api/* to localhost when tunnel is active
-    const tunnelActive = typeof isTunnelActive === "function" ? isTunnelActive() : isTunnelActive;
-    if (tunnelActive && url.pathname.startsWith("/api/")) {
-      const remote = req.socket.remoteAddress;
-      const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-      if (!isLocal) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "API access restricted to localhost" }));
+    // Security: API key gate for /api/* endpoints.
+    // When configured, all /api requests must include Authorization: Bearer <key>.
+    // This prevents unauthenticated access both from LAN and through tunnels
+    // (cloudflared forwards requests as localhost, making IP-based checks unreliable).
+    if (apiKey && url.pathname.startsWith("/api/")) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${apiKey}`) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
         return;
       }
     }

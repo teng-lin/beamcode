@@ -138,6 +138,21 @@ export interface ConsumerSessionState {
   last_duration_api_ms?: number;
 }
 
+// ── Stream Events ──────────────────────────────────────────────────────────
+
+export type StreamEvent =
+  | { type: "message_start"; message?: Record<string, unknown> }
+  | {
+      type: "content_block_delta";
+      index?: number;
+      delta: { type: "text_delta"; text: string } | { type: string; [key: string]: unknown };
+    }
+  | { type: "content_block_start"; index?: number; content_block?: Record<string, unknown> }
+  | { type: "content_block_stop"; index?: number }
+  | { type: "message_delta"; delta?: Record<string, unknown>; usage?: { output_tokens: number } }
+  | { type: "message_stop" }
+  | { type: string; [key: string]: unknown };
+
 // ── Connection Status ───────────────────────────────────────────────────────
 
 export type ConnectionStatus = "connected" | "connecting" | "disconnected";
@@ -152,7 +167,7 @@ export type ConsumerMessage =
   | { type: "session_init"; session: ConsumerSessionState & Record<string, unknown> }
   | { type: "session_update"; session: Partial<ConsumerSessionState> & Record<string, unknown> }
   | { type: "assistant"; message: AssistantContent; parent_tool_use_id: string | null }
-  | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
+  | { type: "stream_event"; event: StreamEvent; parent_tool_use_id: string | null }
   | { type: "result"; data: ResultData }
   | { type: "permission_request"; request: ConsumerPermissionRequest }
   | { type: "permission_cancelled"; request_id: string }

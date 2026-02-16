@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { ConsoleLogger } from "../adapters/console-logger.js";
@@ -162,11 +163,12 @@ async function main(): Promise<void> {
     logger: config.verbose ? logger : undefined,
   });
 
-  // 4. Create HTTP server with extracted routing (no active session yet)
+  // 4. Generate API key and create HTTP server
+  const apiKey = randomBytes(24).toString("base64url");
   const httpServer = createBeamcodeServer({
     sessionManager,
     activeSessionId: "",
-    isTunnelActive: () => tunnelUrl !== null,
+    apiKey,
   });
 
   // 5. Start HTTP server and wait for it to be listening
@@ -209,8 +211,10 @@ async function main(): Promise<void> {
 
   Session: ${activeSessionId}
   CWD:     ${config.cwd}
+  API Key: ${apiKey}
 
   Open ${tunnelSessionUrl ? "the tunnel URL" : "the local URL"} on your phone to start coding remotely.
+  API requests require: Authorization: Bearer ${apiKey}
 
   Press Ctrl+C to stop
 `);

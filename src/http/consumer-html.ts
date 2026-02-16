@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
@@ -6,6 +7,24 @@ import { gzipSync } from "node:zlib";
 
 let cachedHtml: string | null = null;
 let cachedGzip: Buffer | null = null;
+let cachedCsp: string | null = null;
+
+/** Compute SHA-256 hashes of inline <script> and <style> blocks for CSP. */
+function computeInlineHashes(html: string): { scriptHashes: string[]; styleHashes: string[] } {
+  const scriptHashes: string[] = [];
+  const styleHashes: string[] = [];
+  for (const [, content] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)) {
+    if (content.trim()) {
+      scriptHashes.push(`'sha256-${createHash("sha256").update(content).digest("base64")}'`);
+    }
+  }
+  for (const [, content] of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) {
+    if (content.trim()) {
+      styleHashes.push(`'sha256-${createHash("sha256").update(content).digest("base64")}'`);
+    }
+  }
+  return { scriptHashes, styleHashes };
+}
 
 export function loadConsumerHtml(): string {
   if (cachedHtml) return cachedHtml;
@@ -14,6 +33,13 @@ export function loadConsumerHtml(): string {
   const htmlPath = join(dirname(fileURLToPath(import.meta.url)), "..", "consumer", "index.html");
   cachedHtml = readFileSync(htmlPath, "utf-8");
   cachedGzip = gzipSync(cachedHtml);
+
+  // Build hash-based CSP from inline content (avoids 'unsafe-inline')
+  const { scriptHashes, styleHashes } = computeInlineHashes(cachedHtml);
+  const scriptSrc = scriptHashes.length > 0 ? scriptHashes.join(" ") : "'none'";
+  const styleSrc = styleHashes.length > 0 ? styleHashes.join(" ") : "'none'";
+  cachedCsp = `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; connect-src 'self' ws: wss:; img-src 'self' data:;`;
+
   return cachedHtml;
 }
 
@@ -24,8 +50,7 @@ export function handleConsumerHtml(req: IncomingMessage, res: ServerResponse): v
     "Content-Type": "text/html; charset=utf-8",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy":
-      "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws: wss:;",
+    "Content-Security-Policy": cachedCsp ?? "default-src 'self'",
   };
 
   const acceptEncoding = req.headers["accept-encoding"] ?? "";

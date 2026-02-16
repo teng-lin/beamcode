@@ -59,20 +59,19 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "stream_event": {
-      const event = msg.event as Record<string, unknown>;
+      const { event } = msg;
       if (event.type === "message_start") {
         store.setStreamingStarted(sessionId, Date.now());
         store.setStreaming(sessionId, "");
         store.setSessionStatus(sessionId, "running");
       } else if (event.type === "content_block_delta") {
-        const delta = event.delta as Record<string, unknown> | undefined;
-        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+        const { delta } = event;
+        if (delta.type === "text_delta") {
           store.appendStreaming(sessionId, delta.text);
         }
       } else if (event.type === "message_delta") {
-        const usage = event.usage as Record<string, number> | undefined;
-        if (usage?.output_tokens) {
-          store.setStreamingOutputTokens(sessionId, usage.output_tokens);
+        if (event.usage?.output_tokens) {
+          store.setStreamingOutputTokens(sessionId, event.usage.output_tokens);
         }
       }
       break;

@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
 import type { SessionManager } from "../core/session-manager.js";
@@ -66,12 +67,15 @@ export function handleApiSessions(
             return;
           }
         }
-        // Validate cwd to prevent path traversal
+        // Validate cwd: must resolve to an existing directory.
+        // Note: path.resolve() normalizes ".." segments, so checking the
+        // resolved string for ".." would be ineffective. Instead we verify
+        // the path exists and is a real directory on the filesystem.
         const cwd = opts.cwd as string | undefined;
         if (cwd) {
           const resolved = resolvePath(cwd);
-          if (resolved.includes("..") || !resolved.startsWith("/")) {
-            json(res, 400, { error: "Invalid cwd" });
+          if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
+            json(res, 400, { error: "Invalid cwd: not an existing directory" });
             return;
           }
         }
