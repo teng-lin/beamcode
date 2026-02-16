@@ -132,6 +132,13 @@ function patchSession(
 
 const MAX_MESSAGES_PER_SESSION = 2000;
 
+function readBool(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const val = localStorage.getItem(key);
+  if (val === null) return fallback;
+  return val !== "false";
+}
+
 // ── Store ───────────────────────────────────────────────────────────────────
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -139,14 +146,27 @@ export const useStore = create<AppState>()((set, get) => ({
   sessions: {},
   currentSessionId: null,
 
-  darkMode: true,
-  sidebarOpen: typeof window !== "undefined" && window.innerWidth >= 768,
+  darkMode: readBool("beamcode_dark_mode", true),
+  sidebarOpen: readBool(
+    "beamcode_sidebar_open",
+    typeof window !== "undefined" && window.innerWidth >= 768,
+  ),
   taskPanelOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleSidebar: () =>
+    set((s) => {
+      const next = !s.sidebarOpen;
+      localStorage.setItem("beamcode_sidebar_open", String(next));
+      return { sidebarOpen: next };
+    }),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
-  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  toggleDarkMode: () =>
+    set((s) => {
+      const next = !s.darkMode;
+      localStorage.setItem("beamcode_dark_mode", String(next));
+      return { darkMode: next };
+    }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
