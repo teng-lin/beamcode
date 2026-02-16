@@ -50,6 +50,9 @@ function authContext(sessionId: string, transport: Record<string, unknown> = {})
   return { sessionId, transport };
 }
 
+/** Flush microtask queue deterministically (no wall-clock dependency). */
+const tick = () => new Promise<void>((r) => setTimeout(r, 10));
+
 function makeInitMsg(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     type: "system",
@@ -2495,7 +2498,7 @@ describe("SessionBridge", () => {
       );
 
       // Wait for async execution
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -2527,7 +2530,7 @@ describe("SessionBridge", () => {
       );
 
       // Wait for async execution
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const errorMsg = msgs.find((m: any) => m.type === "slash_command_error");
@@ -2554,7 +2557,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/status", request_id: "my-req" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -2580,7 +2583,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       expect(events).toHaveLength(1);
       expect(events[0].sessionId).toBe("sess-1");
@@ -2832,10 +2835,7 @@ describe("SessionBridge", () => {
       const consumerSocket = createMockSocket();
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit", "review-pr"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
 
       consumerSocket.sentMessages.length = 0;
       bridge.handleCLIMessage("sess-1", makeControlResponse());
@@ -2849,10 +2849,7 @@ describe("SessionBridge", () => {
     it("late-joining consumer receives skills in capabilities_ready", () => {
       const cliSocket = createMockSocket();
       bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
       bridge.handleCLIMessage("sess-1", makeControlResponse());
 
       const lateConsumer = createMockSocket();
@@ -3179,7 +3176,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -3195,10 +3192,7 @@ describe("SessionBridge", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
 
       cliSocket.sentMessages.length = 0;
 
@@ -3210,9 +3204,9 @@ describe("SessionBridge", () => {
 
       // CLI should receive a user message with "/commit"
       const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(
-        cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/commit"),
-      ).toBe(true);
+      expect(cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/commit")).toBe(
+        true,
+      );
     });
 
     it("clearDynamic resets non-built-in commands on re-init", async () => {
@@ -3224,16 +3218,10 @@ describe("SessionBridge", () => {
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
 
       // First init with skills
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
 
       // Re-init without skills (simulates CLI reconnect)
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: [] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: [] }));
 
       ws.sentMessages.length = 0;
 
@@ -3244,7 +3232,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -3259,10 +3247,7 @@ describe("SessionBridge", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
 
       // Simulate capabilities response with rich metadata
       bridge.handleCLIMessage(
@@ -3274,7 +3259,11 @@ describe("SessionBridge", () => {
             request_id: "test-uuid",
             response: {
               commands: [
-                { name: "/compact", description: "Compact conversation", argumentHint: "[strategy]" },
+                {
+                  name: "/compact",
+                  description: "Compact conversation",
+                  argumentHint: "[strategy]",
+                },
                 { name: "/vim", description: "Toggle vim mode" },
               ],
               models: [],
@@ -3292,7 +3281,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");

@@ -40,6 +40,9 @@ function authContext(sessionId: string): AuthContext {
   return { sessionId, transport: {} };
 }
 
+/** Flush microtask queue deterministically (no wall-clock dependency). */
+const tick = () => new Promise<void>((r) => setTimeout(r, 10));
+
 function makeInitMsg(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     type: "system",
@@ -108,9 +111,7 @@ describe("Slash command integration", () => {
       bridge.handleCLIMessage("sess-1", makeControlResponse());
 
       // 3. Verify capabilities_ready includes skills
-      const capMsg = parseSent(consumerSocket).find(
-        (m) => m.type === "capabilities_ready",
-      );
+      const capMsg = parseSent(consumerSocket).find((m) => m.type === "capabilities_ready");
       expect(capMsg).toBeDefined();
       expect(capMsg.skills).toEqual(["commit", "review-pr"]);
       expect(capMsg.commands).toHaveLength(2);
@@ -125,9 +126,7 @@ describe("Slash command integration", () => {
 
       // 5. CLI should receive a user message with "/commit"
       const cliMsgs = parseSent(cliSocket);
-      expect(
-        cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit"),
-      ).toBe(true);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
     });
 
     it("skill commands appear in /help output", async () => {
@@ -137,10 +136,7 @@ describe("Slash command integration", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit", "tdd"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "tdd"] }));
 
       consumerSocket.sentMessages.length = 0;
 
@@ -150,11 +146,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.content).toContain("/commit");
       expect(result.content).toContain("/tdd");
@@ -168,10 +162,7 @@ describe("Slash command integration", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit", "review-pr"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
 
       cliSocket.sentMessages.length = 0;
 
@@ -190,12 +181,10 @@ describe("Slash command integration", () => {
       );
 
       const cliMsgs = parseSent(cliSocket);
-      expect(
-        cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit"),
-      ).toBe(true);
-      expect(
-        cliMsgs.some((m) => m.type === "user" && m.message.content === "/review-pr"),
-      ).toBe(true);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/review-pr")).toBe(
+        true,
+      );
     });
   });
 
@@ -223,11 +212,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/status", request_id: "r1" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.source).toBe("emulated");
       expect(result.request_id).toBe("r1");
@@ -257,11 +244,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.content).toBe("claude-sonnet-4-5-20250929");
       expect(result.source).toBe("emulated");
@@ -274,10 +259,7 @@ describe("Slash command integration", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
 
       consumerSocket.sentMessages.length = 0;
 
@@ -287,11 +269,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/cost" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.source).toBe("emulated");
       expect(result.content).toContain("Total cost:");
@@ -320,11 +300,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/custom-unknown", request_id: "r2" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const errorMsg = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_error",
-      );
+      const errorMsg = parseSent(consumerSocket).find((m) => m.type === "slash_command_error");
       expect(errorMsg).toBeDefined();
       expect(errorMsg.command).toBe("/custom-unknown");
       expect(errorMsg.request_id).toBe("r2");
@@ -342,10 +320,7 @@ describe("Slash command integration", () => {
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
 
       // First init with skills
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit", "review-pr"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
 
       // Verify /commit is forwarded as skill
       cliSocket.sentMessages.length = 0;
@@ -359,10 +334,7 @@ describe("Slash command integration", () => {
       ).toBe(true);
 
       // Re-init without skills (simulates CLI restart)
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: [] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: [] }));
 
       // Now /commit should no longer appear in /help
       consumerSocket.sentMessages.length = 0;
@@ -372,11 +344,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.content).not.toContain("/commit");
       expect(result.content).not.toContain("/review-pr");
@@ -402,7 +372,11 @@ describe("Slash command integration", () => {
         "sess-1",
         makeControlResponse({
           commands: [
-            { name: "/compact", description: "Compact conversation history", argumentHint: "[strategy]" },
+            {
+              name: "/compact",
+              description: "Compact conversation history",
+              argumentHint: "[strategy]",
+            },
           ],
         }),
       );
@@ -415,11 +389,9 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       // Capabilities descriptions should be in help
       expect(result.content).toContain("/compact");
@@ -455,12 +427,10 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       // Consumer should get an emulated result
-      const result = parseSent(consumerSocket).find(
-        (m) => m.type === "slash_command_result",
-      );
+      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
       expect(result).toBeDefined();
       expect(result.source).toBe("emulated");
 
@@ -478,10 +448,7 @@ describe("Slash command integration", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ slash_commands: ["/compact", "/files"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ slash_commands: ["/compact", "/files"] }));
 
       cliSocket.sentMessages.length = 0;
 
@@ -493,9 +460,7 @@ describe("Slash command integration", () => {
       );
 
       const cliMsgs = parseSent(cliSocket);
-      expect(
-        cliMsgs.some((m) => m.type === "user" && m.message.content === "/compact"),
-      ).toBe(true);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/compact")).toBe(true);
     });
 
     it("skill commands are forwarded to CLI, not emulated", () => {
@@ -505,10 +470,7 @@ describe("Slash command integration", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ skills: ["commit"] }),
-      );
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
 
       cliSocket.sentMessages.length = 0;
 
@@ -519,9 +481,7 @@ describe("Slash command integration", () => {
       );
 
       const cliMsgs = parseSent(cliSocket);
-      expect(
-        cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit"),
-      ).toBe(true);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
     });
   });
 });

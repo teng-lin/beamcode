@@ -1089,12 +1089,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const models = Array.isArray(inner.models) ? inner.models : [];
     const account = inner.account ?? null;
 
+    this.applyCapabilities(session, commands, models, account);
+  }
+
+  /** Shared logic for applying capabilities from either control_response or unified control_response. */
+  private applyCapabilities(
+    session: Session,
+    commands: InitializeCommand[],
+    models: InitializeModel[],
+    account: InitializeAccount | null,
+  ): void {
     session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
     this.logger.info(
       `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
     );
 
-    // Enrich per-session registry with rich command metadata from capabilities
     if (commands.length > 0) {
       session.registry.registerFromCLI(commands);
     }
@@ -1187,20 +1196,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Slash command handling ───────────────────────────────────────────────
 
+  /** Returns true if the command should be forwarded to the CLI as a user message (native or skill). */
+  private shouldForwardToCLI(command: string, session: Session): boolean {
+    return (
+      this.slashCommandExecutor.isNativeCommand(command, session.state) ||
+      this.slashCommandExecutor.isSkillCommand(command, session.registry)
+    );
+  }
+
   private handleSlashCommand(
     session: Session,
     msg: { type: "slash_command"; command: string; request_id?: string },
   ): void {
     const { command, request_id } = msg;
 
-    // Native commands are forwarded directly to the CLI as user messages
-    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
-      this.sendUserMessage(session.id, command);
-      return;
-    }
-
-    // Skill commands are also forwarded to CLI as user messages
-    if (this.slashCommandExecutor.isSkillCommand(command, session.registry)) {
+    if (this.shouldForwardToCLI(command, session)) {
       this.sendUserMessage(session.id, command);
       return;
     }
@@ -1262,15 +1272,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
-    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
+    if (this.shouldForwardToCLI(command, session)) {
       this.sendUserMessage(sessionId, command);
       return null; // result comes back via normal CLI message flow
-    }
-
-    // Skill commands are forwarded to CLI as user messages
-    if (this.slashCommandExecutor.isSkillCommand(command, session.registry)) {
-      this.sendUserMessage(sessionId, command);
-      return null;
     }
 
     if (!this.slashCommandExecutor.canHandle(command, session.state)) {
@@ -1914,25 +1918,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const models = Array.isArray(response.models) ? (response.models as InitializeModel[]) : [];
     const account = (response.account as InitializeAccount | null) ?? null;
 
-    session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
-    this.logger.info(
-      `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
-    );
-
-    // Enrich per-session registry with rich command metadata from capabilities
-    if (commands.length > 0) {
-      session.registry.registerFromCLI(commands);
-    }
-
-    this.broadcastToConsumers(session, {
-      type: "capabilities_ready",
-      commands,
-      models,
-      account,
-      skills: session.state.skills,
-    });
-    this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
-    this.persistSession(session);
+    this.applyCapabilities(session, commands, models, account);
   }
 
   private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {

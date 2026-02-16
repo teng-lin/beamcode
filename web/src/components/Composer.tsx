@@ -28,14 +28,23 @@ export function Composer({ sessionId }: ComposerProps) {
   const capabilities = useStore((s) => s.sessionData[sessionId]?.capabilities);
   const isRunning = sessionStatus === "running";
 
+  // O(1) lookup map for argument hints, keyed by normalized command name (with leading slash)
+  const hintMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cmd of capabilities?.commands ?? []) {
+      if (!cmd.argumentHint) continue;
+      const name = cmd.name.startsWith("/") ? cmd.name : `/${cmd.name}`;
+      map.set(name, cmd.argumentHint);
+    }
+    return map;
+  }, [capabilities]);
+
   const argumentHint = useMemo(() => {
     // Show hint only when value is exactly "/command " (trailing space, no args yet)
     const match = value.match(/^(\/\S+)\s$/);
     if (!match) return null;
-    const cmdName = match[1];
-    const cmd = capabilities?.commands?.find((c) => c.name === cmdName || `/${c.name}` === cmdName);
-    return cmd?.argumentHint ?? null;
-  }, [value, capabilities]);
+    return hintMap.get(match[1]) ?? null;
+  }, [value, hintMap]);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
