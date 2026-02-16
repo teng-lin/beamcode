@@ -152,11 +152,20 @@ function handleMessage(sessionId: string, data: string): void {
 }
 
 export function connectToSession(sessionId: string): void {
-  // Disconnect previous session
-  if (ws && activeSessionId !== sessionId) {
-    disconnect();
+  // Clear any pending reconnect timer
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
 
+  // Disconnect previous session or stale connection to same session
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+
+  reconnectAttempt = 0;
   activeSessionId = sessionId;
   const store = useStore.getState();
   store.ensureSessionData(sessionId);

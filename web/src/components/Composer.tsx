@@ -14,7 +14,8 @@ interface AttachedImage {
   preview: string;
 }
 
-let nextImageId = 0;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_IMAGES = 10;
 
 export function Composer({ sessionId }: ComposerProps) {
   const [value, setValue] = useState("");
@@ -50,14 +51,22 @@ export function Composer({ sessionId }: ComposerProps) {
   const processFiles = useCallback((files: FileList) => {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/")) continue;
+      if (file.size > MAX_IMAGE_SIZE) continue;
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const base64 = dataUrl.split(",")[1];
-        setImages((prev) => [
-          ...prev,
-          { id: `img-${++nextImageId}`, media_type: file.type, data: base64, preview: dataUrl },
-        ]);
+        if (!base64) return;
+        setImages((prev) => {
+          if (prev.length >= MAX_IMAGES) return prev;
+          return [
+            ...prev,
+            { id: crypto.randomUUID(), media_type: file.type, data: base64, preview: dataUrl },
+          ];
+        });
+      };
+      reader.onerror = () => {
+        console.error("Failed to read image file:", file.name);
       };
       reader.readAsDataURL(file);
     }
@@ -88,6 +97,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       if (e.clipboardData.files.length > 0) {
+        e.preventDefault();
         processFiles(e.clipboardData.files);
       }
     },
@@ -105,18 +115,13 @@ export function Composer({ sessionId }: ComposerProps) {
     if (trimmed.startsWith("/")) {
       send({ type: "slash_command", command: trimmed });
     } else {
-      const msg: {
-        type: "user_message";
-        content: string;
-        images?: { media_type: string; data: string }[];
-      } = {
+      send({
         type: "user_message",
         content: trimmed,
-      };
-      if (images.length > 0) {
-        msg.images = images.map(({ media_type, data }) => ({ media_type, data }));
-      }
-      send(msg);
+        ...(images.length > 0 && {
+          images: images.map(({ media_type, data }) => ({ media_type, data })),
+        }),
+      });
     }
     setValue("");
     setImages([]);

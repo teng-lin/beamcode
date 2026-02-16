@@ -67,11 +67,12 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
   const permList = Object.values(permissions ?? {});
 
   const handleAllowAll = useCallback(() => {
-    for (const perm of permList) {
-      send({ type: "permission_response", request_id: perm.request_id, behavior: "allow" });
-      useStore.getState().removePermission(sessionId, perm.request_id);
+    const perms = useStore.getState().sessionData[sessionId]?.pendingPermissions ?? {};
+    for (const perm of Object.values(perms)) {
+      handleResponse(perm.request_id, "allow");
     }
-  }, [sessionId, permList]);
+  }, [sessionId, handleResponse]);
+
   if (permList.length === 0) return null;
 
   return (

@@ -11,18 +11,11 @@ interface DiffLine {
 }
 
 function computeDiff(oldStr: string, newStr: string): DiffLine[] {
-  const lines: DiffLine[] = [];
-  if (oldStr) {
-    for (const line of oldStr.split("\n")) {
-      lines.push({ type: "removed", text: line });
-    }
-  }
-  if (newStr) {
-    for (const line of newStr.split("\n")) {
-      lines.push({ type: "added", text: line });
-    }
-  }
-  return lines;
+  const removed = oldStr
+    ? oldStr.split("\n").map((text): DiffLine => ({ type: "removed", text }))
+    : [];
+  const added = newStr ? newStr.split("\n").map((text): DiffLine => ({ type: "added", text })) : [];
+  return [...removed, ...added];
 }
 
 export function DiffView({ oldString, newString, filePath, maxLines = 40 }: DiffViewProps) {

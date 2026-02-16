@@ -3,6 +3,45 @@ import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
 
+interface ModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
+}
+
+function computeCacheRatio(usage: ModelUsage): number {
+  const totalInput =
+    usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+  return totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
+}
+
+function ModelUsageCard({ model, usage }: { model: string; usage: ModelUsage }) {
+  const cacheRatio = computeCacheRatio(usage);
+
+  return (
+    <div className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs">
+      <div className="font-medium text-bc-text">{model}</div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums text-bc-text-muted">
+        <span>Input</span>
+        <span className="text-right">{formatTokens(usage.inputTokens)}</span>
+        <span>Output</span>
+        <span className="text-right">{formatTokens(usage.outputTokens)}</span>
+        {cacheRatio > 0 && (
+          <>
+            <span>Cache hit</span>
+            <span className="text-right">{cacheRatio}%</span>
+          </>
+        )}
+      </div>
+      <div className="mt-1.5 border-t border-bc-border/30 pt-1.5 font-medium tabular-nums text-bc-text">
+        {formatCost(usage.costUSD)}
+      </div>
+    </div>
+  );
+}
+
 export function TaskPanel() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessionData = useStore((s) =>
@@ -16,14 +55,14 @@ export function TaskPanel() {
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
 
-  const handleExportJson = () => {
-    const content = exportAsJson(sessionData.messages);
-    downloadFile(content, `beamcode-session-${currentSessionId}.json`, "application/json");
-  };
-
-  const handleExportMarkdown = () => {
-    const content = exportAsMarkdown(sessionData.messages);
-    downloadFile(content, `beamcode-session-${currentSessionId}.md`, "text/markdown");
+  const handleExport = (format: "json" | "markdown") => {
+    const isJson = format === "json";
+    const content = isJson
+      ? exportAsJson(sessionData.messages)
+      : exportAsMarkdown(sessionData.messages);
+    const ext = isJson ? "json" : "md";
+    const mime = isJson ? "application/json" : "text/markdown";
+    downloadFile(content, `beamcode-session-${currentSessionId}.${ext}`, mime);
   };
 
   return (
@@ -74,36 +113,9 @@ export function TaskPanel() {
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
               Model Usage
             </div>
-            {Object.entries(state.last_model_usage).map(([model, usage]) => {
-              const totalInput =
-                usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
-              const cacheRatio =
-                totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
-
-              return (
-                <div
-                  key={model}
-                  className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs"
-                >
-                  <div className="font-medium text-bc-text">{model}</div>
-                  <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums text-bc-text-muted">
-                    <span>Input</span>
-                    <span className="text-right">{formatTokens(usage.inputTokens)}</span>
-                    <span>Output</span>
-                    <span className="text-right">{formatTokens(usage.outputTokens)}</span>
-                    {cacheRatio > 0 && (
-                      <>
-                        <span>Cache hit</span>
-                        <span className="text-right">{cacheRatio}%</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="mt-1.5 border-t border-bc-border/30 pt-1.5 font-medium tabular-nums text-bc-text">
-                    {formatCost(usage.costUSD)}
-                  </div>
-                </div>
-              );
-            })}
+            {Object.entries(state.last_model_usage).map(([model, usage]) => (
+              <ModelUsageCard key={model} model={model} usage={usage} />
+            ))}
           </div>
         )}
 
@@ -115,14 +127,14 @@ export function TaskPanel() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleExportMarkdown}
+              onClick={() => handleExport("markdown")}
               className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
             >
               Markdown
             </button>
             <button
               type="button"
-              onClick={handleExportJson}
+              onClick={() => handleExport("json")}
               className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
             >
               JSON
