@@ -11,18 +11,24 @@ export interface TestSessionManagerOptions {
   config?: Partial<ProviderConfig>;
 }
 
+export interface TestSessionManager {
+  manager: SessionManager;
+  server: NodeWebSocketServer;
+}
+
 export async function setupTestSessionManager(
   options: TestSessionManagerOptions = {},
-): Promise<SessionManager> {
+): Promise<TestSessionManager> {
+  const server = new NodeWebSocketServer({ port: 0 });
   const manager = new SessionManager({
     config: { port: 0, ...options.config },
     processManager: new NodeProcessManager(),
     storage: new MemoryStorage(),
-    server: new NodeWebSocketServer({ port: 0 }),
+    server,
   });
 
   await manager.start();
-  return manager;
+  return { manager, server };
 }
 
 export interface TestSession {
@@ -30,9 +36,9 @@ export interface TestSession {
   port: number;
 }
 
-export function createTestSession(manager: SessionManager): TestSession {
-  const { sessionId } = manager.launcher.launch({ cwd: process.cwd() });
-  const port = manager.bridge.config.port;
+export function createTestSession(testManager: TestSessionManager): TestSession {
+  const { sessionId } = testManager.manager.launcher.launch({ cwd: process.cwd() });
+  const port = testManager.server.port ?? 0;
   return { sessionId, port };
 }
 
@@ -239,9 +245,9 @@ export async function closeWebSockets(...sockets: WebSocket[]): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-export async function cleanupSessionManager(manager: SessionManager): Promise<void> {
+export async function cleanupSessionManager(testManager: TestSessionManager): Promise<void> {
   try {
-    await manager.stop();
+    await testManager.manager.stop();
   } catch (err) {
     console.error("Error stopping session manager:", err);
   }
