@@ -392,6 +392,101 @@ describe("Sidebar", () => {
     });
   });
 
+  // ── Session search ──────────────────────────────────────────────────
+
+  describe("session search", () => {
+    it("renders a search input", () => {
+      render(<Sidebar />);
+      expect(screen.getByPlaceholderText("Search sessions...")).toBeInTheDocument();
+    });
+
+    it("filters sessions by name match", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          name: "Auth refactor",
+          cwd: "/tmp/auth",
+          createdAt: 1000,
+        }),
+        makeSessionInfo({ sessionId: "s2", name: "API tests", cwd: "/tmp/api", createdAt: 2000 }),
+        makeSessionInfo({
+          sessionId: "s3",
+          name: "Dashboard UI",
+          cwd: "/tmp/dash",
+          createdAt: 3000,
+        }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "auth");
+
+      expect(screen.getByText("Auth refactor")).toBeInTheDocument();
+      expect(screen.queryByText("API tests")).not.toBeInTheDocument();
+      expect(screen.queryByText("Dashboard UI")).not.toBeInTheDocument();
+    });
+
+    it("filters sessions by cwd basename when name is undefined", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/my-project", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/other-thing", createdAt: 2000 }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "my-proj");
+
+      expect(screen.getByText("my-project")).toBeInTheDocument();
+      expect(screen.queryByText("other-thing")).not.toBeInTheDocument();
+    });
+
+    it("is case-insensitive", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          name: "Auth Refactor",
+          cwd: "/tmp/auth",
+          createdAt: 1000,
+        }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "AUTH");
+
+      expect(screen.getByText("Auth Refactor")).toBeInTheDocument();
+    });
+
+    it("shows all sessions when search is cleared", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", name: "Alpha", cwd: "/tmp/a", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", name: "Beta", cwd: "/tmp/b", createdAt: 2000 }),
+      );
+      render(<Sidebar />);
+
+      const input = screen.getByPlaceholderText("Search sessions...");
+      await user.type(input, "Alpha");
+      expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+
+      await user.clear(input);
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
+      expect(screen.getByText("Beta")).toBeInTheDocument();
+    });
+
+    it("shows 'No matching sessions' when search has no results", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", name: "Alpha", cwd: "/tmp/a", createdAt: 1000 }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "zzzzz");
+
+      expect(screen.getByText("No matching sessions")).toBeInTheDocument();
+    });
+  });
+
   // ── Keyboard navigation ────────────────────────────────────────────────
 
   describe("keyboard navigation", () => {
