@@ -252,6 +252,9 @@ describe("isUnifiedMessage", () => {
       "permission_response",
       "interrupt",
       "configuration_change",
+      "team_message",
+      "team_task_update",
+      "team_state_change",
       "unknown",
     ];
     for (const t of types) {

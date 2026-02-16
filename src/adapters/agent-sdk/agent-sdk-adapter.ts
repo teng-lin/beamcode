@@ -22,6 +22,7 @@ export class AgentSdkAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: true,
   };
 
   constructor(private readonly queryFn?: QueryFn) {}

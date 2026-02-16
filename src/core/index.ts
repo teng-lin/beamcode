@@ -14,6 +14,7 @@ export type {
   Interruptible,
   PermissionHandler,
   Reconnectable,
+  TeamObserver,
 } from "./interfaces/extensions.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./process-supervisor.js";
 export { ProcessSupervisor } from "./process-supervisor.js";
@@ -25,6 +26,21 @@ export type {
   DevToolSessionState,
 } from "./types/core-session-state.js";
 export type { SequencedMessage } from "./types/sequenced-message.js";
+export type {
+  TeamEvent,
+  TeamIdleEvent,
+  TeamMember,
+  TeamMemberEvent,
+  TeamMessageEvent,
+  TeamPlanApprovalRequestEvent,
+  TeamPlanApprovalResponseEvent,
+  TeamShutdownRequestEvent,
+  TeamShutdownResponseEvent,
+  TeamState,
+  TeamTask,
+  TeamTaskEvent,
+} from "./types/team-types.js";
+export { isTeamMember, isTeamState, isTeamTask } from "./types/team-types.js";
 // Types
 export type {
   UnifiedContent,
@@ -34,5 +50,8 @@ export type {
 export {
   canonicalize,
   createUnifiedMessage,
+  isTeamMessage,
+  isTeamStateChange,
+  isTeamTaskUpdate,
   isUnifiedMessage,
 } from "./types/unified-message.js";

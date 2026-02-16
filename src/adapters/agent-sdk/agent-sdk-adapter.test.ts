@@ -111,6 +111,7 @@ describe("AgentSdkAdapter", () => {
       permissions: true,
       slashCommands: false,
       availability: "local",
+      teams: true,
     });
   });
 

@@ -129,6 +129,7 @@ class MockAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
 
   private sessions = new Map<string, MockSession>();
@@ -229,6 +230,7 @@ describe("BackendAdapter contract", () => {
       permissions: false,
       slashCommands: false,
       availability: "remote",
+      teams: false,
     };
 
     // Just verify the type system allows different values

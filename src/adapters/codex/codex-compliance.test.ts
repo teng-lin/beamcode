@@ -90,6 +90,7 @@ class ComplianceCodexAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
 
   async connect(options: ConnectOptions): Promise<BackendSession> {

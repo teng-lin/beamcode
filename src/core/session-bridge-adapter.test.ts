@@ -102,6 +102,7 @@ class MockBackendAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
 
   private sessions = new Map<string, MockBackendSession>();
@@ -153,6 +154,7 @@ class ErrorBackendAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
   async connect(options: ConnectOptions): Promise<BackendSession> {
     return new ErrorBackendSession(options.sessionId);

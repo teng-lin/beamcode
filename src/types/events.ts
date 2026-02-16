@@ -1,3 +1,4 @@
+import type { TeamMember, TeamTask } from "../core/types/team-types.js";
 import type { UnifiedMessage } from "../core/types/unified-message.js";
 import type { ConsumerIdentity, ConsumerRole } from "./auth.js";
 import type {
@@ -74,6 +75,16 @@ export interface BridgeEventMap {
     account: InitializeAccount | null;
   };
   "capabilities:timeout": { sessionId: string };
+
+  // ── Team events (Phase 5.7) ──
+  "team:created": { sessionId: string; teamName: string };
+  "team:deleted": { sessionId: string; teamName: string };
+  "team:member:joined": { sessionId: string; member: TeamMember };
+  "team:member:idle": { sessionId: string; member: TeamMember };
+  "team:member:shutdown": { sessionId: string; member: TeamMember };
+  "team:task:created": { sessionId: string; task: TeamTask };
+  "team:task:claimed": { sessionId: string; task: TeamTask };
+  "team:task:completed": { sessionId: string; task: TeamTask };
 
   // ── Auth & error events ──
   auth_status: {

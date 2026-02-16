@@ -20,6 +20,7 @@ export class SdkUrlAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: true,
     availability: "local",
+    teams: true,
   };
 
   async connect(_options: ConnectOptions): Promise<BackendSession> {

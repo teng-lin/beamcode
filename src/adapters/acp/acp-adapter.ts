@@ -30,6 +30,7 @@ export class AcpAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: true,
     availability: "local",
+    teams: false,
   };
 
   private readonly spawnFn: SpawnFn;
