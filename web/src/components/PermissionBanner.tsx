@@ -79,7 +79,24 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
       {permList.map((perm) => (
         <div key={perm.request_id} className="border-b border-bc-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="rounded bg-bc-warning/20 px-1.5 py-0.5 font-mono-code text-xs text-bc-warning">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              className="flex-shrink-0"
+              aria-hidden="true"
+            >
+              <path
+                d="M7 1.5l5 3v5l-5 3-5-3v-5l5-3z"
+                stroke="var(--color-bc-warning)"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+              <circle cx="7" cy="6" r="1" fill="var(--color-bc-warning)" />
+              <path d="M7 8.5v1" stroke="var(--color-bc-warning)" strokeWidth="1.2" />
+            </svg>
+            <span className="rounded-md bg-bc-warning/15 px-2 py-0.5 font-mono-code text-xs font-medium text-bc-warning">
               {perm.tool_name}
             </span>
             {perm.description && (
@@ -89,11 +106,11 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
 
           {toolPreview(perm.tool_name, perm.input)}
 
-          <div className="mt-2 flex gap-2">
+          <div className="mt-3 flex gap-2">
             <button
               type="button"
               onClick={() => handleResponse(perm.request_id, "allow")}
-              className="rounded bg-bc-success/20 px-3 py-1 text-xs font-medium text-bc-success hover:bg-bc-success/30"
+              className="rounded-lg bg-bc-success/20 px-4 py-1.5 text-xs font-medium text-bc-success transition-colors hover:bg-bc-success/30"
               aria-label={`Approve ${perm.tool_name}: ${perm.description ?? ""}`}
             >
               Allow
@@ -101,7 +118,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
             <button
               type="button"
               onClick={() => handleResponse(perm.request_id, "deny")}
-              className="rounded bg-bc-error/20 px-3 py-1 text-xs font-medium text-bc-error hover:bg-bc-error/30"
+              className="rounded-lg bg-bc-error/20 px-4 py-1.5 text-xs font-medium text-bc-error transition-colors hover:bg-bc-error/30"
               aria-label={`Deny ${perm.tool_name}: ${perm.description ?? ""}`}
             >
               Deny
