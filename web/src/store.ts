@@ -42,6 +42,14 @@ export interface SessionData {
     skills: string[];
   } | null;
   toolProgress: Record<string, { toolName: string; elapsedSeconds: number }>;
+  agentStreaming: Record<
+    string,
+    {
+      text: string | null;
+      startedAt: number | null;
+      outputTokens: number;
+    }
+  >;
   reconnectAttempt: number;
 }
 
@@ -56,6 +64,7 @@ export interface AppState {
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   shortcutsModalOpen: boolean;
+  inspectedAgentId: string | null;
 
   // Actions
   setCurrentSession: (id: string) => void;
@@ -64,6 +73,7 @@ export interface AppState {
   setTaskPanelOpen: (open: boolean) => void;
   toggleDarkMode: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
+  setInspectedAgent: (id: string | null) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -95,6 +105,10 @@ export interface AppState {
     elapsedSeconds: number,
   ) => void;
   setReconnectAttempt: (sessionId: string, attempt: number) => void;
+  initAgentStreaming: (sessionId: string, agentId: string) => void;
+  appendAgentStreaming: (sessionId: string, agentId: string, delta: string) => void;
+  setAgentStreamingOutputTokens: (sessionId: string, agentId: string, count: number) => void;
+  clearAgentStreaming: (sessionId: string, agentId: string) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -125,6 +139,7 @@ function emptySessionData(): SessionData {
     state: null,
     capabilities: null,
     toolProgress: {},
+    agentStreaming: {},
     reconnectAttempt: 0,
   };
 }
@@ -179,6 +194,7 @@ export const useStore = create<AppState>()((set, get) => ({
   ),
   taskPanelOpen: false,
   shortcutsModalOpen: false,
+  inspectedAgentId: null,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -196,6 +212,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return { darkMode: next };
     }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+  setInspectedAgent: (id) => set({ inspectedAgentId: id }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
@@ -290,6 +307,54 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setReconnectAttempt: (sessionId, attempt) =>
     set((s) => patchSession(s, sessionId, { reconnectAttempt: attempt })),
+
+  initAgentStreaming: (sessionId, agentId) =>
+    set((s) => {
+      const data = s.sessionData[sessionId] ?? emptySessionData();
+      return patchSession(s, sessionId, {
+        agentStreaming: {
+          ...data.agentStreaming,
+          [agentId]: { text: "", startedAt: Date.now(), outputTokens: 0 },
+        },
+      });
+    }),
+
+  appendAgentStreaming: (sessionId, agentId, delta) =>
+    set((s) => {
+      const data = s.sessionData[sessionId] ?? emptySessionData();
+      const current = data.agentStreaming[agentId];
+      return patchSession(s, sessionId, {
+        agentStreaming: {
+          ...data.agentStreaming,
+          [agentId]: {
+            text: (current?.text ?? "") + delta,
+            startedAt: current?.startedAt ?? null,
+            outputTokens: current?.outputTokens ?? 0,
+          },
+        },
+      });
+    }),
+
+  setAgentStreamingOutputTokens: (sessionId, agentId, count) =>
+    set((s) => {
+      const data = s.sessionData[sessionId] ?? emptySessionData();
+      const current = data.agentStreaming[agentId];
+      if (!current) return s;
+      return patchSession(s, sessionId, {
+        agentStreaming: {
+          ...data.agentStreaming,
+          [agentId]: { ...current, outputTokens: count },
+        },
+      });
+    }),
+
+  clearAgentStreaming: (sessionId, agentId) =>
+    set((s) => {
+      const data = s.sessionData[sessionId];
+      if (!data) return s;
+      const { [agentId]: _, ...rest } = data.agentStreaming;
+      return patchSession(s, sessionId, { agentStreaming: rest });
+    }),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>

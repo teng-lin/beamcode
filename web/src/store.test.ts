@@ -15,6 +15,7 @@ describe("store", () => {
       darkMode: true,
       sidebarOpen: false,
       taskPanelOpen: false,
+      inspectedAgentId: null,
     });
   });
 
@@ -309,6 +310,68 @@ describe("store", () => {
       // Calling setTaskPanelOpen(true) again should be idempotent (not toggle)
       store().setTaskPanelOpen(true);
       expect(store().taskPanelOpen).toBe(true);
+    });
+  });
+
+  describe("inspectedAgentId", () => {
+    it("setInspectedAgent sets and clears", () => {
+      expect(store().inspectedAgentId).toBeNull();
+      store().setInspectedAgent("agent-1");
+      expect(store().inspectedAgentId).toBe("agent-1");
+      store().setInspectedAgent(null);
+      expect(store().inspectedAgentId).toBeNull();
+    });
+  });
+
+  describe("agent streaming", () => {
+    it("initAgentStreaming creates entry", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      const entry = store().sessionData[SESSION_ID].agentStreaming["agent-1"];
+      expect(entry.text).toBe("");
+      expect(entry.startedAt).toBeTypeOf("number");
+      expect(entry.outputTokens).toBe(0);
+    });
+
+    it("appendAgentStreaming concatenates text", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().appendAgentStreaming(SESSION_ID, "agent-1", "Hello");
+      store().appendAgentStreaming(SESSION_ID, "agent-1", " world");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"].text).toBe("Hello world");
+    });
+
+    it("appendAgentStreaming initializes from missing entry", () => {
+      store().appendAgentStreaming(SESSION_ID, "agent-1", "first");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"].text).toBe("first");
+    });
+
+    it("setAgentStreamingOutputTokens updates count", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().setAgentStreamingOutputTokens(SESSION_ID, "agent-1", 42);
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"].outputTokens).toBe(42);
+    });
+
+    it("setAgentStreamingOutputTokens is no-op for missing entry", () => {
+      store().ensureSessionData(SESSION_ID);
+      store().setAgentStreamingOutputTokens(SESSION_ID, "agent-1", 42);
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"]).toBeUndefined();
+    });
+
+    it("clearAgentStreaming removes key", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().clearAgentStreaming(SESSION_ID, "agent-1");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"]).toBeUndefined();
+    });
+
+    it("multiple agents are independent", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().initAgentStreaming(SESSION_ID, "agent-2");
+      store().appendAgentStreaming(SESSION_ID, "agent-1", "a1");
+      store().appendAgentStreaming(SESSION_ID, "agent-2", "a2");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"].text).toBe("a1");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-2"].text).toBe("a2");
+      store().clearAgentStreaming(SESSION_ID, "agent-1");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"]).toBeUndefined();
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-2"].text).toBe("a2");
     });
   });
 

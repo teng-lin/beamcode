@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { AssistantContent, ConsumerContentBlock } from "../../../shared/consumer-types";
+import { AgentRosterBlock } from "./AgentRosterBlock";
 import { MarkdownContent } from "./MarkdownContent";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolBlock } from "./ToolBlock";
@@ -107,17 +108,16 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
             );
           }
 
-          case "tool_group":
-            return (
-              <ToolGroupBlock
-                key={group.key}
-                blocks={group.blocks.filter(
-                  (b): b is Extract<ConsumerContentBlock, { type: "tool_use" }> =>
-                    b.type === "tool_use",
-                )}
-                sessionId={sessionId}
-              />
+          case "tool_group": {
+            const toolBlocks = group.blocks.filter(
+              (b): b is Extract<ConsumerContentBlock, { type: "tool_use" }> =>
+                b.type === "tool_use",
             );
+            if (toolBlocks.length > 0 && toolBlocks[0].name === "Task") {
+              return <AgentRosterBlock key={group.key} blocks={toolBlocks} sessionId={sessionId} />;
+            }
+            return <ToolGroupBlock key={group.key} blocks={toolBlocks} sessionId={sessionId} />;
+          }
 
           case "tool_result": {
             const block = group.blocks[0];

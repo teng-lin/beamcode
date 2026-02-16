@@ -28,11 +28,18 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Escape: close shortcuts modal (if open)
-      if (e.key === "Escape" && state.shortcutsModalOpen) {
-        e.preventDefault();
-        state.setShortcutsModalOpen(false);
-        return;
+      // Escape: close agent pane first, then shortcuts modal
+      if (e.key === "Escape") {
+        if (state.inspectedAgentId) {
+          e.preventDefault();
+          state.setInspectedAgent(null);
+          return;
+        }
+        if (state.shortcutsModalOpen) {
+          e.preventDefault();
+          state.setShortcutsModalOpen(false);
+          return;
+        }
       }
 
       // ?: open shortcuts modal (only when not typing in input)

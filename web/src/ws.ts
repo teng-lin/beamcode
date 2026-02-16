@@ -44,7 +44,11 @@ function handleMessage(sessionId: string, data: string): void {
 
   switch (msg.type) {
     case "assistant":
-      store.clearStreaming(sessionId);
+      if (msg.parent_tool_use_id) {
+        store.clearAgentStreaming(sessionId, msg.parent_tool_use_id);
+      } else {
+        store.clearStreaming(sessionId);
+      }
       store.addMessage(sessionId, msg);
       break;
 
@@ -61,24 +65,40 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "stream_event": {
-      const { event } = msg;
+      const { event, parent_tool_use_id } = msg;
+      const agentId = parent_tool_use_id; // null = main session
+
       switch (event.type) {
         case "message_start":
-          store.setStreamingStarted(sessionId, Date.now());
-          store.setStreaming(sessionId, "");
+          if (agentId) {
+            store.initAgentStreaming(sessionId, agentId);
+          } else {
+            store.setStreamingStarted(sessionId, Date.now());
+            store.setStreaming(sessionId, "");
+          }
           store.setSessionStatus(sessionId, "running");
           break;
+
         case "content_block_delta": {
           const delta = (event as { delta?: { type: string; text?: string } }).delta;
           if (delta?.type === "text_delta" && delta.text) {
-            store.appendStreaming(sessionId, delta.text);
+            if (agentId) {
+              store.appendAgentStreaming(sessionId, agentId, delta.text);
+            } else {
+              store.appendStreaming(sessionId, delta.text);
+            }
           }
           break;
         }
+
         case "message_delta": {
           const usage = (event as { usage?: { output_tokens?: number } }).usage;
           if (usage?.output_tokens) {
-            store.setStreamingOutputTokens(sessionId, usage.output_tokens);
+            if (agentId) {
+              store.setAgentStreamingOutputTokens(sessionId, agentId, usage.output_tokens);
+            } else {
+              store.setStreamingOutputTokens(sessionId, usage.output_tokens);
+            }
           }
           break;
         }
