@@ -107,7 +107,7 @@ describe("E2E: HTTP API /api/sessions", () => {
   it("GET /api/sessions/:id returns session info", async () => {
     const createRes = await createSession({
       cwd: process.cwd(),
-      model: "claude-sonnet-4-5-20250929",
+      model: "test-model-id",
     });
     const { sessionId } = (await createRes.json()) as { sessionId: string };
 
@@ -177,7 +177,7 @@ describe("E2E: HTTP API /api/sessions", () => {
         headers: { "Content-Type": "application/json" },
         body: largeBody,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(TypeError);
   });
 
   it("POST /api/sessions with empty body uses defaults", async () => {

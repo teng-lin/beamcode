@@ -243,7 +243,7 @@ export function mockAssistantMessage(text: string, id = "test-msg") {
       id,
       type: "message",
       role: "assistant",
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-test-model",
       content: [{ type: "text", text }],
       stop_reason: "end_turn",
       usage: {
@@ -253,6 +253,7 @@ export function mockAssistantMessage(text: string, id = "test-msg") {
         cache_read_input_tokens: 0,
       },
     },
+    // parent_tool_use_id is intentionally null for test messages that are not part of a tool use chain
     parent_tool_use_id: null,
   };
 }

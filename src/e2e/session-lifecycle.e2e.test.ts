@@ -112,7 +112,7 @@ describe("E2E: Full Session Lifecycle", () => {
 
       const { sessionId } = manager1.launcher.launch({
         cwd: process.cwd(),
-        model: "claude-sonnet-4-5-20250929",
+        model: "test-model-id",
       });
       expect(sessionId).toBeTruthy();
 
