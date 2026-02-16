@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ConsumerContentBlock } from "../../shared/consumer-types";
 import { useStore } from "./store";
-import { makePermission, makeSessionInfo } from "./test/factories";
+import { makePermission, makeSessionInfo, makeTeamState } from "./test/factories";
 
 const SESSION_ID = "test-session-1";
 const store = () => useStore.getState();
@@ -194,6 +194,60 @@ describe("store", () => {
       const progress = store().sessionData[SESSION_ID].toolProgress;
       expect(progress["tu-1"]).toEqual({ toolName: "Bash", elapsedSeconds: 5 });
       expect(progress["tu-2"]).toEqual({ toolName: "Read", elapsedSeconds: 2 });
+    });
+  });
+
+  describe("team state", () => {
+    it("setSessionState stores team data", () => {
+      const team = makeTeamState();
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toEqual(team);
+    });
+
+    it("session_update merges team into existing state", () => {
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeUndefined();
+
+      const team = makeTeamState();
+      const prev = store().sessionData[SESSION_ID].state!;
+      store().setSessionState(SESSION_ID, { ...prev, team });
+      expect(store().sessionData[SESSION_ID].state?.team).toEqual(team);
+    });
+
+    it("session_update can clear team", () => {
+      const team = makeTeamState();
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeDefined();
+
+      const prev = store().sessionData[SESSION_ID].state!;
+      store().setSessionState(SESSION_ID, { ...prev, team: undefined });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeUndefined();
     });
   });
 

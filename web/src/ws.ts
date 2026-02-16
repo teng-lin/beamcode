@@ -107,12 +107,17 @@ function handleMessage(sessionId: string, data: string): void {
         num_turns: msg.session.num_turns ?? 0,
         context_used_percent: msg.session.context_used_percent ?? 0,
         is_compacting: msg.session.is_compacting ?? false,
+        team: msg.session.team,
       });
       break;
 
     case "session_update": {
       const prev = store.sessionData[sessionId]?.state;
       if (prev) {
+        // Auto-open task panel when team first appears
+        if (!prev.team && msg.session.team && !useStore.getState().taskPanelOpen) {
+          useStore.getState().toggleTaskPanel();
+        }
         store.setSessionState(sessionId, { ...prev, ...msg.session });
       } else {
         // Accept update even without prior session_init

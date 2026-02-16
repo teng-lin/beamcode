@@ -1,7 +1,21 @@
+import { memo } from "react";
+import type { ConsumerTeamMember, ConsumerTeamTask } from "../../../shared/consumer-types";
+import type { AppState } from "../store";
 import { useStore } from "../store";
 import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
+
+// ── Stable empty arrays to prevent re-renders ────────────────────────────────
+
+const EMPTY_MEMBERS: ConsumerTeamMember[] = [];
+const EMPTY_TASKS: ConsumerTeamTask[] = [];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function currentData(s: AppState) {
+  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
+}
 
 interface ModelUsage {
   inputTokens: number;
@@ -16,6 +30,23 @@ function computeCacheRatio(usage: ModelUsage): number {
     usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
   return totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
 }
+
+// ── Status styling ───────────────────────────────────────────────────────────
+
+const MEMBER_STATUS_STYLES: Record<string, string> = {
+  active: "bg-bc-success animate-pulse",
+  idle: "bg-bc-warning",
+  shutdown: "bg-bc-text-muted/40",
+};
+
+const TASK_STATUS_ICONS: Record<string, string> = {
+  pending: "\u25CB",
+  in_progress: "\u25D1",
+  completed: "\u25CF",
+  deleted: "\u2715",
+};
+
+// ── Memoized sub-components ──────────────────────────────────────────────────
 
 function ModelUsageCard({ model, usage }: { model: string; usage: ModelUsage }) {
   const cacheRatio = computeCacheRatio(usage);
@@ -42,11 +73,51 @@ function ModelUsageCard({ model, usage }: { model: string; usage: ModelUsage }) 
   );
 }
 
+const TeamMemberItem = memo(function TeamMemberItem({ member }: { member: ConsumerTeamMember }) {
+  const dotClass = MEMBER_STATUS_STYLES[member.status] ?? "bg-bc-text-muted/40";
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+      <span className="truncate text-xs text-bc-text">{member.name}</span>
+      <span className="ml-auto text-[10px] text-bc-text-muted">{member.agentType}</span>
+    </div>
+  );
+});
+
+const TeamTaskItem = memo(function TeamTaskItem({ task }: { task: ConsumerTeamTask }) {
+  const icon = TASK_STATUS_ICONS[task.status] ?? "\u25CB";
+  const isActive = task.status === "in_progress";
+  return (
+    <div className="py-1">
+      <div className="flex items-start gap-1.5">
+        <span
+          className={`mt-0.5 text-xs ${isActive ? "text-bc-accent" : "text-bc-text-muted"}`}
+          title={task.status}
+        >
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className={`truncate text-xs ${isActive ? "text-bc-text" : "text-bc-text-muted"}`}>
+            {task.subject}
+          </div>
+          {task.owner && <div className="text-[10px] text-bc-text-muted/60">{task.owner}</div>}
+          {isActive && task.activeForm && (
+            <div className="text-[10px] italic text-bc-accent/70">{task.activeForm}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ── Main component ───────────────────────────────────────────────────────────
+
 export function TaskPanel() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessionData = useStore((s) =>
     s.currentSessionId ? s.sessionData[s.currentSessionId] : null,
   );
+  const team = useStore((s) => currentData(s)?.state?.team ?? null);
 
   if (!currentSessionId || !sessionData) return null;
 
@@ -54,6 +125,12 @@ export function TaskPanel() {
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
+  const members = team?.members ?? EMPTY_MEMBERS;
+  const tasks = team?.tasks ?? EMPTY_TASKS;
+  const visibleTasks = tasks.filter((t) => t.status !== "deleted");
+  const completedCount = visibleTasks.filter((t) => t.status === "completed").length;
+  const progressPercent =
+    visibleTasks.length > 0 ? Math.round((completedCount / visibleTasks.length) * 100) : 0;
 
   const handleExport = (format: "json" | "markdown") => {
     const isJson = format === "json";
@@ -119,6 +196,43 @@ export function TaskPanel() {
                 <span className="text-bc-error">-{state.total_lines_removed ?? 0}</span>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Team Members */}
+        {team && (
+          <div className="mb-5">
+            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+              Team Members
+            </div>
+            {members.length === 0 ? (
+              <div className="text-xs text-bc-text-muted/50">No members</div>
+            ) : (
+              members.map((m) => <TeamMemberItem key={m.agentId} member={m} />)
+            )}
+          </div>
+        )}
+
+        {/* Team Tasks */}
+        {team && visibleTasks.length > 0 && (
+          <div className="mb-5">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+                Team Tasks
+              </span>
+              <span className="text-[10px] tabular-nums text-bc-text-muted">
+                {completedCount}/{visibleTasks.length}
+              </span>
+            </div>
+            <div className="mb-2 h-1 overflow-hidden rounded-full bg-bc-surface-2">
+              <div
+                className="h-full rounded-full bg-bc-success transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            {visibleTasks.map((t) => (
+              <TeamTaskItem key={t.id} task={t} />
+            ))}
           </div>
         )}
 

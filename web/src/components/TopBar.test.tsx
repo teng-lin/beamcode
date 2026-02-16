@@ -2,7 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
-import { makePermission, resetStore, store } from "../test/factories";
+import {
+  makePermission,
+  makeTeamMember,
+  makeTeamState,
+  resetStore,
+  store,
+} from "../test/factories";
 import { TopBar } from "./TopBar";
 
 vi.mock("../ws", () => ({
@@ -226,5 +232,35 @@ describe("TopBar", () => {
     setupSession({ model: "claude-sonnet-4-20250514" });
     render(<TopBar />);
     expect(screen.queryByLabelText("Git branch")).not.toBeInTheDocument();
+  });
+
+  it("renders team badge when team is present", () => {
+    setupSession({ model: "claude-sonnet-4-20250514" });
+    store().setSessionState(SESSION, {
+      session_id: SESSION,
+      model: "claude-sonnet-4-20250514",
+      cwd: "/tmp",
+      total_cost_usd: 0,
+      num_turns: 0,
+      context_used_percent: 0,
+      is_compacting: false,
+      team: makeTeamState({
+        name: "my-project",
+        members: [
+          makeTeamMember({ name: "lead" }),
+          makeTeamMember({ name: "worker", agentId: "agent-2" }),
+        ],
+      }),
+    });
+    render(<TopBar />);
+
+    expect(screen.getByLabelText("Team")).toBeInTheDocument();
+    expect(screen.getByText("my-project (2)")).toBeInTheDocument();
+  });
+
+  it("does not render team badge when no team", () => {
+    setupSession({ model: "claude-sonnet-4-20250514" });
+    render(<TopBar />);
+    expect(screen.queryByLabelText("Team")).not.toBeInTheDocument();
   });
 });

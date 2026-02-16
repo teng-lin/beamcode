@@ -3,6 +3,9 @@ import type {
   ConsumerContentBlock,
   ConsumerMessage,
   ConsumerPermissionRequest,
+  ConsumerTeamMember,
+  ConsumerTeamState,
+  ConsumerTeamTask,
 } from "../../../shared/consumer-types";
 import type { SdkSessionInfo } from "../store";
 import { useStore } from "../store";
@@ -88,5 +91,38 @@ export function makeToolUseBlock(
     id: overrides?.id ?? "t1",
     name: overrides?.name ?? "Bash",
     input: overrides?.input ?? { command: "ls" },
+  };
+}
+
+// ── Team factories ──────────────────────────────────────────────────────────
+
+export function makeTeamMember(overrides?: Partial<ConsumerTeamMember>): ConsumerTeamMember {
+  return {
+    name: "researcher",
+    agentId: "agent-1",
+    agentType: "general-purpose",
+    status: "active",
+    ...overrides,
+  };
+}
+
+export function makeTeamTask(overrides?: Partial<ConsumerTeamTask>): ConsumerTeamTask {
+  return {
+    id: "task-1",
+    subject: "Research codebase",
+    status: "pending",
+    blockedBy: [],
+    blocks: [],
+    ...overrides,
+  };
+}
+
+export function makeTeamState(overrides?: Partial<ConsumerTeamState>): ConsumerTeamState {
+  return {
+    name: "my-team",
+    role: "lead",
+    members: [makeTeamMember()],
+    tasks: [makeTeamTask()],
+    ...overrides,
   };
 }
