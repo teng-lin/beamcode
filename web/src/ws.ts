@@ -115,8 +115,8 @@ function handleMessage(sessionId: string, data: string): void {
       const prev = store.sessionData[sessionId]?.state;
       if (prev) {
         // Auto-open task panel when team first appears
-        if (!prev.team && msg.session.team && !useStore.getState().taskPanelOpen) {
-          useStore.getState().toggleTaskPanel();
+        if (!prev.team && msg.session.team && !store.taskPanelOpen) {
+          store.toggleTaskPanel();
         }
         store.setSessionState(sessionId, { ...prev, ...msg.session });
       } else {

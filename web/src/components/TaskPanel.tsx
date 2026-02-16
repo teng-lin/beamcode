@@ -6,11 +6,6 @@ import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
 
-// ── Stable empty arrays to prevent re-renders ────────────────────────────────
-
-const EMPTY_MEMBERS: ConsumerTeamMember[] = [];
-const EMPTY_TASKS: ConsumerTeamTask[] = [];
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function currentData(s: AppState) {
@@ -125,9 +120,8 @@ export function TaskPanel() {
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
-  const members = team?.members ?? EMPTY_MEMBERS;
-  const tasks = team?.tasks ?? EMPTY_TASKS;
-  const visibleTasks = tasks.filter((t) => t.status !== "deleted");
+  const members = team?.members ?? [];
+  const visibleTasks = (team?.tasks ?? []).filter((t) => t.status !== "deleted");
   const completedCount = visibleTasks.filter((t) => t.status === "completed").length;
   const progressPercent =
     visibleTasks.length > 0 ? Math.round((completedCount / visibleTasks.length) * 100) : 0;

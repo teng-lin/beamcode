@@ -165,7 +165,7 @@ export interface ConsumerSessionState {
   >;
   last_duration_ms?: number;
   last_duration_api_ms?: number;
-  team?: ConsumerTeamState;
+  team?: ConsumerTeamState | null;
 }
 
 // ── Stream Events ──────────────────────────────────────────────────────────
