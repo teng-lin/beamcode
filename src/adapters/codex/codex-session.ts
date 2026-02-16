@@ -97,7 +97,7 @@ export class CodexSession implements BackendSession {
   // ---------------------------------------------------------------------------
 
   send(message: UnifiedMessage): void {
-    if (this.closed) return;
+    if (this.closed) throw new Error("Session is closed");
 
     const action = translateToCodex(message);
 

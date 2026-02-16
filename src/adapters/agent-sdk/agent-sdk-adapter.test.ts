@@ -389,23 +389,21 @@ describe("AgentSdkSession", () => {
       expect((decision as { message: string }).message).toBe("Session closed");
     });
 
-    it("send after close is no-op", async () => {
+    it("throws on send after close", async () => {
       const queryFn = vi.fn(createMockQueryFn([]));
       const session = new AgentSdkSession("noop-session", queryFn);
 
       await session.close();
 
-      // Should not throw or start a new query
-      session.send(
-        createUnifiedMessage({
-          type: "user_message",
-          role: "user",
-          content: [{ type: "text", text: "ignored" }],
-        }),
-      );
-
-      // queryFn should not have been called (since session was closed before send)
-      expect(queryFn).not.toHaveBeenCalled();
+      expect(() =>
+        session.send(
+          createUnifiedMessage({
+            type: "user_message",
+            role: "user",
+            content: [{ type: "text", text: "ignored" }],
+          }),
+        ),
+      ).toThrow("Session is closed");
     });
 
     it("is idempotent", async () => {

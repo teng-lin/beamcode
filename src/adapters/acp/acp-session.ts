@@ -52,7 +52,7 @@ export class AcpSession implements BackendSession {
   }
 
   send(message: UnifiedMessage): void {
-    if (this.closed) return;
+    if (this.closed) throw new Error("Session is closed");
 
     const action = translateToAcp(message, {
       pendingRequestId: this.pendingPermissionRequestId,
@@ -85,8 +85,13 @@ export class AcpSession implements BackendSession {
     this.child.stdin?.write(this.codec.encode(rpcMsg));
   }
 
+  private cachedMessages: AsyncIterable<UnifiedMessage> | null = null;
+
   get messages(): AsyncIterable<UnifiedMessage> {
-    return this.createMessageStream();
+    if (!this.cachedMessages) {
+      this.cachedMessages = this.createMessageStream();
+    }
+    return this.cachedMessages;
   }
 
   async close(): Promise<void> {
@@ -178,6 +183,13 @@ export class AcpSession implements BackendSession {
 
         return {
           next(): Promise<IteratorResult<UnifiedMessage>> {
+            if (session.closed) {
+              done = true;
+              return Promise.resolve({
+                value: undefined as unknown as UnifiedMessage,
+                done: true,
+              });
+            }
             if (queue.length > 0) {
               return Promise.resolve({ value: queue.shift()!, done: false });
             }

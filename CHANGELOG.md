@@ -9,34 +9,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Slash command support**: Unified `slash_command` inbound message type with two execution strategies
-  - **Emulated commands**: `/model`, `/status`, `/config`, `/cost`, `/context` resolved instantly from `SessionState`
-  - **PTY commands**: Non-emulatable commands (e.g. `/usage`) executed via a sidecar PTY using optional `node-pty`
-  - **Native forwarding**: `/compact`, `/cost`, `/context`, `/files`, `/release-notes` forwarded directly to CLI
-- `SlashCommandExecutor` core orchestrator with per-session serialization queue
-- `PtyCommandRunner` adapter for interactive PTY command execution
-- `CommandRunner` interface for custom command execution strategies
-- `MockCommandRunner` test utility (exported from `claude-code-bridge/testing`)
-- `stripAnsi()` utility for stripping ANSI escape codes
-- `slash_command_result` and `slash_command_error` consumer message types
-- `slash_command:executed` and `slash_command:failed` bridge events
-- `SessionState.last_model_usage`, `last_duration_ms`, `last_duration_api_ms` fields
-- `ProviderConfig.slashCommand` configuration (PTY timeout, silence threshold, enable/disable)
-- `SessionBridge.executeSlashCommand()` and `SessionManager.executeSlashCommand()` programmatic APIs
-- `commandRunner` option on `SessionBridge` and `SessionManager` constructors
-- `node-pty` as optional peer dependency
+- **Universal adapter layer**: `BackendAdapter` and `BackendSession` interfaces for multi-agent support
+- **UnifiedMessage type**: Normalized message envelope aligned with Claude Agent SDK's `SDKMessage` types
+- **Extension interfaces**: `Interruptible`, `Configurable`, `PermissionHandler`, `Reconnectable`, `Encryptable` — additive capabilities via runtime type narrowing
+- **SequencedMessage\<T\>**: Wrapper with `seq` number and `timestamp` for reconnection replay
 
-### Fixed
+#### Adapters
 
-- **PtyCommandRunner**: Rewritten to handle Claude CLI's full TUI (terminal UI) mode
-  - Uses silence-based TUI readiness detection instead of `\n> ` prompt matching (CLI uses cursor positioning)
-  - Handles workspace trust and bypass permissions confirmation prompts with delayed Enter
-  - Types command first, then presses Enter after 300ms delay (required for autocomplete interaction)
-  - Increased default `ptyTimeoutMs` from 15s to 30s (TUI startup adds ~5s overhead)
-  - Increased default `ptySilenceThresholdMs` from 500ms to 3000ms (API-calling commands like `/usage` need more time)
-  - Successfully tested against real Claude CLI `/usage` command scraping
+- **SdkUrlAdapter** (Phase 1): Extracted Claude Code `--sdk-url` NDJSON/WebSocket logic from monolithic SessionBridge into a standalone adapter
+  - `SdkUrlLauncher` — process lifecycle, `--sdk-url` URL construction, `--resume` support
+  - Inbound translator (CLI NDJSON → UnifiedMessage)
+  - Outbound message translator (consumer messages → CLI NDJSON)
+  - State reducer (derives session state from CLI message stream)
+- **ACPAdapter** (Phase 3): JSON-RPC 2.0 over stdio for any ACP-compliant agent (Goose, Kiro, Gemini CLI, Cline, OpenHands, 25+ agents)
+  - `ACPSession` with `initialize` capability negotiation
+  - JSON-RPC request/response/notification handling
+  - Bidirectional message translation (ACP `session/update` ↔ UnifiedMessage)
+- **CodexAdapter** (Phase 3): JSON-RPC over subprocess stdio for Codex CLI app-server mode
+  - Thread/Turn/Item model mapping to UnifiedMessage
+  - `CodexLauncher` for `codex app-server` subprocess management
+  - Message translator covering 30+ Codex JSON-RPC method types
+- **AgentSdkAdapter** (Phase 4): In-process adapter using `@anthropic-ai/claude-agent-sdk`
+  - `AgentSdkSession` wrapping SDK's V2 session API
+  - `PermissionBridge` — bridges SDK's callback-based `canUseTool` to async message flow
+  - SDK message translator (SDKMessage ↔ UnifiedMessage, 16 message type mappings)
+- **Backend adapter compliance test suite**: Contract tests verifiable by any adapter implementation
 
-## [0.1.1] - 2025-02-14
+#### Daemon
+
+- **Daemon** class with `start()` / `stop()` lifecycle
+- **ChildProcessSupervisor**: Manages CLI child processes (spawn, kill, PID tracking, session count)
+- **LockFile**: `O_CREAT | O_EXCL` exclusive lock prevents duplicate daemon instances; staleness detection
+- **StateFile**: `{ pid, port, heartbeat, version, controlApiToken }` for CLI discovery
+- **ControlApi**: HTTP server on `127.0.0.1:0` with Bearer token auth
+  - `GET /health` — uptime and session count
+  - `GET /sessions` — list all sessions
+  - `POST /sessions` — create session (requires `cwd`)
+  - `DELETE /sessions/:id` — stop a session
+- **SignalHandler**: Graceful shutdown on SIGTERM/SIGINT
+- **HealthCheck**: 60-second heartbeat loop updating state file
+
+#### Relay
+
+- **EncryptionLayer**: Middleware for transparent E2E encryption between SessionBridge and WebSocket transport
+  - Outbound: `ConsumerMessage → serialize → encrypt → EncryptedEnvelope`
+  - Inbound: `EncryptedEnvelope → decrypt → deserialize → InboundMessage`
+  - Mixed-mode detection for pairing transition
+- **CloudflaredManager**: Manages cloudflared sidecar process (start, stop, tunnel URL extraction, retry with backoff)
+- **TunnelRelayAdapter**: Wraps CloudflaredManager with start/stop semantics
+- **SessionRouter**: Routes encrypted envelopes to correct backend sessions by session ID
+
+#### Crypto
+
+- **Key management**: `generateKeypair()`, `destroyKey()` (zeros memory), `fingerprintPublicKey()`
+- **Sealed boxes**: `seal()` / `sealOpen()` — anonymous encryption for initial key exchange
+- **Authenticated encryption**: `encrypt()` / `decrypt()` — `crypto_box` with X25519 DH
+- **EncryptedEnvelope**: Wire format `{ v: 1, sid, ct, len }` with serialize/deserialize/detection
+- **HMAC signing**: `sign()` / `verify()` — HMAC-SHA256 for permission response authentication
+- **NonceTracker**: Anti-replay protection tracking last 1000 nonces with 30s timestamp window
+- **PairingManager**: Pairing link generation, consumption, and sealed-box key exchange
+- `getSodium()` — lazy libsodium-wrappers-sumo loader
+
+#### Server
+
+- **ReconnectionHandler**: Stable consumer IDs, per-session message history (configurable capacity), replay from `last_seen_seq`, initial message batch for new connections
+- **ConsumerChannel**: Per-consumer send queue with backpressure and high-water mark
+
+#### Web Consumer
+
+- Minimal HTML/JS client (`src/consumer/index.html`, ~700 LOC)
+- E2E decryption of relay messages
+- Markdown rendering of assistant responses
+- Permission request UI (approve/deny with HMAC signing)
+- Reconnection with message replay
+
+### Changed
+
+- Renamed package from `claude-code-bridge` to `beamcode`
+- SessionBridge now operates on `UnifiedMessage` instead of raw NDJSON
+- NodeWebSocketServer generalized for consumer reconnection support
+- `ProcessSupervisor` extracted as a reusable core component
+- Added `libsodium-wrappers-sumo` as a dependency for E2E encryption
+
+## [0.1.1] - 2026-02-14
 
 ### Added
 
@@ -54,65 +109,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed redundant PRODUCTION_HARDENING.md and COMPLETION_SUMMARY.md documentation
 
-## [0.1.0] - 2025-02-14
+## [0.1.0] - 2026-02-14
 
 ### Added
 
-- Initial release of claude-code-bridge library
+- Initial release of the library (then named `claude-code-bridge`)
 - Runtime-agnostic TypeScript library for managing Claude Code CLI sessions via WebSocket
-- **Core Features:**
+- **Core:**
   - SessionManager for WebSocket-based session coordination
   - SessionBridge for bridging consumer and CLI connections
   - CLILauncher for spawning and managing CLI processes
   - FileStorage for persistent session state
-
-- **Production Hardening:**
-  - Idle session timeout cleanup with configurable thresholds
-  - Health check endpoint for session monitoring
-  - Connection heartbeat (ping-pong) for keep-alive
-  - Backpressure handling for message sends with queue limits
-  - Graceful drain on shutdown with connection management
+- **Production hardening:**
+  - Idle session timeout cleanup
+  - Health check endpoint
+  - Connection heartbeat (ping-pong)
+  - Backpressure handling with queue limits
+  - Graceful drain on shutdown
   - Pending message queue overflow prevention
-  - Rate limiting (token bucket) for consumer message protection
-  - Circuit breaker pattern for CLI restart cascade prevention
+  - Rate limiting (token bucket)
+  - Circuit breaker (sliding window)
   - Atomic/crash-safe file writes with write-ahead logging
   - Structured logging with pluggable logger interface
   - Session statistics API with real-time metrics
-  - Operational commands for session management (close, archive, list, etc.)
-
-- **Developer Experience:**
-  - Comprehensive TypeScript type definitions
-  - Testing utilities and fixtures
-  - Integration tests for production features
-  - Detailed API documentation
-  - Example operator dashboard server with HTTP endpoints
-  - Git hooks for pre-commit linting
-
-- **Infrastructure:**
-  - Full ES modules + CommonJS dual package export
-  - TypeScript declaration file generation
-  - Vitest-based test suite (331 tests)
-  - Biome linting and formatting
-  - GitHub Actions CI/CD workflows
-  - Code coverage reporting
-  - Release automation
+  - Operational commands (close, archive, list)
+- **Slash command support:**
+  - Emulated commands: `/model`, `/status`, `/config`, `/cost`, `/context` (instant, from SessionState)
+  - Native forwarding: `/compact`, `/cost`, `/context`, `/files`, `/release-notes` (to CLI)
+  - PTY commands: Any other command via sidecar PTY (requires `node-pty`)
+  - `SlashCommandExecutor` with per-session serialization queue
+  - `PtyCommandRunner` adapter for interactive PTY execution
+- **Security:**
+  - UUID validation for session IDs
+  - Path traversal prevention in FileStorage
+  - Environment variable deny list
+  - Binary path validation (basename or absolute only)
+- **Auth:**
+  - Pluggable `Authenticator` interface
+  - Role-based access control (`participant` / `observer`)
+  - Presence tracking and broadcast
+- **DX:**
+  - Dual CJS/ESM package exports
+  - Full TypeScript type definitions
+  - `TypedEventEmitter` with complete event map types
+  - Testing utilities (`MockProcessManager`, `MemoryStorage`, `MockCommandRunner`)
+  - Example operator dashboard server
+  - 331 tests via Vitest
 
 ### Technical Stack
 
 - **Runtime:** Node.js 22.0.0+
 - **Language:** TypeScript 5.8+
-- **Package Manager:** pnpm 8
 - **Testing:** Vitest 3.0+
 - **Linting:** Biome 2.3+
 - **WebSocket:** ws 8.18+
-
-### Documentation
-
-- README.md: Project overview and getting started
-- API_REFERENCE.md: SessionManager API and HTTP endpoint documentation
-
-### Notes
-
-This is the initial stable release with all 11 production hardening features implemented and integrated. The library is production-ready for managing Claude Code CLI sessions in multi-tenant environments with proper rate limiting, circuit breaking, and operational management.
-
-For migration guide or breaking changes from previous versions, see individual release notes.
+- **Crypto:** libsodium-wrappers-sumo 0.7.15

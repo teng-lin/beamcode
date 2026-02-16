@@ -1,41 +1,79 @@
-# claude-code-bridge
+# beamcode
 
-Runtime-agnostic TypeScript library for managing [Claude Code](https://claude.ai/code) CLI sessions via the `--sdk-url` WebSocket protocol.
+Universal adapter library that bridges any coding agent CLI to any frontend — code anywhere, from any device.
 
-Provides process lifecycle management, NDJSON message bridging, session persistence, and typed event emission. Works on Node.js 22+ with adapters for any WebSocket server.
+```
+┌──────────────────────────────────────────────────────────┐
+│                       FRONTENDS                          │
+│  Mobile Browser │ Web UI │ Telegram │ Discord │ Terminal │
+└────────┬────────────┬──────────┬─────────┬───────────────┘
+         └────────────┴────┬─────┴─────────┘
+                           │
+                Consumer Protocol (JSON/WS)
+                           │
+           ┌───────────────┴────────────────┐
+           │         SessionBridge          │
+           │  (state, RBAC, presence,       │
+           │   history, replay, E2E)        │
+           └───────────────┬────────────────┘
+                           │
+                 BackendAdapter interface
+                           │
+     ┌────────┬────────────┼────────────┬────────┐
+     │        │            │            │        │
+  SdkUrl    ACP        Codex      AgentSdk    PTY
+  Adapter   Adapter    Adapter    Adapter    (fallback)
+     │        │            │            │        │
+  Claude   Goose       Codex      Claude     Any CLI
+  Code     Kiro        CLI        Code
+  --sdk-   Gemini      (OpenAI)   SDK
+  url      Cline
+           25+ agents
+```
+
+## Problem
+
+The coding agent landscape is fragmenting. Claude Code, Codex CLI, Gemini CLI, Goose, Kiro, and others each have different protocols, capabilities, and remote access stories. Users cobble together SSH + tmux + Tailscale to run agents on a desktop and monitor from a phone. There are 30+ bespoke projects that each solve a narrow slice. No reusable library abstracts the CLI-to-frontend boundary.
+
+## Solution
+
+beamcode sits between any coding agent CLI and any frontend. One `BackendAdapter` interface, four protocol implementations, structured message relay with E2E encryption, and a daemon that keeps sessions alive while you're away.
 
 ## Features
 
-- **Runtime-agnostic**: Uses injected `ProcessManager` and `WebSocketLike` interfaces; no Bun or browser-specific APIs
-- **Built-in WebSocket server**: Optional `NodeWebSocketServer` adapter handles CLI and consumer connections out of the box, or bring your own via the `WebSocketServerLike` interface
-- **Pluggable authentication**: Transport-agnostic `Authenticator` interface — drop in JWT, API keys, cookies, mTLS, or any custom auth
-- **Role-based access control**: `participant` (read-write) and `observer` (read-only) roles with per-message enforcement
-- **Presence tracking**: Real-time consumer presence updates broadcast on connect/disconnect
+- **Multi-agent support**: Adapters for Claude Code (`--sdk-url`), ACP (25+ agents), Codex CLI (JSON-RPC), and Claude Agent SDK
+- **E2E encryption**: libsodium sealed boxes (XSalsa20-Poly1305) with pairing link key exchange
+- **Daemon**: Process supervisor with lock file, state persistence, health checks, and signal handling
+- **Relay**: Cloudflare Tunnel integration for remote access without open ports
+- **Reconnection**: Sequenced messages with replay from `last_seen_seq` on reconnect
+- **RBAC**: `participant` (read-write) and `observer` (read-only) roles with per-message enforcement
+- **Presence**: Real-time consumer presence updates on connect/disconnect
+- **Pluggable auth**: Transport-agnostic `Authenticator` interface (JWT, API keys, cookies, mTLS)
+- **Permission signing**: HMAC-SHA256 with nonce + timestamp to prevent replay attacks
+- **Session persistence**: Atomic JSON file storage with debounced writes
+- **Production hardened**: Rate limiting, circuit breaker, backpressure, idle timeout, graceful drain
 - **Dual CJS/ESM**: Works with `require()` or `import`
-- **Typed events**: `TypedEventEmitter` with full event map types for bridge, launcher, and manager
-- **Session persistence**: JSON file storage with debounced writes; survives server restarts
-- **Programmatic API**: Send messages and respond to permissions without a WebSocket consumer
-- **Slash command support**: Emulates `/model`, `/status`, `/config`, `/cost`, `/context` from session state; delegates other commands to a sidecar PTY via optional `node-pty`
-- **Security hardened**: UUID validation, path traversal prevention, env var deny list
 
 ## Requirements
 
-- Node.js >= 22.0.0 (uses `Readable.toWeb()`)
-- Claude Code CLI installed (`claude` in PATH, or absolute path configured)
+- Node.js >= 22.0.0
+- A coding agent CLI installed (Claude Code, Codex, Gemini CLI, Goose, etc.)
+- For relay: `cloudflared` binary in PATH
+- For PTY commands: optional `node-pty` peer dependency
 
 ## Installation
 
 ```sh
-npm install claude-code-bridge
+npm install beamcode
 # or
-pnpm add claude-code-bridge
+pnpm add beamcode
 ```
 
 ## Quick Start
 
-### Minimal setup with `SessionManager` + built-in WebSocket server
+### Claude Code via `--sdk-url`
 
-`SessionManager` is the recommended entry point. It wires `SessionBridge` and `CLILauncher` together automatically. Pass a `server` to handle CLI WebSocket connections out of the box:
+The `SdkUrlAdapter` spawns Claude Code with `--sdk-url` and bridges its NDJSON WebSocket stream:
 
 ```ts
 import {
@@ -43,8 +81,7 @@ import {
   NodeProcessManager,
   NodeWebSocketServer,
   FileStorage,
-  ConsoleLogger,
-} from "claude-code-bridge";
+} from "beamcode";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -52,361 +89,283 @@ const manager = new SessionManager({
   config: { port: 3456 },
   processManager: new NodeProcessManager(),
   server: new NodeWebSocketServer({ port: 3456 }),
-  storage: new FileStorage(join(tmpdir(), "claude-sessions")),
-  logger: new ConsoleLogger("my-app"),
+  storage: new FileStorage(join(tmpdir(), "beamcode-sessions")),
 });
 
-await manager.start(); // starts WebSocket server + restores persisted sessions
+await manager.start();
 
-// Launch a session — CLI connects back automatically via ws://localhost:3456/ws/cli/:id
 const { sessionId } = manager.launcher.launch({ cwd: "/my/project" });
 
-// Listen to events
 manager.on("cli:connected", ({ sessionId }) => {
-  console.log(`CLI connected for ${sessionId}`);
+  console.log(`CLI connected: ${sessionId}`);
 });
 
 manager.on("permission:requested", ({ sessionId, request }) => {
-  // Prompt user, then:
   manager.bridge.sendPermissionResponse(sessionId, request.request_id, "allow");
 });
 
-// Graceful shutdown
+// Send messages programmatically (no WebSocket consumer needed)
+manager.bridge.sendUserMessage(sessionId, "Write a hello world in TypeScript");
+
+manager.on("message:outbound", ({ sessionId, message }) => {
+  if (message.type === "assistant") console.log(message.content);
+});
+
 await manager.stop();
 ```
 
-### With authentication
+### Any ACP Agent (Goose, Kiro, Gemini CLI, Cline, ...)
 
-Add a pluggable `Authenticator` to gate consumer connections. The auth layer is transport-agnostic — your implementation receives an `AuthContext` with raw transport metadata and decides what to inspect (JWT, API key, cookie, etc.):
+The `ACPAdapter` speaks JSON-RPC 2.0 over stdio — one adapter covers every ACP-compliant agent:
 
 ```ts
-import type { Authenticator, AuthContext, ConsumerIdentity } from "claude-code-bridge";
+import { ACPAdapter } from "beamcode/adapters/acp";
 
-const authenticator: Authenticator = {
-  async authenticate(context: AuthContext): Promise<ConsumerIdentity> {
-    const token = (context.transport.query as Record<string, string>)?.token;
-    if (!token) throw new Error("Missing token");
-
-    const user = await verifyToken(token); // your auth logic
-    return {
-      userId: user.id,
-      displayName: user.name,
-      role: user.isAdmin ? "participant" : "observer",
-    };
+const adapter = new ACPAdapter({
+  name: "acp",
+  command: "goose",       // or "kiro-cli acp", "gemini acp", etc.
+  args: ["acp"],
+  capabilities: {
+    streaming: false,
+    permissions: true,
+    slashCommands: true,
+    availability: "local",
   },
-};
-
-const manager = new SessionManager({
-  config: { port: 3456 },
-  processManager: new NodeProcessManager(),
-  server: new NodeWebSocketServer({ port: 3456 }),
-  authenticator, // consumers connecting to /ws/consumer/:id will be authenticated
 });
 
-await manager.start();
+const session = await adapter.connect({ sessionId: "my-session" });
+
+for await (const msg of session.messages) {
+  console.log(msg.type, msg);
+}
 ```
 
-Consumers connect via `ws://localhost:3456/ws/consumer/:sessionId?token=...`. Without an `authenticator`, consumers are assigned anonymous participant identities (useful for development).
-
-### Custom WebSocket server (manual wiring)
-
-If you need full control over routing (e.g. mixed CLI + consumer endpoints, or non-`ws` servers), skip the `server` option and wire the bridge yourself:
+### Codex CLI (JSON-RPC)
 
 ```ts
-const manager = new SessionManager({
-  config: { port: 3456 },
-  processManager: new NodeProcessManager(),
-  // no `server` — you handle WebSocket connections yourself
+import { CodexAdapter } from "beamcode/adapters/codex";
+
+const adapter = new CodexAdapter({
+  command: "codex",
+  args: ["app-server"],
 });
 
-await manager.start();
-
-const { sessionId } = manager.launcher.launch({ cwd: "/my/project" });
-
-// Wire your WebSocket server to the bridge
-// CLI connections:
-manager.bridge.handleCLIOpen(cliSocket, sessionId);
-manager.bridge.handleCLIMessage(sessionId, data);
-manager.bridge.handleCLIClose(sessionId);
-
-// Consumer connections (pass AuthContext with transport metadata):
-const context = { sessionId, transport: { headers: req.headers } };
-manager.bridge.handleConsumerOpen(browserSocket, context);
-manager.bridge.handleConsumerMessage(browserSocket, sessionId, data);
-manager.bridge.handleConsumerClose(browserSocket, sessionId);
+const session = await adapter.connect({ sessionId: "my-session" });
 ```
 
-### Programmatic API (no WebSocket consumer needed)
-
-For headless usage (e.g. in an AI gateway like OpenClaw):
+### Claude Agent SDK (In-Process)
 
 ```ts
-// Send a user message directly — no browser WebSocket needed
-manager.bridge.sendUserMessage(sessionId, "Write a hello world in TypeScript");
+import { AgentSdkAdapter } from "beamcode/adapters/agent-sdk";
 
-// Listen for responses
-manager.on("message:outbound", ({ sessionId, message }) => {
-  if (message.type === "assistant") {
-    console.log(message.content);
-  }
+const adapter = new AgentSdkAdapter({
+  // Uses @anthropic-ai/claude-agent-sdk under the hood
+  model: "claude-sonnet-4-5-20250929",
+  permissionMode: "default",
 });
 
-// Auto-approve all tool use
-manager.on("permission:requested", ({ sessionId, request }) => {
-  manager.bridge.sendPermissionResponse(sessionId, request.request_id, "allow");
-});
-```
-
-### Slash commands
-
-The CLI's `local-jsx` slash commands (`/usage`, `/help`, etc.) silently no-op in headless mode (`--sdk-url`). The bridge adds a `slash_command` message type that routes through two strategies:
-
-```ts
-// Via WebSocket — consumers send:
-ws.send(JSON.stringify({ type: "slash_command", command: "/model", request_id: "req-1" }));
-
-// Consumer receives:
-// { type: "slash_command_result", command: "/model", request_id: "req-1", content: "claude-sonnet-4-5-20250929", source: "emulated" }
-
-// Programmatic API:
-const result = await manager.executeSlashCommand(sessionId, "/model");
-console.log(result?.content); // "claude-sonnet-4-5-20250929"
-```
-
-**Emulated commands** (instant, from SessionState): `/model`, `/status`, `/config`, `/cost`, `/context`
-
-**Native commands** (forwarded to CLI): `/compact`, `/cost`, `/context`, `/files`, `/release-notes`
-
-**PTY commands** (via optional `node-pty`): Any other command (e.g. `/usage`) is executed by spawning a sidecar PTY that resumes the CLI session.
-
-To enable PTY execution, install `node-pty` and pass a `PtyCommandRunner`:
-
-```ts
-import { SessionManager, PtyCommandRunner } from "claude-code-bridge";
-
-const manager = new SessionManager({
-  config: { port: 3456 },
-  processManager: new NodeProcessManager(),
-  commandRunner: new PtyCommandRunner(),
-});
+const session = await adapter.connect({ sessionId: "my-session" });
 ```
 
 ## Architecture
 
-```
-                  SessionManager
-                  ┌──────────────────────────────────────────────┐
-                  │                                              │
-                  │  WebSocketServerLike (optional)              │
-                  │    ├─ CLI path:      /ws/cli/:id  ──┐        │
-                  │    └─ Consumer path: /ws/consumer/:id  ──┐   │
-                  │                                     │    │   │
-                  │              Authenticator?         │    │   │
-                  │                   │                 ▼    ▼   │
-                  │  SessionBridge ◄──┴───────► CLILauncher      │
-                  │    │  (RBAC + Presence)        │             │
-                  │  TypedEvents              TypedEvents        │
-                  │  (BridgeEventMap)        (LauncherEventMap)  │
-                  └──────────────────────────────────────────────┘
-```
+### BackendAdapter Interface
 
-With a `server` provided, both CLI and consumer connections are handled automatically. Without one, wire your own WebSocket server to the bridge handlers.
-
-Consumers are authenticated via the pluggable `Authenticator` interface. Each consumer gets a `ConsumerIdentity` with a role (`participant` or `observer`). Observers can see everything but cannot send write commands.
-
-The CLI is spawned as:
-```
-claude --sdk-url ws://localhost:3456/ws/cli/SESSION_ID -p ""
-```
-
-It connects back to the WebSocket server, which routes the connection to `SessionBridge`.
-
-## API Reference
-
-### `SessionManager`
-
-Facade that wires `SessionBridge` and `CLILauncher` together.
+Every coding agent backend implements a single interface:
 
 ```ts
-const manager = new SessionManager({
-  config: { port: 3456 },       // required
-  processManager,                // required
-  server?,                       // optional; built-in WS server (e.g. NodeWebSocketServer)
-  storage?,                      // optional; enables persistence
-  authenticator?,                // optional; gates consumer connections (see Authentication)
-  commandRunner?,                // optional; enables PTY-based slash commands (e.g. PtyCommandRunner)
-  logger?,
-  gitResolver?,
-  beforeSpawn?,                  // synchronous hook called before each spawn
-});
+interface BackendAdapter {
+  readonly name: string;                        // "sdk-url" | "acp" | "codex" | "agent-sdk"
+  readonly capabilities: BackendCapabilities;
+  connect(options: ConnectOptions): Promise<BackendSession>;
+}
 
-manager.start(): Promise<void>  // starts server (if provided), restores storage, starts watchdog
-manager.stop(): Promise<void>   // kills processes, closes sockets + server, clears timers
-
-manager.bridge: SessionBridge    // direct access
-manager.launcher: CLILauncher    // direct access
-
-// Inherits all events from BridgeEventMap & LauncherEventMap
-manager.on("cli:connected", ({ sessionId }) => {})
-manager.on("permission:requested", ({ sessionId, request }) => {})
-manager.on("process:exited", ({ sessionId, exitCode }) => {})
-// ... see Events section
-```
-
----
-
-### `SessionBridge`
-
-Bridges CLI WebSocket ↔ consumer WebSockets. Manages per-session state (message history, permissions, git info).
-
-```ts
-const bridge = new SessionBridge({ storage?, gitResolver?, authenticator?, logger?, config?, commandRunner? });
-
-// CLI WebSocket hooks
-bridge.handleCLIOpen(socket: WebSocketLike, sessionId: string): void
-bridge.handleCLIMessage(sessionId: string, data: string | Buffer): void
-bridge.handleCLIClose(sessionId: string): void
-
-// Consumer WebSocket hooks (AuthContext contains sessionId + transport metadata)
-bridge.handleConsumerOpen(socket: WebSocketLike, context: AuthContext): void
-bridge.handleConsumerMessage(socket: WebSocketLike, sessionId: string, data: string | Buffer): void
-bridge.handleConsumerClose(socket: WebSocketLike, sessionId: string): void
-
-// Programmatic API (no consumer WebSocket needed)
-bridge.sendUserMessage(sessionId, content, options?): void
-bridge.sendPermissionResponse(sessionId, requestId, behavior: "allow" | "deny", options?): void
-bridge.sendInterrupt(sessionId): void
-bridge.sendSetModel(sessionId, model): void
-bridge.sendSetPermissionMode(sessionId, mode): void
-bridge.executeSlashCommand(sessionId, command): Promise<{ content, source } | null>
-
-// Session inspection
-bridge.getSession(sessionId): SessionSnapshot | undefined  // includes consumers[] with roles
-bridge.getAllSessions(): SessionState[]
-bridge.isCliConnected(sessionId): boolean
-
-// Lifecycle
-bridge.restoreFromStorage(): number   // call at startup
-bridge.close(): void                   // closes all sockets
-bridge.broadcastNameUpdate(sessionId, name): void
-```
-
----
-
-### `CLILauncher`
-
-Spawns and manages Claude Code CLI subprocesses.
-
-```ts
-const launcher = new CLILauncher({
-  processManager,                // required
-  config,                        // required
-  storage?,
-  logger?,
-  beforeSpawn?,                  // (sessionId, spawnOptions) => void  (sync)
-});
-
-// Launch / kill
-launcher.launch(options?: LaunchOptions): SdkSessionInfo
-launcher.relaunch(sessionId: string): Promise<boolean>
-launcher.kill(sessionId: string): Promise<boolean>
-launcher.killAll(): Promise<void>
-
-// State
-launcher.getSession(sessionId): SdkSessionInfo | undefined
-launcher.listSessions(): SdkSessionInfo[]
-launcher.isAlive(sessionId): boolean
-launcher.setArchived(sessionId, archived: boolean): void
-launcher.markConnected(sessionId): void
-launcher.setCLISessionId(sessionId, cliSessionId): void
-launcher.pruneExited(): number
-launcher.getStartingSessions(): SdkSessionInfo[]
-
-// Persistence
-launcher.restoreFromStorage(): number
-```
-
-**`LaunchOptions`**
-
-```ts
-interface LaunchOptions {
-  cwd?: string;
-  model?: string;
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan";
-  claudeBinary?: string;        // override binary; basename or absolute path only
-  env?: Record<string, string>; // extra env vars (envDenyList always applied)
-  allowedTools?: string[];
+interface BackendSession {
+  readonly sessionId: string;
+  send(message: UnifiedMessage): void;
+  readonly messages: AsyncIterable<UnifiedMessage>;
+  close(): Promise<void>;
 }
 ```
 
----
+Sessions can optionally implement extension interfaces via runtime type narrowing:
 
-### Configuration
+```ts
+// Core extensions
+interface Interruptible { interrupt(): void }
+interface Configurable { setModel(m: string): void; setPermissionMode(m: string): void }
+interface PermissionHandler { respondToPermission(id: string, behavior: "allow" | "deny"): void }
 
-Pass to any of the three core classes via `config`:
+// Relay extensions
+interface Reconnectable { replay(fromSeq: number): AsyncIterable<UnifiedMessage> }
+interface Encryptable { encrypt(msg: UnifiedMessage): EncryptedEnvelope }
+```
+
+### Adapter Comparison
+
+| Adapter | Protocol | Agents | Streaming | Permissions | Session Resume |
+|---------|----------|--------|-----------|-------------|----------------|
+| SdkUrl | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
+| ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Gemini, Cline, ...) | No | Yes | Varies |
+| Codex | JSON-RPC/NDJSON | Codex CLI | Yes | Yes | Yes |
+| AgentSdk | In-process TS | Claude Code (via SDK) | Yes | Yes (callback bridge) | Yes |
+
+### UnifiedMessage
+
+All adapters translate to/from `UnifiedMessage` — a normalized envelope aligned with the Claude Agent SDK's `SDKMessage` types:
+
+```ts
+type UnifiedMessage =
+  | { type: "assistant_message"; messageId: string; content: UnifiedContent[]; ... }
+  | { type: "partial_message"; event: unknown; ... }
+  | { type: "result"; subtype: string; cost: number; ... }
+  | { type: "system_init"; sessionId: string; model: string; ... }
+  | { type: "permission_request"; requestId: string; toolName: string; ... }
+  | { type: "tool_progress"; toolUseId: string; toolName: string; ... }
+  | { type: "error"; message: string; recoverable: boolean }
+  // ... and more
+```
+
+### Daemon
+
+The daemon keeps agent sessions alive while clients connect and disconnect:
+
+```ts
+import { Daemon } from "beamcode";
+
+const daemon = new Daemon({
+  port: 3456,
+  storagePath: "~/.beamcode/sessions",
+  lockPath: "~/.beamcode/daemon.lock",
+  statePath: "~/.beamcode/daemon.state.json",
+});
+
+await daemon.start();
+// Daemon runs: lock file, state file, health check loop,
+// child process supervisor, local control API on 127.0.0.1
+```
+
+Components:
+- **ChildProcessSupervisor**: Manages CLI child processes (spawn, kill, PID tracking)
+- **LockFile**: `O_CREAT | O_EXCL` exclusive lock prevents duplicate daemons
+- **StateFile**: `{ pid, port, heartbeat, version }` for CLI discovery
+- **ControlApi**: HTTP on `127.0.0.1:0` for session CRUD
+- **SignalHandler**: Graceful shutdown on SIGTERM/SIGINT
+- **HealthCheck**: Periodic liveness loop
+
+### Relay + E2E Encryption
+
+Remote access via Cloudflare Tunnel with end-to-end encryption:
+
+```
+Mobile Browser → HTTPS → CF Tunnel Edge → cloudflared → localhost → Daemon → CLI
+                  ↑
+          E2E encrypted: tunnel cannot read message contents
+```
+
+**Pairing flow**:
+1. Daemon generates X25519 keypair, starts cloudflared tunnel
+2. Prints pairing link: `https://<tunnel>/pair?pk=<base64>&fp=<fingerprint>&v=1`
+3. Browser extracts daemon public key, generates own keypair
+4. Browser sends its public key encrypted via sealed box
+5. Both sides establish authenticated bidirectional E2E
+
+**Wire format** — `EncryptedEnvelope`:
+```ts
+{ v: 1, sid: "session-id", ct: "<ciphertext>", len: 42 }
+```
+
+**Permission signing**: HMAC-SHA256 with nonce + timestamp (30s window) + request_id binding prevents replay attacks over the relay.
+
+### Reconnection
+
+Sequenced messages survive network drops:
+
+```ts
+import type { SequencedMessage } from "beamcode";
+
+// Each message carries a sequence number
+// { seq: 42, timestamp: 1234567890, payload: ConsumerMessage }
+
+// On reconnect, consumer sends last_seen_seq
+// Server replays missed messages from buffer
+```
+
+### Web Consumer
+
+A minimal (500-1000 LOC) HTML/JS client in `src/consumer/` handles:
+- E2E decryption of messages from the relay
+- Markdown rendering of assistant responses
+- Permission request UI (approve/deny with signing)
+- Reconnection with message replay
+
+## Configuration
 
 ```ts
 interface ProviderConfig {
-  port: number;                       // required — port of your WS server
+  port: number;                             // WebSocket server port
 
   // Timeouts (ms)
-  gitCommandTimeoutMs?: number;       // default: 3000
-  relaunchGracePeriodMs?: number;     // default: 2000
-  killGracePeriodMs?: number;         // default: 5000
-  storageDebounceMs?: number;         // default: 150
-  reconnectGracePeriodMs?: number;    // default: 10000
-  resumeFailureThresholdMs?: number;  // default: 5000
-  relaunchDedupMs?: number;           // default: 5000
+  gitCommandTimeoutMs?: number;             // default: 3000
+  relaunchGracePeriodMs?: number;           // default: 2000
+  killGracePeriodMs?: number;               // default: 5000
+  storageDebounceMs?: number;               // default: 150
+  reconnectGracePeriodMs?: number;          // default: 10000
+  resumeFailureThresholdMs?: number;        // default: 5000
+  relaunchDedupMs?: number;                 // default: 5000
 
   // Resource limits
-  maxMessageHistoryLength?: number;   // default: 1000
-  maxConcurrentSessions?: number;     // default: 50
+  maxMessageHistoryLength?: number;         // default: 1000
+  maxConcurrentSessions?: number;           // default: 50
+
+  // Rate limiting
+  consumerMessageRateLimit?: {
+    tokensPerSecond: number;
+    burstSize: number;
+  };
+
+  // Circuit breaker
+  cliRestartCircuitBreaker?: {
+    failureThreshold: number;
+    windowMs: number;
+    recoveryTimeMs: number;
+    successThreshold: number;
+  };
 
   // CLI
-  defaultClaudeBinary?: string;       // default: "claude"
-  cliWebSocketUrlTemplate?: (sessionId: string) => string;
+  defaultClaudeBinary?: string;             // default: "claude"
 
-  // Slash command execution
+  // Slash commands (PTY-based)
   slashCommand?: {
-    ptyTimeoutMs: number;             // default: 30000
-    ptySilenceThresholdMs: number;    // default: 3000
-    ptyEnabled: boolean;              // default: true
+    ptyTimeoutMs: number;                   // default: 30000
+    ptySilenceThresholdMs: number;          // default: 3000
+    ptyEnabled: boolean;                    // default: true
   };
 
   // Security
-  envDenyList?: string[];             // default: ["LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS"]
-                                      // Note: cannot be set to empty — defaults are always applied
+  envDenyList?: string[];                   // always includes LD_PRELOAD, DYLD_INSERT_LIBRARIES, NODE_OPTIONS
 }
 ```
 
----
+## Events
 
-### Events
-
-**`BridgeEventMap`** (emitted by `SessionBridge` and `SessionManager`):
+### Bridge Events
 
 | Event | Payload |
 |-------|---------|
-| `cli:session_id` | `{ sessionId, cliSessionId }` |
 | `cli:connected` | `{ sessionId }` |
 | `cli:disconnected` | `{ sessionId }` |
-| `cli:relaunch_needed` | `{ sessionId }` |
 | `consumer:connected` | `{ sessionId, consumerCount, identity? }` |
 | `consumer:disconnected` | `{ sessionId, consumerCount, identity? }` |
-| `consumer:authenticated` | `{ sessionId, userId, displayName, role }` |
-| `consumer:auth_failed` | `{ sessionId, reason }` |
-| `message:outbound` | `{ sessionId, message: ConsumerMessage }` |
-| `message:inbound` | `{ sessionId, message: InboundMessage }` |
-| `permission:requested` | `{ sessionId, request: PermissionRequest }` |
+| `message:outbound` | `{ sessionId, message }` |
+| `message:inbound` | `{ sessionId, message }` |
+| `permission:requested` | `{ sessionId, request }` |
 | `permission:resolved` | `{ sessionId, requestId, behavior }` |
-| `session:first_turn_completed` | `{ sessionId, firstUserMessage }` |
 | `session:closed` | `{ sessionId }` |
 | `slash_command:executed` | `{ sessionId, command, source, durationMs }` |
-| `slash_command:failed` | `{ sessionId, command, error }` |
-| `auth_status` | `{ sessionId, isAuthenticating, output, error? }` |
 | `error` | `{ source, error, sessionId? }` |
 
-**`LauncherEventMap`** (emitted by `CLILauncher` and `SessionManager`):
+### Launcher Events
 
 | Event | Payload |
 |-------|---------|
@@ -414,221 +373,64 @@ interface ProviderConfig {
 | `process:exited` | `{ sessionId, exitCode, uptimeMs }` |
 | `process:connected` | `{ sessionId }` |
 | `process:resume_failed` | `{ sessionId }` |
-| `process:stdout` | `{ sessionId, data }` |
-| `process:stderr` | `{ sessionId, data }` |
-| `error` | `{ source, error, sessionId? }` |
 
----
+## Authentication
 
-### Adapters
-
-| Class | Description |
-|-------|-------------|
-| `NodeProcessManager` | Spawns processes with `child_process.spawn` (Node.js 22+) |
-| `NodeWebSocketServer` | WebSocket server using the `ws` package; listens on `/ws/cli/:id` and `/ws/consumer/:id` |
-| `FileStorage` | JSON file persistence to a directory |
-| `MemoryStorage` | In-memory storage (for tests / ephemeral use) |
-| `DefaultGitResolver` | Resolves git branch/worktree info via `git` CLI |
-| `PtyCommandRunner` | Executes slash commands via a sidecar PTY (requires `node-pty`) |
-| `ConsoleLogger` | Logs to `console` with an optional prefix |
-| `NoopLogger` | Discards all log output |
-
-**Custom `ProcessManager`** (e.g. to use Bun):
+Pluggable `Authenticator` interface gates consumer WebSocket connections:
 
 ```ts
-import type { ProcessManager, ProcessHandle, SpawnOptions } from "claude-code-bridge";
+import type { Authenticator, AuthContext, ConsumerIdentity } from "beamcode";
 
-class BunProcessManager implements ProcessManager {
-  spawn(options: SpawnOptions): ProcessHandle {
-    const proc = Bun.spawn([options.command, ...options.args], {
-      cwd: options.cwd,
-      env: options.env,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+const authenticator: Authenticator = {
+  async authenticate(context: AuthContext): Promise<ConsumerIdentity> {
+    const token = (context.transport.query as Record<string, string>)?.token;
+    if (!token) throw new Error("Missing token");
+    const user = await verifyToken(token);
     return {
-      pid: proc.pid,
-      exited: proc.exited.then((code) => code ?? null),
-      kill: (signal = "SIGTERM") => proc.kill(signal),
-      stdout: proc.stdout,
-      stderr: proc.stderr,
+      userId: user.id,
+      displayName: user.name,
+      role: user.isAdmin ? "participant" : "observer",
     };
-  }
-  isAlive(pid: number): boolean {
-    try { process.kill(pid, 0); return true; } catch { return false; }
-  }
-}
+  },
+};
 ```
 
----
+Without an authenticator, consumers get anonymous participant identities.
 
-### `WebSocketLike` interface
-
-Any object with `.send(data: string)` and `.close(code?, reason?)` works as a socket. This covers `ws.WebSocket`, `ServerWebSocket` (Bun), browser `WebSocket`, etc.
-
----
-
-### `WebSocketServerLike` interface
-
-Abstraction for WebSocket servers that handle incoming CLI connections. Pass an implementation to `SessionManager`'s `server` option to let it manage CLI connections automatically.
+## Testing
 
 ```ts
-interface WebSocketServerLike {
-  listen(
-    onCLIConnection: OnCLIConnection,
-    onConsumerConnection?: OnConsumerConnection,
-  ): Promise<void>;
-  close(): Promise<void>;
-}
-```
-
-**`NodeWebSocketServer`** is the built-in adapter for Node.js using the `ws` package:
-
-```ts
-import { NodeWebSocketServer } from "claude-code-bridge";
-
-const server = new NodeWebSocketServer({ port: 3456, host: "0.0.0.0" });
-// Pass to SessionManager as `server` option
-
-// After listen, check the actual port (useful when port: 0):
-server.port; // number | undefined
-```
-
-To support a different runtime (e.g. Bun), implement `WebSocketServerLike`:
-
-```ts
-import type { WebSocketServerLike, OnCLIConnection } from "claude-code-bridge";
-
-class BunWebSocketServer implements WebSocketServerLike {
-  async listen(onConnection: OnCLIConnection): Promise<void> {
-    Bun.serve({
-      port: 3456,
-      fetch(req, server) {
-        const url = new URL(req.url);
-        const match = url.pathname.match(/^\/ws\/cli\/([^/]+)$/);
-        if (match) server.upgrade(req, { data: { sessionId: match[1] } });
-      },
-      websocket: {
-        open(ws) { onConnection(ws, ws.data.sessionId); },
-        message(ws, msg) { /* handled by socket.on("message") */ },
-        close(ws) { /* handled by socket.on("close") */ },
-      },
-    });
-  }
-  async close(): Promise<void> { /* shutdown logic */ }
-}
-```
-
----
-
-### NDJSON utilities
-
-```ts
-import { parseNDJSON, serializeNDJSON, NDJSONLineBuffer } from "claude-code-bridge";
-
-// Frame-based (WebSocket messages arrive as complete frames)
-const { messages, errors } = parseNDJSON<MyType>(frameString);
-
-// Serialize
-const line = serializeNDJSON({ type: "user", content: "hello" }); // "...\n"
-
-// Stream-based (stdout piped from a CLI process)
-const buf = new NDJSONLineBuffer();
-const lines = buf.feed(chunk);   // returns complete lines ready for JSON.parse
-const final = buf.flush();       // any remaining data on close
-buf.reset();                     // clear on reconnect
-```
-
----
-
-## Testing Utilities
-
-Import from `claude-code-bridge/testing`:
-
-```ts
-import { MemoryStorage, MockProcessManager, MockCommandRunner, NoopLogger, createMockSocket } from "claude-code-bridge/testing";
+import { MemoryStorage, MockProcessManager } from "beamcode/testing";
 
 const pm = new MockProcessManager();
 const storage = new MemoryStorage();
-const mgr = new SessionManager({ config: { port: 3456 }, processManager: pm, storage });
+const mgr = new SessionManager({ config: { port: 0 }, processManager: pm, storage });
 
-// Simulate a spawned process exiting
 const info = mgr.launcher.launch({ cwd: "/tmp" });
 pm.lastProcess.resolveExit(0);
-await pm.lastProcess.exited;
 ```
 
-`MockProcessManager` exposes:
-- `.spawnCalls`: `SpawnOptions[]` — every call to `spawn()`
-- `.spawnedProcesses`: `MockProcessHandle[]`
-- `.lastProcess`: most recently spawned handle
-- `handle.resolveExit(code)` — simulate process exit
-- `handle.killCalls`: `string[]` — signals received
+## Security
 
----
+- **E2E encryption**: libsodium sealed boxes (XSalsa20-Poly1305) — relay cannot read message contents
+- **Permission signing**: HMAC-SHA256 + nonce + timestamp prevents replay
+- **Session revocation**: `revoke-device` generates new keypair, forces re-pairing
+- **Binary validation**: `claudeBinary` must be a basename or absolute path (no `../`)
+- **Env deny list**: `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `NODE_OPTIONS` always blocked
+- **Session IDs**: Must be lowercase UUIDs; path traversal prevented via `safeJoin`
+- **Rate limiting**: Token bucket per consumer (configurable)
+- **Circuit breaker**: Sliding window prevents CLI restart cascades
 
-## Authentication & Authorization
+See [SECURITY.md](./SECURITY.md) for the full threat model and cryptographic details.
 
-### Authenticator interface
+## Documentation
 
-Implement `Authenticator` to gate consumer WebSocket connections. The interface is transport-agnostic — you receive an `AuthContext` with the target `sessionId` and a `transport` bag containing whatever metadata the WebSocket adapter provides (headers, query params, remote address, etc.):
-
-```ts
-import type { Authenticator, AuthContext, ConsumerIdentity } from "claude-code-bridge";
-
-class JWTAuthenticator implements Authenticator {
-  async authenticate(context: AuthContext): Promise<ConsumerIdentity> {
-    const headers = context.transport.headers as Record<string, string>;
-    const token = headers.authorization?.replace("Bearer ", "");
-    if (!token) throw new Error("Missing authorization header");
-
-    const payload = await verifyJWT(token);
-    return {
-      userId: payload.sub,
-      displayName: payload.name,
-      role: payload.admin ? "participant" : "observer",
-    };
-  }
-}
-```
-
-Return a `ConsumerIdentity` to accept, throw to reject (socket closed with code 4001).
-
-### Roles
-
-| Role | Can read | Can write |
-|------|----------|-----------|
-| `participant` | All messages | `user_message`, `permission_response`, `interrupt`, `set_model`, `set_permission_mode`, `slash_command`, `presence_query` |
-| `observer` | All messages | `presence_query` only |
-
-Observers who attempt write operations receive an error message: `{ type: "error", message: "Observers cannot send X messages" }`.
-
-### Consumer messages on connect
-
-When a consumer connects successfully, it receives (in order):
-
-1. `{ type: "identity", userId, displayName, role }` — the consumer's own identity
-2. `{ type: "session_init", session }` — current session state
-3. `{ type: "message_history", messages }` — conversation replay (if any)
-4. `{ type: "permission_request", request }` — pending permissions (participants only)
-5. `{ type: "presence_update", consumers }` — all connected consumers
-
-### Presence
-
-A `presence_update` message is broadcast to all consumers whenever someone connects or disconnects. Any consumer (including observers) can also send `{ type: "presence_query" }` to trigger a presence broadcast.
-
-### Dev mode (no authenticator)
-
-When no `authenticator` is provided, consumers are assigned anonymous participant identities (`anonymous-1`, `anonymous-2`, etc.) with full read-write access.
-
----
-
-## Security Notes
-
-- **`claudeBinary`** must be a simple basename (e.g. `"claude"`) or an absolute path. Relative paths with `../` are rejected.
-- **`envDenyList`** defaults to `["LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS"]` and cannot be cleared to empty (security invariant).
-- **Session IDs** must be lowercase UUIDs. Non-UUID IDs are rejected at the storage layer.
-- **Path traversal** is prevented in `FileStorage` via UUID validation and `safeJoin` containment checks.
+- [API Reference](./API_REFERENCE.md) — Complete API documentation
+- [Backend Adapter Guide](./docs/adapters/backend-adapter-guide.md) — How to write a custom adapter
+- [Architecture](./docs/architecture/universal-adapter-layer.md) — Vision, competitive landscape, protocol details
+- [Architecture Diagram](./docs/architecture/architecture-diagram.md) — Visual system architecture
+- [Implementation Plan](./docs/plans/2026-02-15-beamcode-implementation-plan.md) — Phase-by-phase plan
+- [ACP Research](./docs/research/acp-research-notes.md) — Agent Client Protocol investigation
 
 ## License
 

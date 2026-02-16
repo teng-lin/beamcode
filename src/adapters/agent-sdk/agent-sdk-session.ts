@@ -51,7 +51,7 @@ export class AgentSdkSession implements BackendSession {
   // ---------------------------------------------------------------------------
 
   send(message: UnifiedMessage): void {
-    if (this.closed) return;
+    if (this.closed) throw new Error("Session is closed");
 
     if (message.type === "permission_response") {
       const { requestId, behavior, updatedInput } = message.metadata as {

@@ -130,34 +130,3 @@ describe("SessionBridge Integration - Rate Limiting", () => {
     expect(session.consumerRateLimiters.size).toBe(0);
   });
 });
-
-describe("CLILauncher Integration - Circuit Breaker", () => {
-  it("tracks rapid process failures in circuit breaker", async () => {
-    // This test verifies circuit breaker state transitions
-    // Note: Full integration requires ProcessManager mock
-    // See circuit-breaker implementation for state machine tests
-    expect(true).toBe(true); // Placeholder for full integration test
-  });
-
-  it("prevents restart attempts when circuit breaker is open", () => {
-    // This would require mocking ProcessManager
-    // and testing that relaunch() returns false when breaker is OPEN
-    expect(true).toBe(true); // Placeholder for full integration test
-  });
-});
-
-describe("Task 9 & 10 Integration - End-to-End", () => {
-  it("atomic writes survive crash simulation", () => {
-    // Verify that file storage uses atomic writes
-    // and recovery mechanism works on restart
-    expect(true).toBe(true); // Placeholder for full integration test
-  });
-
-  it("rate limiting + circuit breaker work together", () => {
-    // Verify that:
-    // 1. Rate limiting prevents consumer flooding
-    // 2. Circuit breaker prevents CLI restart cascades
-    // 3. System remains stable under stress
-    expect(true).toBe(true); // Placeholder for full integration test
-  });
-});

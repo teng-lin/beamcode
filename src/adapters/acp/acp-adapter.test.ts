@@ -350,22 +350,20 @@ describe("AcpAdapter", () => {
       expect(mockChild.child.kill).toHaveBeenCalledWith("SIGTERM");
     });
 
-    it("does not write after close", async () => {
+    it("throws on send after close", async () => {
       const session = await createSession();
       await session.close();
 
-      const countBefore = mockChild.stdin.chunks.length;
-
-      session.send(
-        createUnifiedMessage({
-          type: "user_message",
-          role: "user",
-          content: [{ type: "text", text: "should be ignored" }],
-          metadata: {},
-        }),
-      );
-
-      expect(mockChild.stdin.chunks.length).toBe(countBefore);
+      expect(() =>
+        session.send(
+          createUnifiedMessage({
+            type: "user_message",
+            role: "user",
+            content: [{ type: "text", text: "should be ignored" }],
+            metadata: {},
+          }),
+        ),
+      ).toThrow("Session is closed");
     });
   });
 });

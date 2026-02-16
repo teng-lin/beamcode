@@ -149,23 +149,18 @@ describe("CodexSession", () => {
       expect(JSON.parse(ws.sent[1]).id).toBe(2);
     });
 
-    it("does not send after close", async () => {
+    it("throws on send after close", async () => {
       await session.close();
 
-      session.send(
-        createUnifiedMessage({
-          type: "user_message",
-          role: "user",
-          content: [{ type: "text", text: "ignored" }],
-        }),
-      );
-
-      // Only the close-related messages should be in sent, not the user_message
-      const turnMessages = ws.sent.filter((s) => {
-        const parsed = JSON.parse(s);
-        return parsed.method === "turn.create";
-      });
-      expect(turnMessages).toHaveLength(0);
+      expect(() =>
+        session.send(
+          createUnifiedMessage({
+            type: "user_message",
+            role: "user",
+            content: [{ type: "text", text: "ignored" }],
+          }),
+        ),
+      ).toThrow("Session is closed");
     });
   });
 

@@ -1,0 +1,564 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import type { WebSocketLike } from "../interfaces/transport.js";
+import { SessionBridge } from "./session-bridge.js";
+
+// ── Mock WebSocket ───────────────────────────────────────────────────────────
+
+interface MockSocket extends WebSocketLike {
+  sentMessages: string[];
+  closed: boolean;
+}
+
+function createMockSocket(): MockSocket {
+  const socket: MockSocket = {
+    sentMessages: [],
+    closed: false,
+    send(data: string) {
+      socket.sentMessages.push(data);
+    },
+    close() {
+      socket.closed = true;
+    },
+  };
+  return socket;
+}
+
+/** Parse all JSON messages sent to a mock socket. */
+function parseSent(socket: MockSocket): unknown[] {
+  return socket.sentMessages.map((m) => JSON.parse(m));
+}
+
+/** Find sent messages of a specific type. */
+function sentOfType(socket: MockSocket, type: string): unknown[] {
+  return parseSent(socket).filter((m: unknown) => (m as { type: string }).type === type);
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+describe("Adapter → SessionBridge → Consumer Integration", () => {
+  let bridge: SessionBridge;
+  const sessionId = "integration-session-1";
+
+  beforeEach(() => {
+    bridge = new SessionBridge({
+      config: {
+        port: 3456,
+        consumerMessageRateLimit: {
+          tokensPerSecond: 10,
+          burstSize: 5,
+        },
+      },
+    });
+  });
+
+  // ── 1. Basic flow ────────────────────────────────────────────────────────
+
+  describe("basic flow through SessionBridge", () => {
+    it("connects a consumer and delivers identity + session_init", () => {
+      const socket = createMockSocket();
+
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      const messages = parseSent(socket);
+      const types = messages.map((m: unknown) => (m as { type: string }).type);
+
+      expect(types).toContain("identity");
+      expect(types).toContain("session_init");
+      expect(types).toContain("presence_update");
+
+      // Identity should be anonymous (no authenticator)
+      const identity = messages.find(
+        (m: unknown) => (m as { type: string }).type === "identity",
+      ) as { userId: string; role: string };
+      expect(identity.userId).toMatch(/^anonymous-/);
+      expect(identity.role).toBe("participant");
+    });
+
+    it("consumer also gets cli_disconnected when CLI is not connected", () => {
+      const socket = createMockSocket();
+
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      const types = parseSent(socket).map((m: unknown) => (m as { type: string }).type);
+      expect(types).toContain("cli_disconnected");
+    });
+
+    it("routes user_message from consumer and stores in message history", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      bridge.handleConsumerMessage(
+        socket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "Hello world" }),
+      );
+
+      const snapshot = bridge.getSession(sessionId);
+      expect(snapshot).toBeDefined();
+      expect(snapshot!.messageHistoryLength).toBe(1);
+    });
+
+    it("updates lastActivity on consumer message", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      const before = Date.now();
+      bridge.handleConsumerMessage(
+        socket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "ping" }),
+      );
+
+      const snapshot = bridge.getSession(sessionId);
+      expect(snapshot!.lastActivity).toBeGreaterThanOrEqual(before);
+    });
+  });
+
+  // ── 2. Multiple consumers on one session ─────────────────────────────────
+
+  describe("multiple consumers on one session", () => {
+    it("broadcasts CLI messages to all connected consumers", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+
+      // Connect both consumers
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+
+      // Connect a CLI socket so we can simulate CLI messages
+      const cliSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, sessionId);
+
+      // Clear sent messages to focus on CLI broadcast
+      socket1.sentMessages.length = 0;
+      socket2.sentMessages.length = 0;
+
+      // Simulate CLI sending an assistant message (NDJSON)
+      const assistantMsg = JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-1",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "Hello from assistant" }],
+          stop_reason: null,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        parent_tool_use_id: null,
+      });
+      bridge.handleCLIMessage(sessionId, assistantMsg);
+
+      // Both consumers should receive the assistant message
+      const s1Assistant = sentOfType(socket1, "assistant");
+      const s2Assistant = sentOfType(socket2, "assistant");
+      expect(s1Assistant).toHaveLength(1);
+      expect(s2Assistant).toHaveLength(1);
+    });
+
+    it("sends presence_update to all consumers when a new one connects", () => {
+      const socket1 = createMockSocket();
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+
+      // Clear socket1 messages before second consumer connects
+      socket1.sentMessages.length = 0;
+
+      const socket2 = createMockSocket();
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+
+      // socket1 should receive a presence_update with 2 consumers
+      const presenceUpdates = sentOfType(socket1, "presence_update") as Array<{
+        consumers: unknown[];
+      }>;
+      expect(presenceUpdates.length).toBeGreaterThanOrEqual(1);
+      const lastUpdate = presenceUpdates[presenceUpdates.length - 1];
+      expect(lastUpdate.consumers).toHaveLength(2);
+    });
+
+    it("tracks consumer count accurately", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      expect(bridge.getSession(sessionId)!.consumerCount).toBe(1);
+
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+      expect(bridge.getSession(sessionId)!.consumerCount).toBe(2);
+    });
+  });
+
+  // ── 3. Consumer disconnect cleanup ────────────────────────────────────────
+
+  describe("consumer disconnect cleanup", () => {
+    it("removes consumer socket and rate limiter on disconnect", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      // Send a message to create a rate limiter
+      bridge.handleConsumerMessage(
+        socket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "test" }),
+      );
+
+      expect(bridge.getSession(sessionId)!.consumerCount).toBe(1);
+
+      // Disconnect
+      bridge.handleConsumerClose(socket, sessionId);
+
+      const snapshot = bridge.getSession(sessionId)!;
+      expect(snapshot.consumerCount).toBe(0);
+    });
+
+    it("emits consumer:disconnected event on close", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      const events: unknown[] = [];
+      bridge.on("consumer:disconnected", (e) => events.push(e));
+
+      bridge.handleConsumerClose(socket, sessionId);
+
+      expect(events).toHaveLength(1);
+      expect((events[0] as { consumerCount: number }).consumerCount).toBe(0);
+    });
+
+    it("broadcasts presence_update after disconnect", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+
+      // Clear to focus on disconnect broadcast
+      socket2.sentMessages.length = 0;
+
+      bridge.handleConsumerClose(socket1, sessionId);
+
+      // socket2 should get presence_update with 1 consumer
+      const presenceUpdates = sentOfType(socket2, "presence_update") as Array<{
+        consumers: unknown[];
+      }>;
+      expect(presenceUpdates.length).toBeGreaterThanOrEqual(1);
+      const lastUpdate = presenceUpdates[presenceUpdates.length - 1];
+      expect(lastUpdate.consumers).toHaveLength(1);
+    });
+
+    it("handles disconnect for non-existent session gracefully", () => {
+      const socket = createMockSocket();
+      // Should not throw
+      expect(() => bridge.handleConsumerClose(socket, "non-existent")).not.toThrow();
+    });
+  });
+
+  // ── 4. Rate limiting integration ──────────────────────────────────────────
+
+  describe("rate limiting integration", () => {
+    it("allows messages within burst limit", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      // Clear initial messages
+      socket.sentMessages.length = 0;
+
+      // Send 5 messages (burst limit)
+      for (let i = 0; i < 5; i++) {
+        bridge.handleConsumerMessage(
+          socket,
+          sessionId,
+          JSON.stringify({ type: "user_message", content: `msg-${i}` }),
+        );
+      }
+
+      // No error messages should have been sent
+      const errors = sentOfType(socket, "error");
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects messages exceeding burst limit", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      // Clear initial messages
+      socket.sentMessages.length = 0;
+
+      // Send more than burst limit (5)
+      for (let i = 0; i < 10; i++) {
+        bridge.handleConsumerMessage(
+          socket,
+          sessionId,
+          JSON.stringify({ type: "user_message", content: `msg-${i}` }),
+        );
+      }
+
+      const errors = sentOfType(socket, "error") as Array<{ message: string }>;
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Rate limit exceeded");
+    });
+
+    it("rate limits are per-consumer, not per-session", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+
+      // Clear initial messages
+      socket1.sentMessages.length = 0;
+      socket2.sentMessages.length = 0;
+
+      // Exhaust socket1's burst
+      for (let i = 0; i < 10; i++) {
+        bridge.handleConsumerMessage(
+          socket1,
+          sessionId,
+          JSON.stringify({ type: "user_message", content: `msg-${i}` }),
+        );
+      }
+
+      // socket2 should still be able to send
+      bridge.handleConsumerMessage(
+        socket2,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "from socket2" }),
+      );
+
+      const s2Errors = sentOfType(socket2, "error");
+      expect(s2Errors).toHaveLength(0);
+    });
+  });
+
+  // ── 5. Session isolation ──────────────────────────────────────────────────
+
+  describe("session isolation", () => {
+    const sessionId2 = "integration-session-2";
+
+    it("messages do not leak between sessions", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+
+      // Connect consumers to different sessions
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket2, { sessionId: sessionId2, transport: {} });
+
+      // Connect CLI sockets to both sessions
+      const cli1 = createMockSocket();
+      const cli2 = createMockSocket();
+      bridge.handleCLIOpen(cli1, sessionId);
+      bridge.handleCLIOpen(cli2, sessionId2);
+
+      // Clear all messages
+      socket1.sentMessages.length = 0;
+      socket2.sentMessages.length = 0;
+
+      // Simulate CLI message only on session 1
+      bridge.handleCLIMessage(
+        sessionId,
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            id: "msg-s1",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-5-20250929",
+            content: [{ type: "text", text: "Session 1 only" }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 10,
+              output_tokens: 5,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          parent_tool_use_id: null,
+        }),
+      );
+
+      // socket1 should get the message
+      expect(sentOfType(socket1, "assistant")).toHaveLength(1);
+      // socket2 should NOT get the message
+      expect(sentOfType(socket2, "assistant")).toHaveLength(0);
+    });
+
+    it("session state is independent", () => {
+      bridge.getOrCreateSession(sessionId);
+      bridge.getOrCreateSession(sessionId2);
+
+      const s1 = bridge.getSession(sessionId)!;
+      const s2 = bridge.getSession(sessionId2)!;
+
+      expect(s1.id).toBe(sessionId);
+      expect(s2.id).toBe(sessionId2);
+      expect(s1.state.session_id).toBe(sessionId);
+      expect(s2.state.session_id).toBe(sessionId2);
+    });
+
+    it("consumer counts are independent per session", () => {
+      const socket1 = createMockSocket();
+      const socket2 = createMockSocket();
+      const socket3 = createMockSocket();
+
+      bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
+      bridge.handleConsumerOpen(socket3, { sessionId: sessionId2, transport: {} });
+
+      expect(bridge.getSession(sessionId)!.consumerCount).toBe(2);
+      expect(bridge.getSession(sessionId2)!.consumerCount).toBe(1);
+    });
+  });
+
+  // ── 6. Error handling ─────────────────────────────────────────────────────
+
+  describe("error handling", () => {
+    it("handles malformed JSON gracefully without crashing", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      // Send malformed JSON — should not throw
+      expect(() => {
+        bridge.handleConsumerMessage(socket, sessionId, "not valid json {{{");
+      }).not.toThrow();
+
+      // Session should still be valid
+      const snapshot = bridge.getSession(sessionId);
+      expect(snapshot).toBeDefined();
+      expect(snapshot!.consumerCount).toBe(1);
+    });
+
+    it("ignores messages from unregistered sockets", () => {
+      const registeredSocket = createMockSocket();
+      const unregisteredSocket = createMockSocket();
+
+      bridge.handleConsumerOpen(registeredSocket, { sessionId, transport: {} });
+
+      // Send message from unregistered socket — should be silently ignored
+      expect(() => {
+        bridge.handleConsumerMessage(
+          unregisteredSocket,
+          sessionId,
+          JSON.stringify({ type: "user_message", content: "sneaky" }),
+        );
+      }).not.toThrow();
+
+      // No error message sent to unregistered socket
+      expect(unregisteredSocket.sentMessages).toHaveLength(0);
+    });
+
+    it("handles message to non-existent session gracefully", () => {
+      const socket = createMockSocket();
+      expect(() => {
+        bridge.handleConsumerMessage(
+          socket,
+          "non-existent-session",
+          JSON.stringify({ type: "user_message", content: "hello" }),
+        );
+      }).not.toThrow();
+    });
+
+    it("observers cannot send participant-only messages", () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+
+      // Override the identity to observer
+      const session = bridge.getOrCreateSession(sessionId);
+      session.consumerSockets.set(socket, {
+        userId: "observer-1",
+        displayName: "Observer",
+        role: "observer",
+      });
+
+      // Clear messages
+      socket.sentMessages.length = 0;
+
+      // Try to send a user_message (participant-only)
+      bridge.handleConsumerMessage(
+        socket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "should be blocked" }),
+      );
+
+      const errors = sentOfType(socket, "error") as Array<{ message: string }>;
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain("Observers cannot send");
+    });
+  });
+
+  // ── Full round-trip flow ──────────────────────────────────────────────────
+
+  describe("full round-trip: consumer → CLI → consumer", () => {
+    it("consumer message reaches CLI socket and CLI response reaches consumer", () => {
+      const consumerSocket = createMockSocket();
+      const cliSocket = createMockSocket();
+
+      // Connect consumer, then CLI
+      bridge.handleConsumerOpen(consumerSocket, { sessionId, transport: {} });
+      bridge.handleCLIOpen(cliSocket, sessionId);
+
+      // Consumer sends a user_message
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "What is 2+2?" }),
+      );
+
+      // CLI socket should have received the message (as NDJSON)
+      expect(cliSocket.sentMessages.length).toBeGreaterThan(0);
+      const cliReceived = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
+      const userMsg = cliReceived.find((m: unknown) => (m as { type: string }).type === "user");
+      expect(userMsg).toBeDefined();
+
+      // Clear consumer messages
+      consumerSocket.sentMessages.length = 0;
+
+      // Simulate CLI responding with a result
+      bridge.handleCLIMessage(
+        sessionId,
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "4",
+          duration_ms: 100,
+          duration_api_ms: 80,
+          num_turns: 1,
+          total_cost_usd: 0.01,
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        }),
+      );
+
+      // Consumer should receive the result
+      const results = sentOfType(consumerSocket, "result");
+      expect(results).toHaveLength(1);
+    });
+
+    it("queues consumer messages when CLI is not yet connected", () => {
+      const consumerSocket = createMockSocket();
+      bridge.handleConsumerOpen(consumerSocket, { sessionId, transport: {} });
+
+      // Send message before CLI connects
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        sessionId,
+        JSON.stringify({ type: "user_message", content: "queued message" }),
+      );
+
+      // Now connect CLI
+      const cliSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, sessionId);
+
+      // CLI should have received the queued message
+      expect(cliSocket.sentMessages.length).toBeGreaterThan(0);
+    });
+  });
+});
