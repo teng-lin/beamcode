@@ -21,8 +21,8 @@ const SESSION = "chatview-test";
 
 function addUserMessage(): void {
   store().addMessage(SESSION, {
-    role: "user",
-    content: [{ type: "text", text: "hello" }],
+    type: "user_message",
+    content: "hello",
     timestamp: Date.now(),
   });
 }

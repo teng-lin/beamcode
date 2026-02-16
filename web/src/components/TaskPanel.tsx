@@ -3,6 +3,7 @@ import type { ConsumerTeamMember, ConsumerTeamTask } from "../../../shared/consu
 import { useStore } from "../store";
 import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
+import { memberStatusDotClass, TASK_STATUS_ICONS } from "../utils/team-styles";
 import { ContextGauge } from "./ContextGauge";
 
 interface ModelUsage {
@@ -18,21 +19,6 @@ function computeCacheRatio(usage: ModelUsage): number {
     usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
   return totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
 }
-
-// ── Status styling ───────────────────────────────────────────────────────────
-
-const MEMBER_STATUS_STYLES: Record<string, string> = {
-  active: "bg-bc-success animate-pulse",
-  idle: "bg-bc-warning",
-  shutdown: "bg-bc-text-muted/40",
-};
-
-const TASK_STATUS_ICONS: Record<string, string> = {
-  pending: "\u25CB",
-  in_progress: "\u25D1",
-  completed: "\u25CF",
-  deleted: "\u2715",
-};
 
 // ── Memoized sub-components ──────────────────────────────────────────────────
 
@@ -62,7 +48,7 @@ function ModelUsageCard({ model, usage }: { model: string; usage: ModelUsage }) 
 }
 
 const TeamMemberItem = memo(function TeamMemberItem({ member }: { member: ConsumerTeamMember }) {
-  const dotClass = MEMBER_STATUS_STYLES[member.status] ?? "bg-bc-text-muted/40";
+  const dotClass = memberStatusDotClass(member.status);
   return (
     <div className="flex items-center gap-2 py-1">
       <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />

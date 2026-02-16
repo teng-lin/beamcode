@@ -20,6 +20,7 @@ export function resetStore(overrides?: Partial<ReturnType<typeof useStore.getSta
     sidebarOpen: false,
     taskPanelOpen: false,
     shortcutsModalOpen: false,
+    inspectedAgentId: null,
     darkMode: true,
     ...overrides,
   });
@@ -92,6 +93,14 @@ export function makeToolUseBlock(
     name: overrides?.name ?? "Bash",
     input: overrides?.input ?? { command: "ls" },
   };
+}
+
+export function makeStreamEvent(parentToolUseId: string | null = null): ConsumerMessage {
+  return {
+    type: "stream_event",
+    event: { type: "content_block_delta", delta: { type: "text_delta", text: "chunk" } },
+    parent_tool_use_id: parentToolUseId,
+  } as ConsumerMessage;
 }
 
 // ── Team factories ──────────────────────────────────────────────────────────

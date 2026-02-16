@@ -186,7 +186,7 @@ describe("Sidebar", () => {
       await waitFor(() => {
         expect(deleteSession).toHaveBeenCalledWith("s2");
       });
-      expect(useStore.getState().sessions["s2"]).toBeUndefined();
+      expect(useStore.getState().sessions.s2).toBeUndefined();
       expect(disconnect).toHaveBeenCalled();
       expect(useStore.getState().currentSessionId).toBe("s1");
       expect(connectToSession).toHaveBeenCalledWith("s1");
@@ -209,7 +209,7 @@ describe("Sidebar", () => {
       await waitFor(() => {
         expect(deleteSession).toHaveBeenCalledWith("s2");
       });
-      expect(useStore.getState().sessions["s2"]).toBeUndefined();
+      expect(useStore.getState().sessions.s2).toBeUndefined();
       expect(disconnect).not.toHaveBeenCalled();
       // Active session should remain unchanged
       expect(useStore.getState().currentSessionId).toBe("s1");
@@ -229,7 +229,7 @@ describe("Sidebar", () => {
       await waitFor(() => {
         expect(deleteSession).toHaveBeenCalledWith("s1");
       });
-      expect(useStore.getState().sessions["s1"]).toBeUndefined();
+      expect(useStore.getState().sessions.s1).toBeUndefined();
       expect(useStore.getState().currentSessionId).toBeNull();
       expect(disconnect).toHaveBeenCalled();
     });
@@ -247,7 +247,7 @@ describe("Sidebar", () => {
 
       await waitFor(() => {
         // Session should still be removed locally even if API fails
-        expect(useStore.getState().sessions["s1"]).toBeUndefined();
+        expect(useStore.getState().sessions.s1).toBeUndefined();
       });
     });
   });
@@ -265,7 +265,7 @@ describe("Sidebar", () => {
         }),
       );
       render(<Sidebar />);
-      const row = screen.getByText("proj").closest("[role=button]")!;
+      const row = screen.getByText("proj").closest("[role=button]") as HTMLElement;
       const adapterDot = row.querySelector("[class*='bg-bc-adapter']");
       expect(adapterDot?.className).toContain("bg-bc-adapter-claude");
     });
@@ -280,7 +280,7 @@ describe("Sidebar", () => {
         }),
       );
       render(<Sidebar />);
-      const row = screen.getByText("proj").closest("[role=button]")!;
+      const row = screen.getByText("proj").closest("[role=button]") as HTMLElement;
       const adapterDot = row.querySelector("[class*='bg-bc-adapter']");
       expect(adapterDot?.className).toContain("bg-bc-adapter-default");
     });
@@ -288,7 +288,7 @@ describe("Sidebar", () => {
     it("renders default adapter color when adapterType is undefined", () => {
       setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/tmp/proj", createdAt: 1000 }));
       render(<Sidebar />);
-      const row = screen.getByText("proj").closest("[role=button]")!;
+      const row = screen.getByText("proj").closest("[role=button]") as HTMLElement;
       const adapterDot = row.querySelector("[class*='bg-bc-adapter']");
       expect(adapterDot?.className).toContain("bg-bc-adapter-default");
     });
@@ -490,7 +490,7 @@ describe("Sidebar", () => {
       );
       render(<Sidebar />);
 
-      const item = screen.getByText("alpha").closest("[role=button]")!;
+      const item = screen.getByText("alpha").closest("[role=button]") as HTMLElement;
       item.focus();
       await user.keyboard("{Enter}");
 
@@ -505,7 +505,7 @@ describe("Sidebar", () => {
       );
       render(<Sidebar />);
 
-      const item = screen.getByText("alpha").closest("[role=button]")!;
+      const item = screen.getByText("alpha").closest("[role=button]") as HTMLElement;
       item.focus();
       await user.keyboard(" ");
 
