@@ -30,7 +30,11 @@ describe("state-reducer team integration", () => {
   describe("tool_use buffering", () => {
     it("buffers TeamCreate tool_use AND applies optimistically", () => {
       const state = makeDefaultSessionState();
-      const next = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      const next = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }),
+        buffer,
+      );
       // Optimistic: team state applied immediately on tool_use
       expect(next.team).toBeDefined();
       expect(next.team!.name).toBe("my-team");
@@ -42,7 +46,11 @@ describe("state-reducer team integration", () => {
   describe("TeamCreate lifecycle", () => {
     it("applies TeamCreate when tool_result correlates with buffered tool_use", () => {
       const state = makeDefaultSessionState();
-      const s1 = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      const s1 = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }),
+        buffer,
+      );
       const s2 = reduce(s1, makeToolResultMessage("tu-1", '{"success": true}'), buffer);
 
       expect(s2.team).toBeDefined();
@@ -84,7 +92,11 @@ describe("state-reducer team integration", () => {
         team: { name: "my-team", role: "lead", members: [], tasks: [] },
       };
 
-      const s1 = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "worker-1" }), buffer);
+      const s1 = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "worker-1" }),
+        buffer,
+      );
       const s2 = reduce(s1, makeToolResultMessage("tu-2", "{}"), buffer);
 
       expect(s2.agents).toEqual(["worker-1"]);
@@ -121,7 +133,11 @@ describe("state-reducer team integration", () => {
         team: { name: "my-team", role: "lead", members: [], tasks: [] },
       };
 
-      const s1 = reduce(state, makeToolUseMessage("TaskCreate", "tu-err", { subject: "Fix bug" }), buffer);
+      const s1 = reduce(
+        state,
+        makeToolUseMessage("TaskCreate", "tu-err", { subject: "Fix bug" }),
+        buffer,
+      );
       // Optimistic: task created with synthetic ID
       expect(s1.team!.tasks).toHaveLength(1);
       expect(s1.team!.tasks[0]!.subject).toBe("Fix bug");
@@ -137,7 +153,11 @@ describe("state-reducer team integration", () => {
   describe("non-team tools", () => {
     it("does not affect state for regular tool_use blocks", () => {
       const state = makeDefaultSessionState();
-      const next = reduce(state, makeToolUseMessage("Read", "tu-read", { file_path: "/tmp/test.ts" }), buffer);
+      const next = reduce(
+        state,
+        makeToolUseMessage("Read", "tu-read", { file_path: "/tmp/test.ts" }),
+        buffer,
+      );
 
       expect(next.team).toBeUndefined();
       expect(buffer.pendingCount).toBe(0);
@@ -149,18 +169,30 @@ describe("state-reducer team integration", () => {
       let state = makeDefaultSessionState();
 
       // TeamCreate — optimistic
-      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }),
+        buffer,
+      );
       expect(state.team?.name).toBe("my-team");
 
       // Add member — optimistic
-      state = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }),
+        buffer,
+      );
       expect(state.team?.members).toHaveLength(1);
       expect(state.agents).toEqual(["dev-1"]);
 
       // Create task — optimistic with synthetic ID
-      state = reduce(state, makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }),
+        buffer,
+      );
       expect(state.team?.tasks).toHaveLength(1);
-      expect(state.team?.tasks[0]!.subject).toBe("Fix bug");
+      expect(state.team!.tasks[0]!.subject).toBe("Fix bug");
       const syntheticTaskId = state.team!.tasks[0]!.id;
 
       // Complete task via synthetic ID
@@ -169,7 +201,7 @@ describe("state-reducer team integration", () => {
         makeToolUseMessage("TaskUpdate", "tu-4", { taskId: syntheticTaskId, status: "completed" }),
         buffer,
       );
-      expect(state.team?.tasks[0]!.status).toBe("completed");
+      expect(state.team!.tasks[0]!.status).toBe("completed");
 
       // Delete team — optimistic
       state = reduce(state, makeToolUseMessage("TeamDelete", "tu-5", {}), buffer);
@@ -181,25 +213,37 @@ describe("state-reducer team integration", () => {
       let state = makeDefaultSessionState();
 
       // TeamCreate — optimistic + correlation (idempotent)
-      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }),
+        buffer,
+      );
       state = reduce(state, makeToolResultMessage("tu-1", "{}"), buffer);
       expect(state.team?.name).toBe("my-team");
 
       // Add member — optimistic + correlation (idempotent)
-      state = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }),
+        buffer,
+      );
       state = reduce(state, makeToolResultMessage("tu-2", "{}"), buffer);
       expect(state.team?.members).toHaveLength(1);
 
       // TaskCreate — synthetic entry created optimistically, then replaced by real ID
-      state = reduce(state, makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }),
+        buffer,
+      );
       expect(state.team?.tasks).toHaveLength(1);
-      expect(state.team?.tasks[0]!.id).toBe("tu-tu-3"); // synthetic
+      expect(state.team!.tasks[0]!.id).toBe("tu-tu-3"); // synthetic
 
       state = reduce(state, makeToolResultMessage("tu-3", '{"id": "1"}'), buffer);
       // Synthetic replaced by real — still 1 entry
       expect(state.team?.tasks).toHaveLength(1);
-      expect(state.team?.tasks[0]!.id).toBe("1");
-      expect(state.team?.tasks[0]!.subject).toBe("Fix bug");
+      expect(state.team!.tasks[0]!.id).toBe("1");
+      expect(state.team!.tasks[0]!.subject).toBe("Fix bug");
     });
   });
 
@@ -208,7 +252,11 @@ describe("state-reducer team integration", () => {
       let state = makeDefaultSessionState();
 
       // TeamCreate — tool_use only, no tool_result
-      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-10", { team_name: "cli-team" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-10", { team_name: "cli-team" }),
+        buffer,
+      );
       expect(state.team).toBeDefined();
       expect(state.team!.name).toBe("cli-team");
 
@@ -263,7 +311,11 @@ describe("state-reducer team integration", () => {
       let state = makeDefaultSessionState();
 
       // TeamCreate tool_use → optimistic applies immediately
-      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-both", { team_name: "both-team" }), buffer);
+      state = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-both", { team_name: "both-team" }),
+        buffer,
+      );
       expect(state.team!.name).toBe("both-team");
 
       // Late tool_result arrives — correlation fires but idempotent (team already exists)

@@ -6,5 +6,6 @@ export default defineConfig({
     include: ["src/**/*.e2e.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 15_000,
+    poolOptions: { forks: { maxForks: 2 } },
   },
 });

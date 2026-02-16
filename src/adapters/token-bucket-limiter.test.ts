@@ -149,8 +149,8 @@ describe("TokenBucketLimiter", () => {
       }
       // After burst, should be empty or nearly empty (timing may allow small refill)
       const _attempt = limiter.tryConsume();
-      // Note: Due to timing, a tiny refill might occur, so we check state instead
-      expect(limiter.getTokens()).toBeLessThan(1);
+      // Refill rate is 1 token/ms, so CI jitter of a few ms can refill several tokens
+      expect(limiter.getTokens()).toBeLessThan(5);
 
       // Try to send continuously - should be rate-limited
       const results = [];
