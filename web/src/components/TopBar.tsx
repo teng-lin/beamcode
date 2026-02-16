@@ -38,10 +38,13 @@ export function TopBar() {
   }, [currentSessionId]);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
-  const handleSelectModel = useCallback((value: string) => {
-    send({ type: "set_model", model: value });
-    setModelMenuOpen(false);
-  }, []);
+  const handleSelectModel = useCallback(
+    (value: string) => {
+      send({ type: "set_model", model: value }, currentSessionId ?? undefined);
+      setModelMenuOpen(false);
+    },
+    [currentSessionId],
+  );
 
   useEffect(() => {
     if (!modelMenuOpen) return;

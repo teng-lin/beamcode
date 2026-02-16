@@ -7,10 +7,11 @@ import { useStore } from "./store";
 
 // ── Module-level state (not a hook) ────────────────────────────────────────
 
-let ws: WebSocket | null = null;
-let activeSessionId: string | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectAttempt = 0;
+const connections = new Map<string, WebSocket>();
+const reconnectState = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout> | null; attempt: number }
+>();
 const MAX_RECONNECT_DELAY = 30_000;
 
 function getConsumerId(): string {
@@ -180,91 +181,120 @@ function handleMessage(sessionId: string, data: string): void {
 }
 
 export function connectToSession(sessionId: string): void {
-  // Clear any pending reconnect timer
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  // Idempotent: return early if an OPEN or CONNECTING socket already exists
+  const existing = connections.get(sessionId);
+  if (
+    existing &&
+    (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
   }
 
-  // Disconnect previous session or stale connection to same session
-  if (ws) {
-    ws.onclose = null;
-    ws.close();
-    ws = null;
+  // Clear any pending reconnect timer for this session (preserve attempt count for backoff)
+  const rs = reconnectState.get(sessionId);
+  if (rs?.timer) {
+    clearTimeout(rs.timer);
+    reconnectState.set(sessionId, { timer: null, attempt: rs.attempt });
   }
 
-  reconnectAttempt = 0;
-  activeSessionId = sessionId;
+  // Close stale socket for this session if any
+  if (existing) {
+    existing.onclose = null;
+    existing.close();
+    connections.delete(sessionId);
+  }
+
   const store = useStore.getState();
   store.ensureSessionData(sessionId);
   store.setConnectionStatus(sessionId, "connecting");
 
   const url = buildWsUrl(sessionId);
-  ws = new WebSocket(url);
+  const socket = new WebSocket(url);
+  connections.set(sessionId, socket);
 
-  ws.onopen = () => {
-    reconnectAttempt = 0;
+  socket.onopen = () => {
+    reconnectState.set(sessionId, { timer: null, attempt: 0 });
     store.setConnectionStatus(sessionId, "connected");
     store.setReconnectAttempt(sessionId, 0);
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
     if (typeof event.data === "string") {
       handleMessage(sessionId, event.data);
     }
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
     store.setConnectionStatus(sessionId, "disconnected");
     store.clearStreaming(sessionId);
     store.setSessionStatus(sessionId, "idle");
-    ws = null;
-    // Only reconnect if this is still the active session
-    if (activeSessionId === sessionId) {
-      scheduleReconnect(sessionId);
-    }
+    connections.delete(sessionId);
+    scheduleReconnect(sessionId);
   };
 
-  ws.onerror = () => {
+  socket.onerror = () => {
     // onclose will fire after onerror
   };
 }
 
 function scheduleReconnect(sessionId: string): void {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  const delay = Math.min(1000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY);
-  reconnectAttempt++;
-  useStore.getState().setReconnectAttempt(sessionId, reconnectAttempt);
-  reconnectTimer = setTimeout(() => {
-    if (activeSessionId === sessionId) {
+  const rs = reconnectState.get(sessionId) ?? { timer: null, attempt: 0 };
+  if (rs.timer) clearTimeout(rs.timer);
+  const delay = Math.min(1000 * 2 ** rs.attempt, MAX_RECONNECT_DELAY);
+  const nextAttempt = rs.attempt + 1;
+  useStore.getState().setReconnectAttempt(sessionId, nextAttempt);
+  const timer = setTimeout(() => {
+    // Only reconnect if no connection currently exists for this session
+    if (!connections.has(sessionId)) {
       connectToSession(sessionId);
     }
   }, delay);
+  reconnectState.set(sessionId, { timer, attempt: nextAttempt });
+}
+
+export function disconnectSession(sessionId: string): void {
+  const rs = reconnectState.get(sessionId);
+  if (rs?.timer) clearTimeout(rs.timer);
+  reconnectState.delete(sessionId);
+
+  const socket = connections.get(sessionId);
+  if (socket) {
+    socket.onclose = null;
+    socket.close();
+    connections.delete(sessionId);
+  }
+  useStore.getState().setConnectionStatus(sessionId, "disconnected");
 }
 
 export function disconnect(): void {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  for (const [sessionId, socket] of connections) {
+    socket.onclose = null;
+    socket.close();
+    useStore.getState().setConnectionStatus(sessionId, "disconnected");
   }
-  reconnectAttempt = 0;
-  if (ws) {
-    ws.onclose = null;
-    ws.close();
-    ws = null;
+  connections.clear();
+
+  for (const rs of reconnectState.values()) {
+    if (rs.timer) clearTimeout(rs.timer);
   }
-  if (activeSessionId) {
-    useStore.getState().setConnectionStatus(activeSessionId, "disconnected");
-  }
-  activeSessionId = null;
+  reconnectState.clear();
 }
 
-export function send(message: InboundMessage): void {
-  if (ws?.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(message));
+export function send(message: InboundMessage, sessionId?: string): void {
+  const targetId = sessionId ?? useStore.getState().currentSessionId;
+  if (!targetId) return;
+  const socket = connections.get(targetId);
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
   }
 }
 
+/** @deprecated Use `useStore.getState().currentSessionId` instead. */
 export function getActiveSessionId(): string | null {
-  return activeSessionId;
+  return useStore.getState().currentSessionId;
+}
+
+/** Reset internal state -- test-only. */
+export function _resetForTesting(): void {
+  disconnect();
 }

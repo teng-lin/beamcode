@@ -48,10 +48,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message input");
     await user.type(textarea, "hello{Enter}");
 
-    expect(send).toHaveBeenCalledWith({
-      type: "user_message",
-      content: "hello",
-    });
+    expect(send).toHaveBeenCalledWith({ type: "user_message", content: "hello" }, SESSION);
   });
 
   it('sends slash_command when input starts with "/"', async () => {
@@ -62,10 +59,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message input");
     await user.type(textarea, "/help{Enter}");
 
-    expect(send).toHaveBeenCalledWith({
-      type: "slash_command",
-      command: "/help",
-    });
+    expect(send).toHaveBeenCalledWith({ type: "slash_command", command: "/help" }, SESSION);
   });
 
   it("clears input after sending", async () => {
@@ -96,7 +90,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message input");
     await user.type(textarea, "{Enter}");
 
-    expect(send).toHaveBeenCalledWith({ type: "interrupt" });
+    expect(send).toHaveBeenCalledWith({ type: "interrupt" }, SESSION);
   });
 
   it("sends interrupt on Escape when running", async () => {
@@ -108,7 +102,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message input");
     await user.type(textarea, "{Escape}");
 
-    expect(send).toHaveBeenCalledWith({ type: "interrupt" });
+    expect(send).toHaveBeenCalledWith({ type: "interrupt" }, SESSION);
   });
 
   // ── Image handling ──────────────────────────────────────────────────
@@ -244,11 +238,14 @@ describe("Composer", () => {
 
       await user.type(screen.getByLabelText("Message input"), "check this{Enter}");
 
-      expect(send).toHaveBeenCalledWith({
-        type: "user_message",
-        content: "check this",
-        images: [{ media_type: "image/png", data: "abc123" }],
-      });
+      expect(send).toHaveBeenCalledWith(
+        {
+          type: "user_message",
+          content: "check this",
+          images: [{ media_type: "image/png", data: "abc123" }],
+        },
+        SESSION,
+      );
     });
 
     it("clears image previews after sending", async () => {

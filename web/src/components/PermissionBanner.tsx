@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from "react";
+import { type ReactNode, useCallback, useMemo } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
 import { DiffView } from "./DiffView";
@@ -58,13 +58,13 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
 
   const handleResponse = useCallback(
     (requestId: string, behavior: "allow" | "deny") => {
-      send({ type: "permission_response", request_id: requestId, behavior });
+      send({ type: "permission_response", request_id: requestId, behavior }, sessionId);
       useStore.getState().removePermission(sessionId, requestId);
     },
     [sessionId],
   );
 
-  const permList = Object.values(permissions ?? {});
+  const permList = useMemo(() => Object.values(permissions ?? {}), [permissions]);
 
   const handleAllowAll = useCallback(() => {
     const perms = useStore.getState().sessionData[sessionId]?.pendingPermissions ?? {};

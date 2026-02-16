@@ -14,10 +14,11 @@ vi.mock("../api", () => ({
 vi.mock("../ws", () => ({
   connectToSession: vi.fn(),
   disconnect: vi.fn(),
+  disconnectSession: vi.fn(),
 }));
 
 import { createSession, deleteSession } from "../api";
-import { connectToSession, disconnect } from "../ws";
+import { connectToSession, disconnect, disconnectSession } from "../ws";
 
 function setupSessions(...sessions: SdkSessionInfo[]): void {
   const map: Record<string, SdkSessionInfo> = {};
@@ -187,12 +188,12 @@ describe("Sidebar", () => {
         expect(deleteSession).toHaveBeenCalledWith("s2");
       });
       expect(useStore.getState().sessions.s2).toBeUndefined();
-      expect(disconnect).toHaveBeenCalled();
+      expect(disconnectSession).toHaveBeenCalledWith("s2");
       expect(useStore.getState().currentSessionId).toBe("s1");
       expect(connectToSession).toHaveBeenCalledWith("s1");
     });
 
-    it("deletes inactive session without disconnecting", async () => {
+    it("deletes inactive session, cleans up its connection but keeps others", async () => {
       const user = userEvent.setup();
       vi.mocked(deleteSession).mockResolvedValueOnce(undefined);
 
@@ -210,6 +211,7 @@ describe("Sidebar", () => {
         expect(deleteSession).toHaveBeenCalledWith("s2");
       });
       expect(useStore.getState().sessions.s2).toBeUndefined();
+      expect(disconnectSession).toHaveBeenCalledWith("s2");
       expect(disconnect).not.toHaveBeenCalled();
       // Active session should remain unchanged
       expect(useStore.getState().currentSessionId).toBe("s1");
@@ -231,7 +233,7 @@ describe("Sidebar", () => {
       });
       expect(useStore.getState().sessions.s1).toBeUndefined();
       expect(useStore.getState().currentSessionId).toBeNull();
-      expect(disconnect).toHaveBeenCalled();
+      expect(disconnectSession).toHaveBeenCalledWith("s1");
     });
 
     it("handles deleteSession API failure gracefully (removes locally)", async () => {
@@ -495,6 +497,7 @@ describe("Sidebar", () => {
       await user.keyboard("{Enter}");
 
       expect(useStore.getState().currentSessionId).toBe("s1");
+      expect(connectToSession).toHaveBeenCalledWith("s1");
     });
 
     it("triggers onSelect when Space is pressed on a session item", async () => {
@@ -510,6 +513,7 @@ describe("Sidebar", () => {
       await user.keyboard(" ");
 
       expect(useStore.getState().currentSessionId).toBe("s1");
+      expect(connectToSession).toHaveBeenCalledWith("s1");
     });
   });
 });

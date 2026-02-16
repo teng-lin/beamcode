@@ -3,7 +3,7 @@ import { createSession, deleteSession } from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
-import { connectToSession, disconnect } from "../ws";
+import { connectToSession, disconnectSession } from "../ws";
 
 const ADAPTER_COLORS: Record<string, string> = {
   claude: "bg-bc-adapter-claude",
@@ -73,6 +73,8 @@ const SessionItem = memo(function SessionItem({
       } catch {
         // Session may already be gone on the server — remove locally regardless.
       }
+      // Always tear down the deleted session's connection
+      disconnectSession(info.sessionId);
       // Read fresh state at call-time to avoid stale closures.
       const { sessions, currentSessionId, removeSession, setCurrentSession } = useStore.getState();
       const wasActive = currentSessionId === info.sessionId;
@@ -82,7 +84,6 @@ const SessionItem = memo(function SessionItem({
           .sort((a, b) => b.createdAt - a.createdAt)[0]?.sessionId ?? null;
       removeSession(info.sessionId);
       if (wasActive) {
-        disconnect();
         if (next) {
           setCurrentSession(next);
           connectToSession(next);
@@ -244,7 +245,10 @@ export function Sidebar() {
               key={info.sessionId}
               info={info}
               isActive={info.sessionId === currentSessionId}
-              onSelect={() => setCurrentSession(info.sessionId)}
+              onSelect={() => {
+                setCurrentSession(info.sessionId);
+                connectToSession(info.sessionId);
+              }}
             />
           ))
         )}

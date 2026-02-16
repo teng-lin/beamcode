@@ -74,11 +74,10 @@ describe("PermissionBanner", () => {
 
     await user.click(screen.getByRole("button", { name: /approve bash/i }));
 
-    expect(ws.send).toHaveBeenCalledWith({
-      type: "permission_response",
-      request_id: "req-1",
-      behavior: "allow",
-    });
+    expect(ws.send).toHaveBeenCalledWith(
+      { type: "permission_response", request_id: "req-1", behavior: "allow" },
+      SESSION_ID,
+    );
     expect(store().sessionData[SESSION_ID].pendingPermissions["req-1"]).toBeUndefined();
   });
 
@@ -88,11 +87,10 @@ describe("PermissionBanner", () => {
 
     await user.click(screen.getByRole("button", { name: /deny bash/i }));
 
-    expect(ws.send).toHaveBeenCalledWith({
-      type: "permission_response",
-      request_id: "req-1",
-      behavior: "deny",
-    });
+    expect(ws.send).toHaveBeenCalledWith(
+      { type: "permission_response", request_id: "req-1", behavior: "deny" },
+      SESSION_ID,
+    );
     expect(store().sessionData[SESSION_ID].pendingPermissions["req-1"]).toBeUndefined();
   });
 
@@ -274,21 +272,18 @@ describe("PermissionBanner", () => {
       await user.click(screen.getByRole("button", { name: /allow all/i }));
 
       expect(ws.send).toHaveBeenCalledTimes(3);
-      expect(ws.send).toHaveBeenCalledWith({
-        type: "permission_response",
-        request_id: "req-1",
-        behavior: "allow",
-      });
-      expect(ws.send).toHaveBeenCalledWith({
-        type: "permission_response",
-        request_id: "req-2",
-        behavior: "allow",
-      });
-      expect(ws.send).toHaveBeenCalledWith({
-        type: "permission_response",
-        request_id: "req-3",
-        behavior: "allow",
-      });
+      expect(ws.send).toHaveBeenCalledWith(
+        { type: "permission_response", request_id: "req-1", behavior: "allow" },
+        SESSION_ID,
+      );
+      expect(ws.send).toHaveBeenCalledWith(
+        { type: "permission_response", request_id: "req-2", behavior: "allow" },
+        SESSION_ID,
+      );
+      expect(ws.send).toHaveBeenCalledWith(
+        { type: "permission_response", request_id: "req-3", behavior: "allow" },
+        SESSION_ID,
+      );
     });
 
     it("removes all permissions from store after Allow All", async () => {

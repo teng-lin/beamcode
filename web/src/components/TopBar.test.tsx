@@ -162,7 +162,10 @@ describe("TopBar", () => {
     await user.click(screen.getByText("claude-sonnet-4-20250514"));
     await user.click(screen.getByText("Claude Opus 4"));
 
-    expect(send).toHaveBeenCalledWith({ type: "set_model", model: "claude-opus-4-20250514" });
+    expect(send).toHaveBeenCalledWith(
+      { type: "set_model", model: "claude-opus-4-20250514" },
+      SESSION,
+    );
     expect(screen.queryByText("Claude Opus 4")).not.toBeInTheDocument();
   });
 
