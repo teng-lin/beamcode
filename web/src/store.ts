@@ -53,12 +53,14 @@ interface AppState {
   darkMode: boolean;
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
+  shortcutsModalOpen: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
   toggleSidebar: () => void;
   toggleTaskPanel: () => void;
   toggleDarkMode: () => void;
+  setShortcutsModalOpen: (open: boolean) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -142,11 +144,13 @@ export const useStore = create<AppState>()((set, get) => ({
   darkMode: true,
   sidebarOpen: typeof window !== "undefined" && window.innerWidth >= 768,
   taskPanelOpen: false,
+  shortcutsModalOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
   toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
