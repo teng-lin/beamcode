@@ -65,8 +65,8 @@ export function TaskPanel() {
                 Lines
               </div>
               <div className="mt-0.5 flex gap-2 font-mono-code text-sm tabular-nums">
-                <span className="text-bc-success">+{state?.total_lines_added ?? 0}</span>
-                <span className="text-bc-error">-{state?.total_lines_removed ?? 0}</span>
+                <span className="text-bc-success">+{state.total_lines_added ?? 0}</span>
+                <span className="text-bc-error">-{state.total_lines_removed ?? 0}</span>
               </div>
             </div>
           </div>

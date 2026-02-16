@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
 
+const CONNECTION_DOT_STYLES: Record<string, string> = {
+  connected: "bg-bc-success",
+  connecting: "bg-bc-warning animate-pulse",
+};
+const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
+
 export function TopBar() {
   const connectionStatus = useStore(
     (s) =>
@@ -19,9 +25,8 @@ export function TopBar() {
   const models = useStore((s) =>
     s.currentSessionId ? (s.sessionData[s.currentSessionId]?.capabilities?.models ?? null) : null,
   );
-  const gitBranch = useStore(
-    (s) =>
-      (s.currentSessionId ? s.sessionData[s.currentSessionId]?.state?.git_branch : null) ?? null,
+  const gitBranch = useStore((s) =>
+    s.currentSessionId ? (s.sessionData[s.currentSessionId]?.state?.git_branch ?? null) : null,
   );
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
@@ -89,13 +94,7 @@ export function TopBar() {
       {/* Connection status */}
       <div className="flex items-center gap-1.5">
         <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            connectionStatus === "connected"
-              ? "bg-bc-success"
-              : connectionStatus === "connecting"
-                ? "bg-bc-warning animate-pulse"
-                : "bg-bc-text-muted"
-          }`}
+          className={`h-1.5 w-1.5 rounded-full ${CONNECTION_DOT_STYLES[connectionStatus] ?? CONNECTION_DOT_DEFAULT}`}
         />
         <span className="text-[11px] capitalize text-bc-text-muted">{connectionStatus}</span>
       </div>

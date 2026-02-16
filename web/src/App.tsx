@@ -95,21 +95,23 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "k") {
-        e.preventDefault();
-        setQuickSwitcherOpen((v) => !v);
+    function handler(e: KeyboardEvent) {
+      if (!e.metaKey && !e.ctrlKey) return;
+      switch (e.key) {
+        case "k":
+          e.preventDefault();
+          setQuickSwitcherOpen((v) => !v);
+          break;
+        case "b":
+          e.preventDefault();
+          useStore.getState().toggleSidebar();
+          break;
+        case ".":
+          e.preventDefault();
+          useStore.getState().toggleTaskPanel();
+          break;
       }
-      if (mod && e.key === "b") {
-        e.preventDefault();
-        useStore.getState().toggleSidebar();
-      }
-      if (mod && e.key === ".") {
-        e.preventDefault();
-        useStore.getState().toggleTaskPanel();
-      }
-    };
+    }
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
