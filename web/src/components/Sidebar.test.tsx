@@ -446,6 +446,23 @@ describe("Sidebar", () => {
       expect(screen.getByText("Cool Project")).toBeInTheDocument();
     });
 
+    it("shows all sessions when search is cleared", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
+      );
+      render(<Sidebar />);
+
+      const input = screen.getByPlaceholderText("Search sessions...");
+      await user.type(input, "alpha");
+      expect(screen.queryByText("beta")).not.toBeInTheDocument();
+
+      await user.clear(input);
+      expect(screen.getByText("alpha")).toBeInTheDocument();
+      expect(screen.getByText("beta")).toBeInTheDocument();
+    });
+
     it('shows "No matches" when filter has no results', async () => {
       const user = userEvent.setup();
       setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));

@@ -21,7 +21,9 @@ export function ChatView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {!cliConnected && connectionStatus === "connected" && <ConnectionBanner />}
+      {!cliConnected && connectionStatus === "connected" && (
+        <ConnectionBanner reconnectAttempt={sessionData.reconnectAttempt} />
+      )}
 
       {messages.length === 0 ? (
         <EmptyState />

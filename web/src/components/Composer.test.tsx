@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetStore, store } from "../test/factories";
@@ -109,5 +109,183 @@ describe("Composer", () => {
     await user.type(textarea, "{Escape}");
 
     expect(send).toHaveBeenCalledWith({ type: "interrupt" });
+  });
+
+  // ── Image handling ──────────────────────────────────────────────────
+
+  describe("image handling", () => {
+    function renderComposer() {
+      store().ensureSessionData(SESSION);
+      return render(<Composer sessionId={SESSION} />);
+    }
+
+    /** Create a mock FileReader that captures onload and exposes it for triggering. */
+    function mockFileReader(dataUrl: string) {
+      const original = global.FileReader;
+      let capturedOnload: (() => void) | null = null;
+
+      // Must use function (not arrow) so it works with `new`
+      function MockReader(this: {
+        readAsDataURL: ReturnType<typeof vi.fn>;
+        result: string;
+        onload: (() => void) | null;
+      }) {
+        this.readAsDataURL = vi.fn();
+        this.result = dataUrl;
+        this.onload = null;
+
+        Object.defineProperty(this, "onload", {
+          set(fn: (() => void) | null) {
+            capturedOnload = fn;
+          },
+          get() {
+            return capturedOnload;
+          },
+        });
+      }
+
+      global.FileReader = MockReader as unknown as typeof FileReader;
+
+      return {
+        triggerOnload: () => capturedOnload?.(),
+        restore: () => {
+          global.FileReader = original;
+        },
+      };
+    }
+
+    it("renders a drop zone indicator on dragover", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      fireEvent.dragOver(composer, {
+        dataTransfer: { types: ["Files"] },
+      });
+
+      expect(screen.getByText(/drop image/i)).toBeInTheDocument();
+    });
+
+    it("hides drop zone on dragleave", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      fireEvent.dragOver(composer, {
+        dataTransfer: { types: ["Files"] },
+      });
+      expect(screen.getByText(/drop image/i)).toBeInTheDocument();
+
+      fireEvent.dragLeave(composer);
+      expect(screen.queryByText(/drop image/i)).not.toBeInTheDocument();
+    });
+
+    it("shows image preview after dropping an image file", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["(binary)"], "screenshot.png", { type: "image/png" });
+      const mock = mockFileReader("data:image/png;base64,iVBOR");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      act(() => mock.triggerOnload());
+      mock.restore();
+
+      expect(screen.getByAltText("Attached 1")).toBeInTheDocument();
+    });
+
+    it("ignores non-image files on drop", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["text"], "readme.txt", { type: "text/plain" });
+      const mock = mockFileReader("data:text/plain;base64,dGV4dA==");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      mock.restore();
+
+      expect(screen.queryByAltText(/Attached/)).not.toBeInTheDocument();
+    });
+
+    it("removes image preview when clicking the remove button", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["(binary)"], "photo.jpg", { type: "image/jpeg" });
+      const mock = mockFileReader("data:image/jpeg;base64,/9j/4");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      act(() => mock.triggerOnload());
+      mock.restore();
+
+      expect(screen.getByAltText("Attached 1")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Remove image 1"));
+      expect(screen.queryByAltText("Attached 1")).not.toBeInTheDocument();
+    });
+
+    it("sends images array with user_message on submit", async () => {
+      const user = userEvent.setup();
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["(binary)"], "img.png", { type: "image/png" });
+      const mock = mockFileReader("data:image/png;base64,abc123");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      act(() => mock.triggerOnload());
+      mock.restore();
+
+      await user.type(screen.getByLabelText("Message input"), "check this{Enter}");
+
+      expect(send).toHaveBeenCalledWith({
+        type: "user_message",
+        content: "check this",
+        images: [{ media_type: "image/png", data: "abc123" }],
+      });
+    });
+
+    it("clears image previews after sending", async () => {
+      const user = userEvent.setup();
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["(binary)"], "img.png", { type: "image/png" });
+      const mock = mockFileReader("data:image/png;base64,xyz");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      act(() => mock.triggerOnload());
+      mock.restore();
+
+      expect(screen.getByAltText("Attached 1")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Message input"), "sent{Enter}");
+
+      expect(screen.queryByAltText("Attached 1")).not.toBeInTheDocument();
+    });
+
+    it("enables send button when images are attached even with empty text", () => {
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      const file = new File(["(binary)"], "img.png", { type: "image/png" });
+      const mock = mockFileReader("data:image/png;base64,abc");
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+      act(() => mock.triggerOnload());
+      mock.restore();
+
+      expect(screen.getByLabelText("Send message")).toBeEnabled();
+    });
   });
 });

@@ -1,6 +1,46 @@
 import { useStore } from "../store";
-import { formatCost } from "../utils/format";
+import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
+import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
+
+interface ModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
+}
+
+function computeCacheRatio(usage: ModelUsage): number {
+  const totalInput =
+    usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+  return totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
+}
+
+function ModelUsageCard({ model, usage }: { model: string; usage: ModelUsage }) {
+  const cacheRatio = computeCacheRatio(usage);
+
+  return (
+    <div className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs">
+      <div className="font-medium text-bc-text">{model}</div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums text-bc-text-muted">
+        <span>Input</span>
+        <span className="text-right">{formatTokens(usage.inputTokens)}</span>
+        <span>Output</span>
+        <span className="text-right">{formatTokens(usage.outputTokens)}</span>
+        {cacheRatio > 0 && (
+          <>
+            <span>Cache hit</span>
+            <span className="text-right">{cacheRatio}%</span>
+          </>
+        )}
+      </div>
+      <div className="mt-1.5 border-t border-bc-border/30 pt-1.5 font-medium tabular-nums text-bc-text">
+        {formatCost(usage.costUSD)}
+      </div>
+    </div>
+  );
+}
 
 export function TaskPanel() {
   const currentSessionId = useStore((s) => s.currentSessionId);
@@ -14,6 +54,16 @@ export function TaskPanel() {
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
+
+  const handleExport = (format: "json" | "markdown") => {
+    const isJson = format === "json";
+    const content = isJson
+      ? exportAsJson(sessionData.messages)
+      : exportAsMarkdown(sessionData.messages);
+    const ext = isJson ? "json" : "md";
+    const mime = isJson ? "application/json" : "text/markdown";
+    downloadFile(content, `beamcode-session-${currentSessionId}.${ext}`, mime);
+  };
 
   return (
     <aside className="flex h-full w-[280px] flex-shrink-0 flex-col border-l border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40">
@@ -79,18 +129,33 @@ export function TaskPanel() {
               Model Usage
             </div>
             {Object.entries(state.last_model_usage).map(([model, usage]) => (
-              <div
-                key={model}
-                className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs"
-              >
-                <div className="font-medium text-bc-text">{model}</div>
-                <div className="mt-1 tabular-nums text-bc-text-muted">
-                  {formatCost(usage.costUSD)} · {usage.inputTokens + usage.outputTokens} tokens
-                </div>
-              </div>
+              <ModelUsageCard key={model} model={model} usage={usage} />
             ))}
           </div>
         )}
+
+        {/* Export */}
+        <div className="mt-5 border-t border-bc-border/40 pt-4">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+            Export
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleExport("markdown")}
+              className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+            >
+              Markdown
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("json")}
+              className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+            >
+              JSON
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );

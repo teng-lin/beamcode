@@ -2,9 +2,11 @@ import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
 import { QuickSwitcher } from "./components/QuickSwitcher";
+import { ShortcutsModal } from "./components/ShortcutsModal";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { TopBar } from "./components/TopBar";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useStore } from "./store";
 import { connectToSession } from "./ws";
 
@@ -83,6 +85,7 @@ function useBootstrap() {
 
 export default function App() {
   useBootstrap();
+  useKeyboardShortcuts();
 
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
@@ -157,6 +160,8 @@ export default function App() {
       <ErrorBoundary fallback={<div className="p-4 text-bc-error">Panel error</div>}>
         {taskPanelOpen && <TaskPanel />}
       </ErrorBoundary>
+
+      <ShortcutsModal />
 
       {/* Quick session switcher (Cmd+K / Ctrl+K) */}
       {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}

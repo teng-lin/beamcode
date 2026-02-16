@@ -152,11 +152,20 @@ function handleMessage(sessionId: string, data: string): void {
 }
 
 export function connectToSession(sessionId: string): void {
-  // Disconnect previous session
-  if (ws && activeSessionId !== sessionId) {
-    disconnect();
+  // Clear any pending reconnect timer
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
 
+  // Disconnect previous session or stale connection to same session
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+
+  reconnectAttempt = 0;
   activeSessionId = sessionId;
   const store = useStore.getState();
   store.ensureSessionData(sessionId);
@@ -168,6 +177,7 @@ export function connectToSession(sessionId: string): void {
   ws.onopen = () => {
     reconnectAttempt = 0;
     store.setConnectionStatus(sessionId, "connected");
+    store.setReconnectAttempt(sessionId, 0);
   };
 
   ws.onmessage = (event) => {
@@ -196,6 +206,7 @@ function scheduleReconnect(sessionId: string): void {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   const delay = Math.min(1000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY);
   reconnectAttempt++;
+  useStore.getState().setReconnectAttempt(sessionId, reconnectAttempt);
   reconnectTimer = setTimeout(() => {
     if (activeSessionId === sessionId) {
       connectToSession(sessionId);

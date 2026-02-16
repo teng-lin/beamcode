@@ -41,6 +41,7 @@ export interface SessionData {
     models: InitializeModel[];
   } | null;
   toolProgress: Record<string, { toolName: string; elapsedSeconds: number }>;
+  reconnectAttempt: number;
 }
 
 export interface AppState {
@@ -53,12 +54,14 @@ export interface AppState {
   darkMode: boolean;
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
+  shortcutsModalOpen: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
   toggleSidebar: () => void;
   toggleTaskPanel: () => void;
   toggleDarkMode: () => void;
+  setShortcutsModalOpen: (open: boolean) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -89,6 +92,7 @@ export interface AppState {
     toolName: string,
     elapsedSeconds: number,
   ) => void;
+  setReconnectAttempt: (sessionId: string, attempt: number) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -112,6 +116,7 @@ function emptySessionData(): SessionData {
     state: null,
     capabilities: null,
     toolProgress: {},
+    reconnectAttempt: 0,
   };
 }
 
@@ -164,6 +169,7 @@ export const useStore = create<AppState>()((set, get) => ({
     typeof window !== "undefined" && window.innerWidth >= 768,
   ),
   taskPanelOpen: false,
+  shortcutsModalOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -179,6 +185,7 @@ export const useStore = create<AppState>()((set, get) => ({
       writeBool("beamcode_dark_mode", next);
       return { darkMode: next };
     }),
+  setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
@@ -270,6 +277,9 @@ export const useStore = create<AppState>()((set, get) => ({
         },
       });
     }),
+
+  setReconnectAttempt: (sessionId, attempt) =>
+    set((s) => patchSession(s, sessionId, { reconnectAttempt: attempt })),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>

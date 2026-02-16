@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
+import { DiffView } from "./DiffView";
 
 interface PermissionBannerProps {
   sessionId: string;
@@ -16,15 +17,11 @@ function toolPreview(name: string, input: Record<string, unknown>): ReactNode {
       );
     case "Edit":
       return (
-        <div className="mt-1 rounded bg-bc-code-bg p-2 font-mono-code text-xs">
-          <div className="text-bc-text-muted">{String(input.file_path ?? "")}</div>
-          {"old_string" in input && (
-            <div className="mt-1 text-bc-error">- {String(input.old_string).slice(0, 200)}</div>
-          )}
-          {"new_string" in input && (
-            <div className="text-bc-success">+ {String(input.new_string).slice(0, 200)}</div>
-          )}
-        </div>
+        <DiffView
+          oldString={String(input.old_string ?? "")}
+          newString={String(input.new_string ?? "")}
+          filePath={String(input.file_path ?? "")}
+        />
       );
     case "Write":
       return (
@@ -68,6 +65,14 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
   );
 
   const permList = Object.values(permissions ?? {});
+
+  const handleAllowAll = useCallback(() => {
+    const perms = useStore.getState().sessionData[sessionId]?.pendingPermissions ?? {};
+    for (const perm of Object.values(perms)) {
+      handleResponse(perm.request_id, "allow");
+    }
+  }, [sessionId, handleResponse]);
+
   if (permList.length === 0) return null;
 
   return (
@@ -76,6 +81,19 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
       role="alert"
       aria-label="Permission requests"
     >
+      {permList.length > 1 && (
+        <div className="flex items-center justify-between border-b border-bc-border bg-bc-surface-2/50 px-4 py-2">
+          <span className="text-xs text-bc-text-muted">{permList.length} pending permissions</span>
+          <button
+            type="button"
+            onClick={handleAllowAll}
+            className="rounded-lg bg-bc-success/20 px-4 py-1.5 text-xs font-medium text-bc-success transition-colors hover:bg-bc-success/30"
+            aria-label={`Allow all ${permList.length} permissions`}
+          >
+            Allow All
+          </button>
+        </div>
+      )}
       {permList.map((perm) => (
         <div key={perm.request_id} className="border-b border-bc-border px-4 py-3">
           <div className="flex items-center gap-2">

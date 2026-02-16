@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store";
+import { DiffView } from "./DiffView";
 
 interface ToolBlockProps {
   id: string;
@@ -29,6 +30,7 @@ export function ToolBlock({ id, name, input, sessionId }: ToolBlockProps) {
   const progress = useStore((s) => s.sessionData[sessionId]?.toolProgress[id]);
 
   const preview = toolPreview(name, input);
+  const isEditWithDiff = name === "Edit" && "old_string" in input;
 
   return (
     <div className="rounded-lg border border-bc-border/60 bg-bc-surface transition-colors hover:border-bc-border">
@@ -78,7 +80,16 @@ export function ToolBlock({ id, name, input, sessionId }: ToolBlockProps) {
         </svg>
       </button>
 
-      {open && (
+      {open && isEditWithDiff && (
+        <div className="border-t border-bc-border/50 p-2">
+          <DiffView
+            oldString={String(input.old_string ?? "")}
+            newString={String(input.new_string ?? "")}
+            filePath={String(input.file_path ?? "")}
+          />
+        </div>
+      )}
+      {open && !isEditWithDiff && (
         <pre className="max-h-60 overflow-auto border-t border-bc-border/50 bg-bc-code-bg p-3 font-mono-code text-xs text-bc-text-muted leading-relaxed">
           {JSON.stringify(input, null, 2)}
         </pre>

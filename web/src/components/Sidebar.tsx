@@ -227,6 +227,7 @@ export function Sidebar() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search sessions..."
             className="w-full rounded-md border border-bc-border bg-bc-bg px-2.5 py-1.5 text-xs text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
+            aria-label="Search sessions"
           />
         </div>
       )}

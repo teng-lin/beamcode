@@ -1,11 +1,37 @@
-export function ConnectionBanner() {
+import { connectToSession, getActiveSessionId } from "../ws";
+
+interface ConnectionBannerProps {
+  reconnectAttempt?: number;
+}
+
+export function ConnectionBanner({ reconnectAttempt }: ConnectionBannerProps) {
+  const handleRetry = () => {
+    const sessionId = getActiveSessionId();
+    if (sessionId) {
+      connectToSession(sessionId);
+    }
+  };
+
   return (
     <div
       className="flex items-center justify-center gap-2 border-b border-bc-warning/20 bg-bc-warning/10 px-3 py-2 text-xs text-bc-warning"
       role="alert"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-bc-warning" />
-      CLI disconnected — waiting for reconnection
+      <span>
+        CLI disconnected — waiting for reconnection
+        {reconnectAttempt != null && reconnectAttempt > 0 && (
+          <span className="ml-1 text-bc-text-muted">(attempt {reconnectAttempt})</span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={handleRetry}
+        className="ml-2 rounded bg-bc-warning/20 px-2 py-0.5 text-xs font-medium text-bc-warning transition-colors hover:bg-bc-warning/30"
+        aria-label="Retry connection"
+      >
+        Retry
+      </button>
     </div>
   );
 }

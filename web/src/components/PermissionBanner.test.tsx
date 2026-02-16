@@ -112,6 +112,21 @@ describe("PermissionBanner", () => {
     expect(screen.getByText("Edit")).toBeInTheDocument();
   });
 
+  it("renders DiffView for Edit tool permission", () => {
+    renderWithPermission(
+      makePermission({
+        request_id: "req-diff",
+        tool_use_id: "tu-diff",
+        tool_name: "Edit",
+        description: "Edit a file",
+        input: { file_path: "/src/app.ts", old_string: "const x = 1;", new_string: "const x = 2;" },
+      }),
+    );
+
+    expect(screen.getByText(/- const x = 1;/)).toBeInTheDocument();
+    expect(screen.getByText(/\+ const x = 2;/)).toBeInTheDocument();
+  });
+
   // ── Write tool preview ─────────────────────────────────────────────────
 
   describe("Write tool preview", () => {
@@ -214,6 +229,84 @@ describe("PermissionBanner", () => {
       expect(screen.getByText("CustomTool")).toBeInTheDocument();
       // JSON.stringify output should be in a <pre>
       expect(screen.getByText(/"foo": "bar"/)).toBeInTheDocument();
+    });
+  });
+
+  // ── Allow All ───────────────────────────────────────────────────────
+
+  describe("Allow All", () => {
+    it("does not show Allow All when only one permission is pending", () => {
+      renderWithPermission(makePermission());
+      expect(screen.queryByRole("button", { name: /allow all/i })).not.toBeInTheDocument();
+    });
+
+    it("shows Allow All button when multiple permissions are pending", () => {
+      renderWithPermission(
+        makePermission({ request_id: "req-1", tool_use_id: "tu-1" }),
+        makePermission({
+          request_id: "req-2",
+          tool_use_id: "tu-2",
+          tool_name: "Edit",
+          input: { file_path: "/tmp/a.ts", old_string: "a", new_string: "b" },
+        }),
+      );
+      expect(screen.getByRole("button", { name: /allow all/i })).toBeInTheDocument();
+    });
+
+    it("sends allow response for all permissions when clicked", async () => {
+      const user = userEvent.setup();
+      renderWithPermission(
+        makePermission({ request_id: "req-1", tool_use_id: "tu-1" }),
+        makePermission({
+          request_id: "req-2",
+          tool_use_id: "tu-2",
+          tool_name: "Edit",
+          input: { file_path: "/tmp/a.ts", old_string: "a", new_string: "b" },
+        }),
+        makePermission({
+          request_id: "req-3",
+          tool_use_id: "tu-3",
+          tool_name: "Write",
+          input: { file_path: "/tmp/b.ts", content: "x" },
+        }),
+      );
+
+      await user.click(screen.getByRole("button", { name: /allow all/i }));
+
+      expect(ws.send).toHaveBeenCalledTimes(3);
+      expect(ws.send).toHaveBeenCalledWith({
+        type: "permission_response",
+        request_id: "req-1",
+        behavior: "allow",
+      });
+      expect(ws.send).toHaveBeenCalledWith({
+        type: "permission_response",
+        request_id: "req-2",
+        behavior: "allow",
+      });
+      expect(ws.send).toHaveBeenCalledWith({
+        type: "permission_response",
+        request_id: "req-3",
+        behavior: "allow",
+      });
+    });
+
+    it("removes all permissions from store after Allow All", async () => {
+      const user = userEvent.setup();
+      renderWithPermission(
+        makePermission({ request_id: "req-1", tool_use_id: "tu-1" }),
+        makePermission({
+          request_id: "req-2",
+          tool_use_id: "tu-2",
+          tool_name: "Edit",
+          input: { file_path: "/tmp/a.ts", old_string: "a", new_string: "b" },
+        }),
+      );
+
+      await user.click(screen.getByRole("button", { name: /allow all/i }));
+
+      const perms = store().sessionData[SESSION_ID].pendingPermissions;
+      expect(Object.keys(perms)).toHaveLength(0);
     });
   });
 
