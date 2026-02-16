@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { AuthContext } from "../interfaces/auth.js";
+import { OriginValidator } from "../server/origin-validator.js";
 import { NodeWebSocketServer } from "./node-ws-server.js";
 
 let server: NodeWebSocketServer | null = null;
@@ -173,5 +174,64 @@ describe("NodeWebSocketServer", () => {
 
     // Without consumer handler, should close with 4000
     expect(code).toBe(4000);
+  });
+
+  // ── Origin validation tests ─────────────────────────────────────────
+
+  it("rejects connections from untrusted origins when originValidator is set", async () => {
+    const originValidator = new OriginValidator();
+    server = new NodeWebSocketServer({ port: 0, originValidator });
+    await server.listen(() => {});
+
+    const port = server.port!;
+    const ws = new WebSocket(`ws://localhost:${port}/ws/cli/${TEST_UUID_1}`, {
+      headers: { origin: "https://evil.com" },
+    });
+
+    const result = await new Promise<"error" | "open">((resolve) => {
+      ws.on("open", () => resolve("open"));
+      ws.on("error", () => resolve("error"));
+      ws.on("unexpected-response", () => resolve("error"));
+    });
+
+    expect(result).toBe("error");
+    ws.close();
+  });
+
+  it("accepts connections from localhost origins when originValidator is set", async () => {
+    const originValidator = new OriginValidator();
+    server = new NodeWebSocketServer({ port: 0, originValidator });
+    await server.listen(() => {});
+
+    const port = server.port!;
+    const ws = new WebSocket(`ws://localhost:${port}/ws/cli/${TEST_UUID_2}`, {
+      headers: { origin: "http://localhost:3000" },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", resolve);
+      ws.on("error", reject);
+    });
+
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("accepts connections without origin header when originValidator allows missing", async () => {
+    const originValidator = new OriginValidator();
+    server = new NodeWebSocketServer({ port: 0, originValidator });
+    await server.listen(() => {});
+
+    const port = server.port!;
+    // No origin header set (default behavior for programmatic clients)
+    const ws = new WebSocket(`ws://localhost:${port}/ws/cli/${TEST_UUID_3}`);
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", resolve);
+      ws.on("error", reject);
+    });
+
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
   });
 });

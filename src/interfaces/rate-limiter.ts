@@ -7,7 +7,7 @@ export interface RateLimiter {
    * Check if an action is allowed.
    * Returns true if allowed, false if rate limit exceeded.
    */
-  tryConsume(): boolean;
+  tryConsume(tokens?: number): boolean;
 
   /**
    * Reset the rate limiter (e.g., when consumer disconnects).

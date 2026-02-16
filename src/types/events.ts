@@ -1,3 +1,4 @@
+import type { UnifiedMessage } from "../core/types/unified-message.js";
 import type { ConsumerIdentity, ConsumerRole } from "./auth.js";
 import type {
   InitializeAccount,
@@ -9,10 +10,20 @@ import type { ConsumerMessage } from "./consumer-messages.js";
 import type { InboundMessage } from "./inbound-messages.js";
 
 export interface BridgeEventMap {
+  // ── Existing CLI-specific events (kept for backward compat) ──
   "cli:session_id": { sessionId: string; cliSessionId: string };
   "cli:connected": { sessionId: string };
   "cli:disconnected": { sessionId: string };
   "cli:relaunch_needed": { sessionId: string };
+
+  // ── Generalized backend events (adapter-agnostic) ──
+  "backend:connected": { sessionId: string };
+  "backend:disconnected": { sessionId: string; code: number; reason: string };
+  "backend:session_id": { sessionId: string; backendSessionId: string };
+  "backend:relaunch_needed": { sessionId: string };
+  "backend:message": { sessionId: string; message: UnifiedMessage };
+
+  // ── Consumer events ──
   "consumer:connected": { sessionId: string; consumerCount: number; identity?: ConsumerIdentity };
   "consumer:disconnected": {
     sessionId: string;
@@ -26,19 +37,27 @@ export interface BridgeEventMap {
     role: ConsumerRole;
   };
   "consumer:auth_failed": { sessionId: string; reason: string };
+
+  // ── Message events ──
   "message:outbound": { sessionId: string; message: ConsumerMessage };
   "message:inbound": { sessionId: string; message: InboundMessage };
+
+  // ── Permission events ──
   "permission:requested": { sessionId: string; request: PermissionRequest };
   "permission:resolved": {
     sessionId: string;
     requestId: string;
     behavior: "allow" | "deny";
   };
+
+  // ── Session lifecycle events ──
   "session:first_turn_completed": {
     sessionId: string;
     firstUserMessage: string;
   };
   "session:closed": { sessionId: string };
+
+  // ── Slash command events ──
   "slash_command:executed": {
     sessionId: string;
     command: string;
@@ -46,6 +65,8 @@ export interface BridgeEventMap {
     durationMs: number;
   };
   "slash_command:failed": { sessionId: string; command: string; error: string };
+
+  // ── Capabilities events ──
   "capabilities:ready": {
     sessionId: string;
     commands: InitializeCommand[];
@@ -53,6 +74,8 @@ export interface BridgeEventMap {
     account: InitializeAccount | null;
   };
   "capabilities:timeout": { sessionId: string };
+
+  // ── Auth & error events ──
   auth_status: {
     sessionId: string;
     isAuthenticating: boolean;

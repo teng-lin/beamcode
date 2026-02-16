@@ -6,6 +6,7 @@ import type {
   OnConsumerConnection,
   WebSocketServerLike,
 } from "../interfaces/ws-server.js";
+import type { OriginValidator } from "../server/origin-validator.js";
 
 const CLI_PATH_RE = /^\/ws\/cli\/([^/]+)$/;
 const CONSUMER_PATH_RE = /^\/ws\/consumer\/([^/]+)$/;
@@ -27,6 +28,8 @@ export interface NodeWebSocketServerOptions {
   port: number;
   /** Optional hostname to bind to. Defaults to "127.0.0.1" (localhost only). */
   host?: string;
+  /** Optional origin validator to reject connections from untrusted origins. */
+  originValidator?: OriginValidator;
 }
 
 /**
@@ -53,9 +56,22 @@ export class NodeWebSocketServer implements WebSocketServerLike {
     onConsumerConnection?: OnConsumerConnection,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      const { originValidator } = this.options;
       this.wss = new WSServer({
         port: this.options.port,
         host: this.options.host ?? "127.0.0.1",
+        ...(originValidator && {
+          verifyClient: (info: { origin: string; req: import("http").IncomingMessage }) => {
+            const origin = info.origin || undefined;
+            if (!originValidator.isAllowed(origin)) {
+              console.warn(
+                `[beamcode] Rejected WebSocket connection from origin: ${origin ?? "(none)"}`,
+              );
+              return false;
+            }
+            return true;
+          },
+        }),
       });
 
       this.wss.on("listening", () => resolve());

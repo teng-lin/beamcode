@@ -1,4 +1,5 @@
 import { NoopLogger } from "../adapters/noop-logger.js";
+import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
@@ -15,24 +16,23 @@ import type {
 import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
-import { CLILauncher } from "./cli-launcher.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
 /**
- * Facade wiring SessionBridge + CLILauncher together.
+ * Facade wiring SessionBridge + SdkUrlLauncher together.
  * Replaces the manual wiring in the Vibe Companion's index.ts:34-68.
  *
  * Auto-wires:
- * - cli:session_id → launcher.setCLISessionId
- * - cli:relaunch_needed → launcher.relaunch (with dedup — A5)
- * - cli:connected → launcher.markConnected
+ * - backend:session_id → launcher.setCLISessionId
+ * - backend:relaunch_needed → launcher.relaunch (with dedup — A5)
+ * - backend:connected → launcher.markConnected
  * - Reconnection watchdog (I4)
  * - Restore order: launcher before bridge (I6)
  */
 export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
-  readonly launcher: CLILauncher;
+  readonly launcher: SdkUrlLauncher;
 
   private config: ResolvedConfig;
   private logger: Logger;
@@ -71,7 +71,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       commandRunner: options.commandRunner,
     });
 
-    this.launcher = new CLILauncher({
+    this.launcher = new SdkUrlLauncher({
       processManager: options.processManager,
       config: options.config,
       storage: options.storage,
@@ -158,25 +158,25 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   }
 
   private wireEvents(): void {
-    // When the CLI reports its internal session_id, store it for --resume on relaunch
-    this.bridge.on("cli:session_id", ({ sessionId, cliSessionId }) => {
-      this.launcher.setCLISessionId(sessionId, cliSessionId);
+    // When the backend reports its session_id, store it for --resume on relaunch
+    this.bridge.on("backend:session_id", ({ sessionId, backendSessionId }) => {
+      this.launcher.setCLISessionId(sessionId, backendSessionId);
     });
 
-    // When CLI connects, mark it in the launcher
-    this.bridge.on("cli:connected", ({ sessionId }) => {
+    // When backend connects, mark it in the launcher
+    this.bridge.on("backend:connected", ({ sessionId }) => {
       this.launcher.markConnected(sessionId);
     });
 
-    // Auto-relaunch CLI when a consumer connects but CLI is dead (with dedup — A5)
-    this.bridge.on("cli:relaunch_needed", async ({ sessionId }) => {
+    // Auto-relaunch when a consumer connects but backend is dead (with dedup — A5)
+    this.bridge.on("backend:relaunch_needed", async ({ sessionId }) => {
       if (this.relaunchingSet.has(sessionId)) return;
 
       const info = this.launcher.getSession(sessionId);
       if (info?.archived) return;
       if (info && info.state !== "starting") {
         this.relaunchingSet.add(sessionId);
-        this.logger.info(`Auto-relaunching CLI for session ${sessionId}`);
+        this.logger.info(`Auto-relaunching backend for session ${sessionId}`);
         try {
           await this.launcher.relaunch(sessionId);
         } finally {
@@ -189,12 +189,17 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       }
     });
 
-    // Forward all bridge events
+    // Forward all bridge events (both legacy cli:* and new backend:* for transition)
     for (const event of [
       "cli:session_id",
       "cli:connected",
       "cli:disconnected",
       "cli:relaunch_needed",
+      "backend:connected",
+      "backend:disconnected",
+      "backend:session_id",
+      "backend:relaunch_needed",
+      "backend:message",
       "consumer:connected",
       "consumer:disconnected",
       "consumer:authenticated",

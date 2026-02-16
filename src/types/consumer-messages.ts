@@ -1,13 +1,120 @@
 import type { ConsumerRole } from "./auth.js";
-import type {
-  CLIAssistantMessage,
-  CLIResultMessage,
-  InitializeAccount,
-  InitializeCommand,
-  InitializeModel,
-  PermissionRequest,
-} from "./cli-messages.js";
 import type { SessionState } from "./session-state.js";
+
+// ── Consumer-facing normalized types (adapter-agnostic) ──────────────────────
+// These types decouple consumer-facing APIs from any specific backend (e.g. CLI).
+// They mirror the relevant data shapes without importing backend-specific modules.
+
+/** Content block in an assistant message. */
+export type ConsumerContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string | ConsumerContentBlock[];
+      is_error?: boolean;
+    }
+  | { type: "thinking"; thinking: string; budget_tokens?: number };
+
+/** The assistant message payload (adapter-agnostic). */
+export interface AssistantContent {
+  id: string;
+  type: "message";
+  role: "assistant";
+  model: string;
+  content: ConsumerContentBlock[];
+  stop_reason: string | null;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  };
+}
+
+/**
+ * Result data from a completed turn (adapter-agnostic).
+ *
+ * Shape change: `uuid`, `session_id`, and `type` fields from CLIResultMessage
+ * are no longer included — these are backend transport concerns.
+ */
+export interface ResultData {
+  subtype:
+    | "success"
+    | "error_during_execution"
+    | "error_max_turns"
+    | "error_max_budget_usd"
+    | "error_max_structured_output_retries";
+  is_error: boolean;
+  result?: string;
+  errors?: string[];
+  duration_ms: number;
+  duration_api_ms: number;
+  num_turns: number;
+  total_cost_usd: number;
+  stop_reason: string | null;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  };
+  modelUsage?: Record<
+    string,
+    {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens: number;
+      cacheCreationInputTokens: number;
+      contextWindow: number;
+      maxOutputTokens: number;
+      costUSD: number;
+    }
+  >;
+  total_lines_added?: number;
+  total_lines_removed?: number;
+}
+
+/** Permission request surfaced to consumers (adapter-agnostic). */
+export interface ConsumerPermissionRequest {
+  request_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  permission_suggestions?: unknown[];
+  description?: string;
+  tool_use_id: string;
+  agent_id?: string;
+  timestamp: number;
+}
+
+/** Command metadata for /slash commands. */
+interface InitializeCommand {
+  name: string;
+  description: string;
+  argumentHint?: string;
+}
+
+/** Model metadata. */
+interface InitializeModel {
+  value: string;
+  displayName: string;
+  description?: string;
+}
+
+/** Account metadata. */
+interface InitializeAccount {
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
+  tokenSource?: string;
+  apiKeySource?: string;
+}
 
 /** Messages the bridge sends to consumers (browser, agent, etc.) */
 export type ConsumerMessage =
@@ -15,7 +122,7 @@ export type ConsumerMessage =
   | { type: "session_update"; session: Partial<SessionState> }
   | {
       type: "assistant";
-      message: CLIAssistantMessage["message"];
+      message: AssistantContent;
       parent_tool_use_id: string | null;
     }
   | {
@@ -23,8 +130,8 @@ export type ConsumerMessage =
       event: unknown;
       parent_tool_use_id: string | null;
     }
-  | { type: "result"; data: CLIResultMessage }
-  | { type: "permission_request"; request: PermissionRequest }
+  | { type: "result"; data: ResultData }
+  | { type: "permission_request"; request: ConsumerPermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
   | {
       type: "tool_progress";

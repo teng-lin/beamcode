@@ -1,3 +1,4 @@
+import type { DevToolSessionState } from "../core/types/core-session-state.js";
 import type { ConsumerRole } from "./auth.js";
 import type {
   InitializeAccount,
@@ -7,6 +8,8 @@ import type {
 } from "./cli-messages.js";
 import type { ConsumerMessage } from "./consumer-messages.js";
 
+export type { CoreSessionState, DevToolSessionState } from "../core/types/core-session-state.js";
+
 export interface InitializeCapabilities {
   commands: InitializeCommand[];
   models: InitializeModel[];
@@ -14,8 +17,12 @@ export interface InitializeCapabilities {
   receivedAt: number;
 }
 
-export interface SessionState {
-  session_id: string;
+/**
+ * Full session state for SdkUrl-based backends.
+ * Extends DevToolSessionState (which extends CoreSessionState) with
+ * SdkUrl-specific fields like model info, tools, MCP servers, etc.
+ */
+export interface SessionState extends DevToolSessionState {
   model: string;
   cwd: string;
   tools: string[];
@@ -25,17 +32,6 @@ export interface SessionState {
   agents: string[];
   slash_commands: string[];
   skills: string[];
-  total_cost_usd: number;
-  num_turns: number;
-  context_used_percent: number;
-  is_compacting: boolean;
-  git_branch: string;
-  is_worktree: boolean;
-  repo_root: string;
-  git_ahead: number;
-  git_behind: number;
-  total_lines_added: number;
-  total_lines_removed: number;
   last_model_usage?: Record<
     string,
     {
@@ -51,6 +47,9 @@ export interface SessionState {
   last_duration_api_ms?: number;
   capabilities?: InitializeCapabilities;
 }
+
+/** Explicit alias for the SdkUrl-specific full session state. */
+export type SdkUrlSessionState = SessionState;
 
 /** Snapshot of a session's full state (for getSession() return) */
 export interface SessionSnapshot {

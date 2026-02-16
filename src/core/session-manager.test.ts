@@ -103,17 +103,17 @@ describe("SessionManager", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Wiring: cli:session_id → launcher.setCLISessionId
+  // Wiring: backend:session_id → launcher.setCLISessionId
   // -----------------------------------------------------------------------
 
-  describe("cli:session_id wiring", () => {
+  describe("backend:session_id wiring", () => {
     it("forwards to launcher.setCLISessionId", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
-      // Simulate the bridge emitting cli:session_id
-      mgr.bridge.emit("cli:session_id" as any, {
+      // Simulate the bridge emitting backend:session_id
+      mgr.bridge.emit("backend:session_id" as any, {
         sessionId: info.sessionId,
-        cliSessionId: "cli-abc-123",
+        backendSessionId: "cli-abc-123",
       });
 
       const session = mgr.launcher.getSession(info.sessionId);
@@ -122,16 +122,16 @@ describe("SessionManager", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Wiring: cli:connected → launcher.markConnected
+  // Wiring: backend:connected → launcher.markConnected
   // -----------------------------------------------------------------------
 
-  describe("cli:connected wiring", () => {
+  describe("backend:connected wiring", () => {
     it("forwards to launcher.markConnected", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
       expect(info.state).toBe("starting");
 
-      mgr.bridge.emit("cli:connected" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:connected" as any, { sessionId: info.sessionId });
 
       const session = mgr.launcher.getSession(info.sessionId);
       expect(session?.state).toBe("connected");
@@ -139,10 +139,10 @@ describe("SessionManager", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Wiring: cli:relaunch_needed → launcher.relaunch (with dedup)
+  // Wiring: backend:relaunch_needed → launcher.relaunch (with dedup)
   // -----------------------------------------------------------------------
 
-  describe("cli:relaunch_needed wiring", () => {
+  describe("backend:relaunch_needed wiring", () => {
     it("triggers launcher.relaunch", async () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
@@ -151,7 +151,7 @@ describe("SessionManager", () => {
       await pm.lastProcess!.exited;
       const spawnsBefore = pm.spawnCalls.length;
 
-      mgr.bridge.emit("cli:relaunch_needed" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
       // Allow async relaunch to run
       await new Promise((r) => setTimeout(r, 10));
 
@@ -166,9 +166,9 @@ describe("SessionManager", () => {
       const spawnsBefore = pm.spawnCalls.length;
 
       // Fire three rapid relaunch requests
-      mgr.bridge.emit("cli:relaunch_needed" as any, { sessionId: info.sessionId });
-      mgr.bridge.emit("cli:relaunch_needed" as any, { sessionId: info.sessionId });
-      mgr.bridge.emit("cli:relaunch_needed" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
       await new Promise((r) => setTimeout(r, 10));
 
       // Should only spawn once due to dedup
@@ -183,7 +183,7 @@ describe("SessionManager", () => {
       await pm.lastProcess!.exited;
       const spawnsBefore = pm.spawnCalls.length;
 
-      mgr.bridge.emit("cli:relaunch_needed" as any, { sessionId: info.sessionId });
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
       await new Promise((r) => setTimeout(r, 10));
 
       expect(pm.spawnCalls.length).toBe(spawnsBefore);
@@ -443,10 +443,10 @@ describe("SessionManager", () => {
       // Simulate concurrent relaunch requests
       // The first one would set the relaunchingSet flag
       // and subsequent ones would be skipped
-      mgr.bridge.emit("cli:relaunch_needed" as any, {
+      mgr.bridge.emit("backend:relaunch_needed" as any, {
         sessionId: info.sessionId,
       });
-      mgr.bridge.emit("cli:relaunch_needed" as any, {
+      mgr.bridge.emit("backend:relaunch_needed" as any, {
         sessionId: info.sessionId,
       });
 

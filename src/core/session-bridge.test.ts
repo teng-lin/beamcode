@@ -3027,4 +3027,85 @@ describe("SessionBridge", () => {
       expect(snapshot!.state.capabilities!.account).toBeNull();
     });
   });
+
+  // ── backend:* dual-emit events ──────────────────────────────────────────
+
+  describe("backend:* dual-emit events", () => {
+    it("emits backend:connected alongside cli:connected on handleCLIOpen", () => {
+      bridge.getOrCreateSession("sess-1");
+      const cliHandler = vi.fn();
+      const backendHandler = vi.fn();
+      bridge.on("cli:connected", cliHandler);
+      bridge.on("backend:connected", backendHandler);
+
+      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+
+      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+      expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+    });
+
+    it("emits backend:disconnected alongside cli:disconnected on handleCLIClose", () => {
+      bridge.getOrCreateSession("sess-1");
+      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+
+      const cliHandler = vi.fn();
+      const backendHandler = vi.fn();
+      bridge.on("cli:disconnected", cliHandler);
+      bridge.on("backend:disconnected", backendHandler);
+
+      bridge.handleCLIClose("sess-1");
+
+      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+      expect(backendHandler).toHaveBeenCalledWith({
+        sessionId: "sess-1",
+        code: 1000,
+        reason: "CLI process disconnected",
+      });
+    });
+
+    it("emits backend:session_id alongside cli:session_id on system init", () => {
+      bridge.getOrCreateSession("sess-1");
+      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+
+      const cliHandler = vi.fn();
+      const backendHandler = vi.fn();
+      bridge.on("cli:session_id", cliHandler);
+      bridge.on("backend:session_id", backendHandler);
+
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-abc" }));
+
+      expect(cliHandler).toHaveBeenCalledWith({
+        sessionId: "sess-1",
+        cliSessionId: "cli-abc",
+      });
+      expect(backendHandler).toHaveBeenCalledWith({
+        sessionId: "sess-1",
+        backendSessionId: "cli-abc",
+      });
+    });
+
+    it("emits backend:relaunch_needed alongside cli:relaunch_needed when consumer opens and CLI is dead", () => {
+      bridge.getOrCreateSession("sess-1");
+      const cliHandler = vi.fn();
+      const backendHandler = vi.fn();
+      bridge.on("cli:relaunch_needed", cliHandler);
+      bridge.on("backend:relaunch_needed", backendHandler);
+
+      bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
+
+      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+      expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+    });
+
+    it("does not emit backend:relaunch_needed when CLI is connected", () => {
+      bridge.getOrCreateSession("sess-1");
+      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+
+      const handler = vi.fn();
+      bridge.on("backend:relaunch_needed", handler);
+
+      bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

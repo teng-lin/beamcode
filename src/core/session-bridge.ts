@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConsoleLogger } from "../adapters/console-logger.js";
+import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type {
   AuthContext,
@@ -34,13 +35,15 @@ import type {
 } from "../types/cli-messages.js";
 import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
-import type { ConsumerMessage } from "../types/consumer-messages.js";
+import type { ConsumerMessage, ConsumerPermissionRequest } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
+import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
+import type { UnifiedMessage } from "./types/unified-message.js";
 
 // ─── Internal Session ────────────────────────────────────────────────────────
 
@@ -48,6 +51,10 @@ interface Session {
   id: string;
   cliSocket: WebSocketLike | null;
   cliSessionId?: string;
+  /** BackendSession from BackendAdapter (coexistence: set when adapter path is used). */
+  backendSession: BackendSession | null;
+  /** AbortController for the backend message consumption loop. */
+  backendAbort: AbortController | null;
   consumerSockets: Map<WebSocketLike, ConsumerIdentity>;
   consumerRateLimiters: Map<WebSocketLike, RateLimiter>; // Per-consumer rate limiting
   anonymousCounter: number;
@@ -119,6 +126,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
   private slashCommandExecutor: SlashCommandExecutor;
+  private adapter: BackendAdapter | null;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -128,6 +136,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     config?: ProviderConfig;
     metrics?: MetricsCollector;
     commandRunner?: CommandRunner;
+    /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
+    adapter?: BackendAdapter;
   }) {
     super();
     this.storage = options?.storage ?? null;
@@ -136,6 +146,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.logger = options?.logger ?? new ConsoleLogger("session-bridge");
     this.config = resolveConfig(options?.config ?? { port: 3456 });
     this.metrics = options?.metrics ?? null;
+    this.adapter = options?.adapter ?? null;
     this.slashCommandExecutor = new SlashCommandExecutor({
       commandRunner: options?.commandRunner,
       config: this.config,
@@ -154,6 +165,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       const session: Session = {
         id: p.id,
         cliSocket: null,
+        backendSession: null,
+        backendAbort: null,
         consumerSockets: new Map(),
         consumerRateLimiters: new Map(),
         anonymousCounter: 0,
@@ -193,6 +206,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session = {
         id: sessionId,
         cliSocket: null,
+        backendSession: null,
+        backendAbort: null,
         consumerSockets: new Map(),
         consumerRateLimiters: new Map(),
         anonymousCounter: 0,
@@ -247,7 +262,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.storage?.remove(sessionId);
   }
 
-  /** Close all sockets (CLI + consumers) for a session and remove it. */
+  /** Close all sockets (CLI + consumers) and backend sessions, then remove. */
   closeSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -262,6 +277,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         // ignore close errors
       }
       session.cliSocket = null;
+    }
+
+    // Close backend session
+    if (session.backendSession) {
+      session.backendAbort?.abort();
+      session.backendSession.close().catch(() => {});
+      session.backendSession = null;
+      session.backendAbort = null;
     }
 
     // Close all consumer sockets
@@ -306,6 +329,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
     this.broadcastToConsumers(session, { type: "cli_connected" });
     this.emit("cli:connected", { sessionId });
+    this.emit("backend:connected", { sessionId });
 
     // Flush any messages that were queued while waiting for CLI to connect
     if (session.pendingMessages.length > 0) {
@@ -352,6 +376,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
     this.broadcastToConsumers(session, { type: "cli_disconnected" });
     this.emit("cli:disconnected", { sessionId });
+    this.emit("backend:disconnected", {
+      sessionId,
+      code: 1000,
+      reason: "CLI process disconnected",
+    });
 
     // Cancel any pending permission requests (only participants see these)
     for (const [reqId] of session.pendingPermissions) {
@@ -501,6 +530,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
       );
       this.emit("cli:relaunch_needed", { sessionId });
+      this.emit("backend:relaunch_needed", { sessionId });
     }
   }
 
@@ -777,6 +807,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
           sessionId: session.id,
           cliSessionId: msg.session_id,
         });
+        this.emit("backend:session_id", {
+          sessionId: session.id,
+          backendSessionId: msg.session_id,
+        });
       }
 
       session.state.model = msg.model;
@@ -864,9 +898,24 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.state.last_duration_api_ms = msg.duration_api_ms;
     }
 
+    // Extract consumer-relevant fields, stripping CLI transport fields (uuid, session_id, type)
     const consumerMsg: ConsumerMessage = {
       type: "result",
-      data: msg,
+      data: {
+        subtype: msg.subtype,
+        is_error: msg.is_error,
+        result: msg.result,
+        errors: msg.errors,
+        duration_ms: msg.duration_ms,
+        duration_api_ms: msg.duration_api_ms,
+        num_turns: msg.num_turns,
+        total_cost_usd: msg.total_cost_usd,
+        stop_reason: msg.stop_reason,
+        usage: msg.usage,
+        modelUsage: msg.modelUsage,
+        total_lines_added: msg.total_lines_added,
+        total_lines_removed: msg.total_lines_removed,
+      },
     };
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
@@ -1279,5 +1328,483 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     if (session.messageHistory.length > maxLength) {
       session.messageHistory = session.messageHistory.slice(-maxLength);
     }
+  }
+
+  // ── BackendAdapter path (coexistence with CLI WebSocket path) ───────────
+
+  /** Whether a BackendAdapter is configured. */
+  get hasAdapter(): boolean {
+    return this.adapter !== null;
+  }
+
+  /** Connect a session via BackendAdapter and start consuming messages. */
+  async connectBackend(
+    sessionId: string,
+    options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },
+  ): Promise<void> {
+    if (!this.adapter) {
+      throw new Error("No BackendAdapter configured");
+    }
+    const session = this.getOrCreateSession(sessionId);
+
+    // Close any existing backend session
+    if (session.backendSession) {
+      session.backendAbort?.abort();
+      await session.backendSession.close().catch(() => {});
+    }
+
+    const backendSession = await this.adapter.connect({
+      sessionId,
+      resume: options?.resume,
+      adapterOptions: options?.adapterOptions,
+    });
+
+    session.backendSession = backendSession;
+    const abort = new AbortController();
+    session.backendAbort = abort;
+
+    this.logger.info(`Backend connected for session ${sessionId} via ${this.adapter.name}`);
+    this.metrics?.recordEvent({
+      timestamp: Date.now(),
+      type: "cli:connected",
+      sessionId,
+    });
+    this.broadcastToConsumers(session, { type: "cli_connected" });
+    this.emit("backend:connected", { sessionId });
+    this.emit("cli:connected", { sessionId });
+
+    // Flush any pending messages
+    if (session.pendingMessages.length > 0) {
+      this.logger.info(
+        `Flushing ${session.pendingMessages.length} queued message(s) for session ${sessionId}`,
+      );
+      for (const ndjson of session.pendingMessages) {
+        this.sendToCLI(session, ndjson);
+      }
+      session.pendingMessages = [];
+    }
+
+    // Start consuming backend messages in the background
+    this.startBackendConsumption(session, abort.signal);
+  }
+
+  /** Disconnect the backend session. */
+  async disconnectBackend(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session?.backendSession) return;
+
+    session.backendAbort?.abort();
+    await session.backendSession.close().catch(() => {});
+    session.backendSession = null;
+    session.backendAbort = null;
+
+    this.logger.info(`Backend disconnected for session ${sessionId}`);
+    this.metrics?.recordEvent({
+      timestamp: Date.now(),
+      type: "cli:disconnected",
+      sessionId,
+    });
+    this.broadcastToConsumers(session, { type: "cli_disconnected" });
+    this.emit("backend:disconnected", { sessionId, code: 1000, reason: "normal" });
+    this.emit("cli:disconnected", { sessionId });
+
+    // Cancel pending permissions
+    for (const [reqId] of session.pendingPermissions) {
+      this.broadcastToParticipants(session, {
+        type: "permission_cancelled",
+        request_id: reqId,
+      });
+    }
+    session.pendingPermissions.clear();
+  }
+
+  /** Whether a backend session is connected for a given session ID. */
+  isBackendConnected(sessionId: string): boolean {
+    return !!this.sessions.get(sessionId)?.backendSession;
+  }
+
+  /** Send a UnifiedMessage to the backend session. */
+  sendToBackend(sessionId: string, message: UnifiedMessage): void {
+    const session = this.sessions.get(sessionId);
+    if (!session?.backendSession) {
+      this.logger.warn(`No backend session for ${sessionId}, cannot send message`);
+      return;
+    }
+    try {
+      session.backendSession.send(message);
+    } catch (err) {
+      this.logger.error(`Failed to send to backend for session ${sessionId}`, { error: err });
+      this.emit("error", {
+        source: "sendToBackend",
+        error: err instanceof Error ? err : new Error(String(err)),
+        sessionId,
+      });
+    }
+  }
+
+  // ── Backend message consumption ────────────────────────────────────────
+
+  private startBackendConsumption(session: Session, signal: AbortSignal): void {
+    const sessionId = session.id;
+
+    // Consume in the background — don't await
+    (async () => {
+      try {
+        if (!session.backendSession) return;
+        for await (const msg of session.backendSession.messages) {
+          if (signal.aborted) break;
+          session.lastActivity = Date.now();
+          this.routeUnifiedMessage(session, msg);
+        }
+      } catch (err) {
+        if (signal.aborted) return; // expected shutdown
+        this.logger.error(`Backend message stream error for session ${sessionId}`, { error: err });
+        this.emit("error", {
+          source: "backendConsumption",
+          error: err instanceof Error ? err : new Error(String(err)),
+          sessionId,
+        });
+      }
+
+      // Stream ended — backend disconnected (unless we aborted intentionally)
+      if (!signal.aborted) {
+        session.backendSession = null;
+        session.backendAbort = null;
+        this.broadcastToConsumers(session, { type: "cli_disconnected" });
+        this.emit("backend:disconnected", { sessionId, code: 1000, reason: "stream ended" });
+        this.emit("cli:disconnected", { sessionId });
+
+        for (const [reqId] of session.pendingPermissions) {
+          this.broadcastToParticipants(session, {
+            type: "permission_cancelled",
+            request_id: reqId,
+          });
+        }
+        session.pendingPermissions.clear();
+      }
+    })();
+  }
+
+  // ── Unified message routing ────────────────────────────────────────────
+
+  private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
+    // Apply state reduction (pure function — no side effects)
+    session.state = reduceState(session.state, msg);
+
+    switch (msg.type) {
+      case "session_init":
+        this.handleUnifiedSessionInit(session, msg);
+        break;
+      case "status_change":
+        this.handleUnifiedStatusChange(session, msg);
+        break;
+      case "assistant":
+        this.handleUnifiedAssistant(session, msg);
+        break;
+      case "result":
+        this.handleUnifiedResult(session, msg);
+        break;
+      case "stream_event":
+        this.handleUnifiedStreamEvent(session, msg);
+        break;
+      case "permission_request":
+        this.handleUnifiedPermissionRequest(session, msg);
+        break;
+      case "control_response":
+        this.handleUnifiedControlResponse(session, msg);
+        break;
+      case "tool_progress":
+        this.handleUnifiedToolProgress(session, msg);
+        break;
+      case "tool_use_summary":
+        this.handleUnifiedToolUseSummary(session, msg);
+        break;
+      case "auth_status":
+        this.handleUnifiedAuthStatus(session, msg);
+        break;
+    }
+  }
+
+  private handleUnifiedSessionInit(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+
+    // Store backend session ID for resume
+    if (m.session_id) {
+      session.cliSessionId = m.session_id as string;
+      this.emit("backend:session_id", {
+        sessionId: session.id,
+        backendSessionId: m.session_id as string,
+      });
+      this.emit("cli:session_id", {
+        sessionId: session.id,
+        cliSessionId: m.session_id as string,
+      });
+    }
+
+    // Resolve git info
+    if (session.state.cwd && this.gitResolver) {
+      const gitInfo = this.gitResolver.resolve(session.state.cwd);
+      if (gitInfo) {
+        session.state.git_branch = gitInfo.branch;
+        session.state.is_worktree = gitInfo.isWorktree;
+        session.state.repo_root = gitInfo.repoRoot;
+        session.state.git_ahead = gitInfo.ahead ?? 0;
+        session.state.git_behind = gitInfo.behind ?? 0;
+      }
+    }
+
+    this.broadcastToConsumers(session, {
+      type: "session_init",
+      session: session.state,
+    });
+    this.persistSession(session);
+    this.sendInitializeRequest(session);
+  }
+
+  private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
+    const status = msg.metadata.status as string | null | undefined;
+    this.broadcastToConsumers(session, {
+      type: "status_change",
+      status: (status ?? null) as "compacting" | "idle" | "running" | null,
+    });
+  }
+
+  private handleUnifiedAssistant(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    const consumerMsg: ConsumerMessage = {
+      type: "assistant",
+      message: {
+        id: (m.message_id as string) ?? msg.id,
+        type: "message",
+        role: "assistant",
+        model: (m.model as string) ?? "",
+        content: msg.content.map((block) => {
+          switch (block.type) {
+            case "text":
+              return { type: "text" as const, text: block.text };
+            case "tool_use":
+              return {
+                type: "tool_use" as const,
+                id: block.id,
+                name: block.name,
+                input: block.input,
+              };
+            case "tool_result":
+              return {
+                type: "tool_result" as const,
+                tool_use_id: block.tool_use_id,
+                content: block.content,
+                is_error: block.is_error,
+              };
+            default:
+              return { type: "text" as const, text: "" };
+          }
+        }),
+        stop_reason: (m.stop_reason as string | null) ?? null,
+        usage: (m.usage as {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens: number;
+          cache_read_input_tokens: number;
+        }) ?? {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
+    };
+    session.messageHistory.push(consumerMsg);
+    this.trimMessageHistory(session);
+    this.broadcastToConsumers(session, consumerMsg);
+    this.persistSession(session);
+  }
+
+  private handleUnifiedResult(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    const consumerMsg: ConsumerMessage = {
+      type: "result",
+      data: {
+        subtype: m.subtype as string as
+          | "success"
+          | "error_during_execution"
+          | "error_max_turns"
+          | "error_max_budget_usd"
+          | "error_max_structured_output_retries",
+        is_error: (m.is_error as boolean) ?? false,
+        result: m.result as string | undefined,
+        errors: m.errors as string[] | undefined,
+        duration_ms: (m.duration_ms as number) ?? 0,
+        duration_api_ms: (m.duration_api_ms as number) ?? 0,
+        num_turns: (m.num_turns as number) ?? 0,
+        total_cost_usd: (m.total_cost_usd as number) ?? 0,
+        stop_reason: (m.stop_reason as string | null) ?? null,
+        usage: (m.usage as {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens: number;
+          cache_read_input_tokens: number;
+        }) ?? {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        modelUsage: m.modelUsage as
+          | Record<
+              string,
+              {
+                inputTokens: number;
+                outputTokens: number;
+                cacheReadInputTokens: number;
+                cacheCreationInputTokens: number;
+                contextWindow: number;
+                maxOutputTokens: number;
+                costUSD: number;
+              }
+            >
+          | undefined,
+        total_lines_added: m.total_lines_added as number | undefined,
+        total_lines_removed: m.total_lines_removed as number | undefined,
+      },
+    };
+    session.messageHistory.push(consumerMsg);
+    this.trimMessageHistory(session);
+    this.broadcastToConsumers(session, consumerMsg);
+    this.persistSession(session);
+
+    // Trigger auto-naming after first turn
+    const numTurns = (m.num_turns as number) ?? 0;
+    const isError = (m.is_error as boolean) ?? false;
+    if (numTurns === 1 && !isError) {
+      const firstUserMsg = session.messageHistory.find((msg) => msg.type === "user_message");
+      if (firstUserMsg && firstUserMsg.type === "user_message") {
+        this.emit("session:first_turn_completed", {
+          sessionId: session.id,
+          firstUserMessage: firstUserMsg.content,
+        });
+      }
+    }
+  }
+
+  private handleUnifiedStreamEvent(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    this.broadcastToConsumers(session, {
+      type: "stream_event",
+      event: m.event,
+      parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
+    });
+  }
+
+  private handleUnifiedPermissionRequest(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    const perm: ConsumerPermissionRequest = {
+      request_id: m.request_id as string,
+      tool_name: m.tool_name as string,
+      input: (m.input as Record<string, unknown>) ?? {},
+      permission_suggestions: m.permission_suggestions as unknown[] | undefined,
+      description: m.description as string | undefined,
+      tool_use_id: m.tool_use_id as string,
+      agent_id: m.agent_id as string | undefined,
+      timestamp: Date.now(),
+    };
+
+    // Store as CLI-compatible PermissionRequest for pendingPermissions map
+    const cliPerm: PermissionRequest = {
+      ...perm,
+      permission_suggestions:
+        m.permission_suggestions as PermissionRequest["permission_suggestions"],
+    };
+    session.pendingPermissions.set(perm.request_id, cliPerm);
+
+    this.broadcastToParticipants(session, {
+      type: "permission_request",
+      request: perm,
+    });
+    this.emit("permission:requested", {
+      sessionId: session.id,
+      request: cliPerm,
+    });
+    this.persistSession(session);
+  }
+
+  private handleUnifiedControlResponse(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+
+    // Match against pending initialize request
+    if (
+      !session.pendingInitialize ||
+      session.pendingInitialize.requestId !== (m.request_id as string)
+    ) {
+      return;
+    }
+    clearTimeout(session.pendingInitialize.timer);
+    session.pendingInitialize = null;
+
+    if (m.subtype === "error") {
+      this.logger.warn(`Initialize failed: ${m.error}`);
+      return;
+    }
+
+    const response = m.response as
+      | {
+          commands?: unknown[];
+          models?: unknown[];
+          account?: unknown;
+        }
+      | undefined;
+    if (!response) return;
+
+    const commands = Array.isArray(response.commands)
+      ? (response.commands as InitializeCommand[])
+      : [];
+    const models = Array.isArray(response.models) ? (response.models as InitializeModel[]) : [];
+    const account = (response.account as InitializeAccount | null) ?? null;
+
+    session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
+    this.logger.info(
+      `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
+    );
+
+    this.broadcastToConsumers(session, { type: "capabilities_ready", commands, models, account });
+    this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
+    this.persistSession(session);
+  }
+
+  private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    this.broadcastToConsumers(session, {
+      type: "tool_progress",
+      tool_use_id: m.tool_use_id as string,
+      tool_name: m.tool_name as string,
+      elapsed_time_seconds: m.elapsed_time_seconds as number,
+    });
+  }
+
+  private handleUnifiedToolUseSummary(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    this.broadcastToConsumers(session, {
+      type: "tool_use_summary",
+      summary: m.summary as string,
+      tool_use_ids: m.tool_use_ids as string[],
+    });
+  }
+
+  private handleUnifiedAuthStatus(session: Session, msg: UnifiedMessage): void {
+    const m = msg.metadata;
+    const consumerMsg: ConsumerMessage = {
+      type: "auth_status",
+      isAuthenticating: m.isAuthenticating as boolean,
+      output: m.output as string[],
+      error: m.error as string | undefined,
+    };
+    this.broadcastToConsumers(session, consumerMsg);
+    this.emit("auth_status", {
+      sessionId: session.id,
+      isAuthenticating: m.isAuthenticating as boolean,
+      output: m.output as string[],
+      error: m.error as string | undefined,
+    });
   }
 }

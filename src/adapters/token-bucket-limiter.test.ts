@@ -26,6 +26,20 @@ describe("TokenBucketLimiter", () => {
       expect(limiter.tryConsume(5)).toBe(true);
       expect(limiter.tryConsume(1)).toBe(false);
     });
+
+    it("tryConsume(n) with various token counts", () => {
+      const burstSize = 20;
+      const limiter = new TokenBucketLimiter(burstSize, 1000, 20);
+
+      // Consuming 1 token succeeds
+      expect(limiter.tryConsume(1)).toBe(true);
+
+      // Consuming 5 tokens succeeds
+      expect(limiter.tryConsume(5)).toBe(true);
+
+      // Requesting more than remaining tokens fails
+      expect(limiter.tryConsume(burstSize + 1)).toBe(false);
+    });
   });
 
   // -----------------------------------------------------------------------
