@@ -37,4 +37,9 @@ describe("sanitizeHtml", () => {
     const result = sanitizeHtml('<a href="data:text/html,<script>alert(1)</script>">click</a>');
     expect(result).not.toContain("data:");
   });
+
+  it("strips SVG event handlers", () => {
+    const result = sanitizeHtml('<svg onload="alert(1)"><circle r="10"/></svg>');
+    expect(result).not.toContain("onload");
+  });
 });

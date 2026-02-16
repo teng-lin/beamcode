@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cwdBasename, formatCost, formatDuration, formatElapsed, formatTokens } from "./format";
 
 describe("formatTokens", () => {
@@ -62,24 +62,25 @@ describe("formatDuration", () => {
 });
 
 describe("formatElapsed", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
 
   it("shows seconds when under 1 minute", () => {
-    vi.useFakeTimers();
     vi.setSystemTime(10_000);
     expect(formatElapsed(0)).toBe("10s");
   });
 
   it("shows 0s when just started", () => {
-    vi.useFakeTimers();
     vi.setSystemTime(500);
     expect(formatElapsed(0)).toBe("0s");
   });
 
   it("shows minutes and seconds at 1min+", () => {
-    vi.useFakeTimers();
     vi.setSystemTime(125_000);
     expect(formatElapsed(0)).toBe("2m 5s");
   });
@@ -100,5 +101,13 @@ describe("cwdBasename", () => {
 
   it("returns full string if no slashes", () => {
     expect(cwdBasename("project")).toBe("project");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(cwdBasename("")).toBe("");
+  });
+
+  it("returns / for root path", () => {
+    expect(cwdBasename("/")).toBe("/");
   });
 });
