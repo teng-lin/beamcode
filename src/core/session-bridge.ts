@@ -1166,12 +1166,12 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const { command, request_id } = msg;
 
     // Native commands are forwarded directly to the CLI as user messages
-    if (this.slashCommandExecutor.isNativeCommand(command)) {
+    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
       this.sendUserMessage(session.id, command);
       return;
     }
 
-    if (!this.slashCommandExecutor.canHandle(command)) {
+    if (!this.slashCommandExecutor.canHandle(command, session.state)) {
       const errorMsg = `Unknown slash command: ${command.split(/\s+/)[0]}`;
       this.broadcastToConsumers(session, {
         type: "slash_command_error",
@@ -1228,12 +1228,12 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
-    if (this.slashCommandExecutor.isNativeCommand(command)) {
+    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
       this.sendUserMessage(sessionId, command);
       return null; // result comes back via normal CLI message flow
     }
 
-    if (!this.slashCommandExecutor.canHandle(command)) {
+    if (!this.slashCommandExecutor.canHandle(command, session.state)) {
       return null;
     }
 
