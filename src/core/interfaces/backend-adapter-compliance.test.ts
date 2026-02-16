@@ -93,6 +93,7 @@ class EchoAdapter implements BackendAdapter {
     permissions: false,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
 
   async connect(options: ConnectOptions): Promise<BackendSession> {

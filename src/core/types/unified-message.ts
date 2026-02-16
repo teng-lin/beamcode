@@ -42,6 +42,9 @@ export type UnifiedMessageType =
   | "permission_response"
   | "interrupt"
   | "configuration_change"
+  | "team_message"
+  | "team_task_update"
+  | "team_state_change"
   | "unknown";
 
 // ---------------------------------------------------------------------------
@@ -183,6 +186,9 @@ const VALID_MESSAGE_TYPES = new Set<string>([
   "permission_response",
   "interrupt",
   "configuration_change",
+  "team_message",
+  "team_task_update",
+  "team_state_change",
   "unknown",
 ]);
 
@@ -203,6 +209,22 @@ export function isUnifiedMessage(value: unknown): value is UnifiedMessage {
   if (msg.parentId !== undefined && typeof msg.parentId !== "string") return false;
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Team message type guards (Phase 5.1)
+// ---------------------------------------------------------------------------
+
+export function isTeamMessage(msg: UnifiedMessage): boolean {
+  return msg.type === "team_message";
+}
+
+export function isTeamTaskUpdate(msg: UnifiedMessage): boolean {
+  return msg.type === "team_task_update";
+}
+
+export function isTeamStateChange(msg: UnifiedMessage): boolean {
+  return msg.type === "team_state_change";
 }
 
 // ---------------------------------------------------------------------------

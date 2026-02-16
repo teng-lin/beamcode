@@ -1,4 +1,5 @@
 import type { DevToolSessionState } from "../core/types/core-session-state.js";
+import type { TeamState } from "../core/types/team-types.js";
 import type { ConsumerRole } from "./auth.js";
 import type {
   InitializeAccount,
@@ -29,7 +30,8 @@ export interface SessionState extends DevToolSessionState {
   permissionMode: string;
   claude_code_version: string;
   mcp_servers: { name: string; status: string }[];
-  agents: string[];
+  agents: string[]; // Deprecated — populated from team.members by the state reducer
+  team?: TeamState;
   slash_commands: string[];
   skills: string[];
   last_model_usage?: Record<

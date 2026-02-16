@@ -128,6 +128,7 @@ describe("AcpAdapter", () => {
         permissions: true,
         slashCommands: true,
         availability: "local",
+        teams: false,
       });
     });
   });

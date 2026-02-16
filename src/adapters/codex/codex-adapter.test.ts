@@ -393,6 +393,7 @@ describe("CodexAdapter", () => {
       permissions: true,
       slashCommands: false,
       availability: "local",
+      teams: false,
     });
   });
 });

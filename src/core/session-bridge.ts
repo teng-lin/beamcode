@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConsoleLogger } from "../adapters/console-logger.js";
+import { translate as translateCLI } from "../adapters/sdk-url/message-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type {
@@ -42,7 +43,9 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
 import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
+import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
+import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
 // ─── Internal Session ────────────────────────────────────────────────────────
@@ -67,6 +70,8 @@ interface Session {
     requestId: string;
     timer: ReturnType<typeof setTimeout>;
   } | null;
+  /** Per-session correlation buffer for team tool_use↔tool_result pairing. */
+  teamCorrelationBuffer: TeamToolCorrelationBuffer;
 }
 
 function makeDefaultState(sessionId: string): SessionState {
@@ -176,6 +181,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         pendingMessages: p.pendingMessages || [],
         lastActivity: Date.now(),
         pendingInitialize: null,
+        teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
       };
       this.sessions.set(p.id, session);
       count++;
@@ -217,6 +223,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         pendingMessages: [],
         lastActivity: Date.now(),
         pendingInitialize: null,
+        teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
       };
       this.sessions.set(sessionId, session);
       // Emit metrics event
@@ -856,6 +863,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private handleAssistantMessage(session: Session, msg: CLIAssistantMessage): void {
+    // Phase 5.6: Process team tool_use/tool_result in assistant messages
+    const unified = translateCLI(msg);
+    if (unified) {
+      const prevTeam = session.state.team;
+      session.state = reduceState(session.state, unified, session.teamCorrelationBuffer);
+      this.emitTeamEvents(session, prevTeam);
+    }
+
     const consumerMsg: ConsumerMessage = {
       type: "assistant",
       message: msg.message,
@@ -1488,8 +1503,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   // ── Unified message routing ────────────────────────────────────────────
 
   private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
-    // Apply state reduction (pure function — no side effects)
-    session.state = reduceState(session.state, msg);
+    // Capture previous team state for event diffing
+    const prevTeam = session.state.team;
+
+    // Apply state reduction (pure function — no side effects, includes team state)
+    session.state = reduceState(session.state, msg, session.teamCorrelationBuffer);
+
+    // Emit team events by diffing previous and new team state (Phase 5.7)
+    this.emitTeamEvents(session, prevTeam);
 
     switch (msg.type) {
       case "session_init":
@@ -1522,6 +1543,79 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       case "auth_status":
         this.handleUnifiedAuthStatus(session, msg);
         break;
+    }
+  }
+
+  // ── Team event emission (Phase 5.7) ──────────────────────────────────
+
+  /**
+   * Compare previous and current team state and emit appropriate events.
+   */
+  private emitTeamEvents(session: Session, prevTeam: TeamState | undefined): void {
+    const currentTeam = session.state.team;
+    const sessionId = session.id;
+
+    // No change
+    if (prevTeam === currentTeam) return;
+
+    // Team created
+    if (!prevTeam && currentTeam) {
+      this.emit("team:created", { sessionId, teamName: currentTeam.name });
+      return;
+    }
+
+    // Team deleted
+    if (prevTeam && !currentTeam) {
+      this.emit("team:deleted", { sessionId, teamName: prevTeam.name });
+      return;
+    }
+
+    // Both exist — diff members and tasks
+    if (prevTeam && currentTeam) {
+      this.diffTeamMembers(sessionId, prevTeam, currentTeam);
+      this.diffTeamTasks(sessionId, prevTeam, currentTeam);
+    }
+  }
+
+  private diffTeamMembers(sessionId: string, prev: TeamState, current: TeamState): void {
+    const prevNames = new Set(prev.members.map((m) => m.name));
+
+    for (const member of current.members) {
+      if (!prevNames.has(member.name)) {
+        this.emit("team:member:joined", { sessionId, member });
+        continue;
+      }
+
+      const prevMember = prev.members.find((m) => m.name === member.name);
+      if (!prevMember) continue;
+
+      if (prevMember.status !== member.status) {
+        if (member.status === "idle") {
+          this.emit("team:member:idle", { sessionId, member });
+        } else if (member.status === "shutdown") {
+          this.emit("team:member:shutdown", { sessionId, member });
+        }
+      }
+    }
+  }
+
+  private diffTeamTasks(sessionId: string, prev: TeamState, current: TeamState): void {
+    const prevTaskMap = new Map(prev.tasks.map((t) => [t.id, t]));
+
+    for (const task of current.tasks) {
+      const prevTask = prevTaskMap.get(task.id);
+      if (!prevTask) {
+        this.emit("team:task:created", { sessionId, task });
+        continue;
+      }
+
+      if (prevTask.status !== task.status) {
+        if (task.status === "in_progress" && task.owner) {
+          this.emit("team:task:claimed", { sessionId, task });
+        } else if (task.status === "completed") {
+          this.emit("team:task:completed", { sessionId, task });
+        }
+      }
     }
   }
 

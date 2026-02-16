@@ -35,6 +35,7 @@ export class CodexAdapter implements BackendAdapter {
     permissions: true,
     slashCommands: false,
     availability: "local",
+    teams: false,
   };
 
   private readonly processManager: ProcessManager;

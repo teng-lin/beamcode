@@ -9,6 +9,7 @@
  * 2. Relay extensions — needed for Phase 2 relay infrastructure.
  */
 
+import type { TeamEvent } from "../types/team-types.js";
 import type { UnifiedMessage } from "../types/unified-message.js";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,16 @@ export interface Reconnectable {
   onDisconnect(callback: () => void): void;
   /** Replay messages from a given sequence number. */
   replay(fromSeq: number): AsyncIterable<UnifiedMessage>;
+}
+
+// ---------------------------------------------------------------------------
+// Team extensions (Phase 5)
+// ---------------------------------------------------------------------------
+
+/** The session can observe team coordination events. */
+export interface TeamObserver {
+  readonly teamName: string;
+  readonly teamEvents: AsyncIterable<TeamEvent>;
 }
 
 /** Encrypted message envelope for end-to-end encryption. */

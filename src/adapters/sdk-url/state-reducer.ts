@@ -1,20 +1,35 @@
 /**
- * SdkUrl State Reducer — Phase 1a.1
+ * SdkUrl State Reducer — Phase 1a.1, extended Phase 5.6
  *
  * Pure function that applies a UnifiedMessage to SessionState, returning a new
  * state object. Extracted from SessionBridge handler methods.
  *
+ * Phase 5.6: Wires TeamToolCorrelationBuffer and reduceTeamState into the
+ * pipeline. Team tool_use blocks are buffered on arrival; tool_result blocks
+ * are correlated with buffered tool_uses to drive team state transitions.
+ *
  * No side effects — does not emit events, persist, or broadcast.
  */
 
+import { reduceTeamState } from "../../core/team-state-reducer.js";
+import { TeamToolCorrelationBuffer } from "../../core/team-tool-correlation.js";
+import { recognizeTeamToolUses } from "../../core/team-tool-recognizer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
+import { isToolResultContent } from "../../core/types/unified-message.js";
 import type { SessionState } from "../../types/session-state.js";
 
 /**
  * Apply a UnifiedMessage to session state, returning a new state.
  * Returns the original state reference if no fields changed.
+ *
+ * @param correlationBuffer — required; callers must provide a per-session buffer
+ *   to prevent cross-session state corruption.
  */
-export function reduce(state: SessionState, message: UnifiedMessage): SessionState {
+export function reduce(
+  state: SessionState,
+  message: UnifiedMessage,
+  correlationBuffer: TeamToolCorrelationBuffer = new TeamToolCorrelationBuffer(),
+): SessionState {
   switch (message.type) {
     case "session_init":
       return reduceSessionInit(state, message);
@@ -25,8 +40,11 @@ export function reduce(state: SessionState, message: UnifiedMessage): SessionSta
     case "control_response":
       return reduceControlResponse(state, message);
     default:
-      return state;
+      break;
   }
+
+  // Phase 5.6: Process team tool_use and tool_result in any message
+  return reduceTeamTools(state, message, correlationBuffer);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,4 +185,58 @@ function asMcpServers(
   fallback: { name: string; status: string }[],
 ): { name: string; status: string }[] {
   return Array.isArray(value) ? (value as { name: string; status: string }[]) : fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Team tool integration (Phase 5.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Process team-related tool_use and tool_result content blocks.
+ *
+ * 1. Scans for team tool_use blocks → buffers them in the correlation buffer
+ * 2. Scans for tool_result blocks → correlates with buffered tool_uses
+ * 3. When correlated, applies reduceTeamState and updates backward-compat agents[]
+ * 4. Flushes stale correlation buffer entries (30s TTL)
+ */
+function reduceTeamTools(
+  state: SessionState,
+  message: UnifiedMessage,
+  correlationBuffer: TeamToolCorrelationBuffer,
+): SessionState {
+  let currentState = state;
+
+  // 1. Buffer any team tool_use blocks found in this message
+  const teamUses = recognizeTeamToolUses(message);
+  for (const use of teamUses) {
+    correlationBuffer.onToolUse(use);
+  }
+
+  // 2. Correlate any tool_result blocks with buffered team tool_uses
+  for (const block of message.content) {
+    if (!isToolResultContent(block)) continue;
+
+    const correlated = correlationBuffer.onToolResult(block);
+    if (!correlated) continue;
+
+    // 3. Apply team state reduction
+    const newTeamState = reduceTeamState(currentState.team, correlated);
+
+    if (newTeamState === undefined) {
+      // TeamDelete — remove team field entirely
+      const { team: _team, ...rest } = currentState;
+      currentState = { ...rest, agents: [] } as SessionState;
+    } else if (newTeamState !== currentState.team) {
+      currentState = {
+        ...currentState,
+        team: newTeamState,
+        agents: newTeamState.members.map((m) => m.name),
+      };
+    }
+  }
+
+  // 4. Flush stale entries (30s TTL)
+  correlationBuffer.flush(30_000);
+
+  return currentState;
 }

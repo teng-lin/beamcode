@@ -48,6 +48,7 @@ export function runBackendAdapterComplianceTests(
         expect(typeof caps.permissions).toBe("boolean");
         expect(typeof caps.slashCommands).toBe("boolean");
         expect(["local", "remote", "both"]).toContain(caps.availability);
+        expect(typeof caps.teams).toBe("boolean");
       });
     });
 

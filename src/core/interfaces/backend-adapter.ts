@@ -21,6 +21,8 @@ export interface BackendCapabilities {
   slashCommands: boolean;
   /** Where the backend can run. */
   availability: "local" | "remote" | "both";
+  /** Whether the backend supports agent team coordination. */
+  teams: boolean;
 }
 
 // ---------------------------------------------------------------------------
