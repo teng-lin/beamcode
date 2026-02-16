@@ -2827,6 +2827,43 @@ describe("SessionBridge", () => {
       });
     });
 
+    it("capabilities_ready includes skills from session state", () => {
+      const cliSocket = createMockSocket();
+      const consumerSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: ["commit", "review-pr"] }),
+      );
+
+      consumerSocket.sentMessages.length = 0;
+      bridge.handleCLIMessage("sess-1", makeControlResponse());
+
+      const consumerMsgs = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+      const capMsg = consumerMsgs.find((m: any) => m.type === "capabilities_ready");
+      expect(capMsg).toBeDefined();
+      expect(capMsg.skills).toEqual(["commit", "review-pr"]);
+    });
+
+    it("late-joining consumer receives skills in capabilities_ready", () => {
+      const cliSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: ["commit"] }),
+      );
+      bridge.handleCLIMessage("sess-1", makeControlResponse());
+
+      const lateConsumer = createMockSocket();
+      bridge.handleConsumerOpen(lateConsumer, authContext("sess-1"));
+
+      const consumerMsgs = lateConsumer.sentMessages.map((m) => JSON.parse(m));
+      const capMsg = consumerMsgs.find((m: any) => m.type === "capabilities_ready");
+      expect(capMsg).toBeDefined();
+      expect(capMsg.skills).toEqual(["commit"]);
+    });
+
     it("CLI disconnect cancels pending initialize timer", () => {
       vi.useFakeTimers();
       const { bridge: timedBridge } = createBridge();

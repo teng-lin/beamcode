@@ -509,6 +509,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         commands: session.state.capabilities.commands,
         models: session.state.capabilities.models,
         account: session.state.capabilities.account,
+        skills: session.state.skills,
       });
     }
 
@@ -1097,7 +1098,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.registry.registerFromCLI(commands);
     }
 
-    this.broadcastToConsumers(session, { type: "capabilities_ready", commands, models, account });
+    this.broadcastToConsumers(session, {
+      type: "capabilities_ready",
+      commands,
+      models,
+      account,
+      skills: session.state.skills,
+    });
     this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
     this.persistSession(session);
   }
@@ -1909,7 +1916,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.registry.registerFromCLI(commands);
     }
 
-    this.broadcastToConsumers(session, { type: "capabilities_ready", commands, models, account });
+    this.broadcastToConsumers(session, {
+      type: "capabilities_ready",
+      commands,
+      models,
+      account,
+      skills: session.state.skills,
+    });
     this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
     this.persistSession(session);
   }
