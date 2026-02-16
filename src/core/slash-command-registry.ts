@@ -1,14 +1,6 @@
 export type CommandCategory = "consumer" | "relay" | "passthrough";
 export type CommandSource = "built-in" | "cli" | "skill";
 
-export interface SlashCommandDef {
-  name: string;
-  description: string;
-  category: CommandCategory;
-  argumentHint?: string;
-  availableDuringTask: boolean;
-}
-
 export interface RegisteredCommand {
   name: string;
   description: string;
@@ -162,68 +154,4 @@ export class SlashCommandRegistry {
       }
     }
   }
-}
-
-// ── Backward-compatible exports ──────────────────────────────────────────────
-
-const _defaultRegistry = new SlashCommandRegistry();
-
-/** @deprecated Use SlashCommandRegistry class directly */
-export const CONSUMER_COMMANDS: SlashCommandDef[] = BUILT_IN_COMMANDS.filter(
-  (c) => c.category === "consumer",
-).map((c) => ({
-  name: c.name,
-  description: c.description,
-  category: c.category!,
-  argumentHint: c.argumentHint,
-  availableDuringTask: c.availableDuringTask,
-}));
-
-/** @deprecated Use SlashCommandRegistry class directly */
-export const RELAY_COMMANDS: SlashCommandDef[] = BUILT_IN_COMMANDS.filter(
-  (c) => c.category === "relay",
-).map((c) => ({
-  name: c.name,
-  description: c.description,
-  category: c.category!,
-  argumentHint: c.argumentHint,
-  availableDuringTask: c.availableDuringTask,
-}));
-
-/** @deprecated Use SlashCommandRegistry class directly */
-export const PASSTHROUGH_COMMANDS: SlashCommandDef[] = BUILT_IN_COMMANDS.filter(
-  (c) => c.category === "passthrough",
-).map((c) => ({
-  name: c.name,
-  description: c.description,
-  category: c.category!,
-  argumentHint: c.argumentHint,
-  availableDuringTask: c.availableDuringTask,
-}));
-
-/** @deprecated Use SlashCommandRegistry.find() */
-export function findCommand(name: string): SlashCommandDef | undefined {
-  const cmd = _defaultRegistry.find(name);
-  if (!cmd || !cmd.category) return undefined;
-  return {
-    name: cmd.name,
-    description: cmd.description,
-    category: cmd.category,
-    argumentHint: cmd.argumentHint,
-    availableDuringTask: cmd.availableDuringTask,
-  };
-}
-
-/** @deprecated Use SlashCommandRegistry.getAll() */
-export function getAllCommands(): SlashCommandDef[] {
-  return _defaultRegistry
-    .getAll()
-    .filter((c) => c.category)
-    .map((c) => ({
-      name: c.name,
-      description: c.description,
-      category: c.category!,
-      argumentHint: c.argumentHint,
-      availableDuringTask: c.availableDuringTask,
-    }));
 }

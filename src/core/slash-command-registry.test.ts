@@ -1,59 +1,50 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  CONSUMER_COMMANDS,
-  findCommand,
-  getAllCommands,
-  PASSTHROUGH_COMMANDS,
-  RELAY_COMMANDS,
-  SlashCommandRegistry,
-  type RegisteredCommand,
-} from "./slash-command-registry.js";
+import { SlashCommandRegistry } from "./slash-command-registry.js";
 
 describe("SlashCommandRegistry", () => {
-  it("findCommand returns correct definition", () => {
-    const help = findCommand("/help");
-    expect(help).toBeDefined();
-    expect(help!.name).toBe("/help");
-    expect(help!.category).toBe("consumer");
-
-    const cost = findCommand("/cost");
-    expect(cost).toBeDefined();
-    expect(cost!.category).toBe("relay");
-
-    const compact = findCommand("/compact");
-    expect(compact).toBeDefined();
-    expect(compact!.category).toBe("passthrough");
-  });
-
-  it("findCommand returns undefined for unknown commands", () => {
-    expect(findCommand("/nonexistent")).toBeUndefined();
-  });
-
-  it("no command name appears in multiple categories", () => {
-    const allNames = getAllCommands().map((c) => c.name);
-    const unique = new Set(allNames);
-    expect(unique.size).toBe(allNames.length);
-  });
-
-  it("all commands have non-empty descriptions", () => {
-    for (const cmd of getAllCommands()) {
-      expect(cmd.description.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("getAllCommands includes all three lists", () => {
-    const all = getAllCommands();
-    expect(all.length).toBe(
-      CONSUMER_COMMANDS.length + RELAY_COMMANDS.length + PASSTHROUGH_COMMANDS.length,
-    );
-  });
-});
-
-describe("SlashCommandRegistry (dynamic)", () => {
   let registry: SlashCommandRegistry;
 
   beforeEach(() => {
     registry = new SlashCommandRegistry();
+  });
+
+  it("find returns correct definition with category", () => {
+    const help = registry.find("/help");
+    expect(help).toBeDefined();
+    expect(help!.name).toBe("/help");
+    expect(help!.category).toBe("consumer");
+
+    const cost = registry.find("/cost");
+    expect(cost).toBeDefined();
+    expect(cost!.category).toBe("relay");
+
+    const compact = registry.find("/compact");
+    expect(compact).toBeDefined();
+    expect(compact!.category).toBe("passthrough");
+  });
+
+  it("find returns undefined for unknown commands", () => {
+    expect(registry.find("/nonexistent")).toBeUndefined();
+  });
+
+  it("no command name appears more than once", () => {
+    const allNames = registry.getAll().map((c) => c.name);
+    const unique = new Set(allNames);
+    expect(unique.size).toBe(allNames.length);
+  });
+
+  it("all built-in commands have non-empty descriptions", () => {
+    for (const cmd of registry.getAll()) {
+      expect(cmd.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("getAll includes consumer, relay, and passthrough built-ins", () => {
+    const all = registry.getAll();
+    const categories = new Set(all.map((c) => c.category));
+    expect(categories.has("consumer")).toBe(true);
+    expect(categories.has("relay")).toBe(true);
+    expect(categories.has("passthrough")).toBe(true);
   });
 
   it("starts with built-in commands pre-registered", () => {
@@ -61,7 +52,6 @@ describe("SlashCommandRegistry (dynamic)", () => {
     expect(all.some((c) => c.name === "/help")).toBe(true);
     expect(all.some((c) => c.name === "/clear")).toBe(true);
     expect(all.some((c) => c.name === "/model")).toBe(true);
-    // All built-ins should have source "built-in"
     for (const cmd of all) {
       expect(cmd.source).toBe("built-in");
     }
@@ -93,11 +83,10 @@ describe("SlashCommandRegistry (dynamic)", () => {
     const model = registry.find("/model");
     expect(model!.description).toBe("Show or switch model");
     expect(model!.argumentHint).toBe("[model]");
-    // Source stays built-in since it was originally built-in
     expect(model!.source).toBe("built-in");
   });
 
-  it("clear removes non-built-in commands", () => {
+  it("clearDynamic removes non-built-in commands", () => {
     registry.registerFromCLI([{ name: "/vim", description: "Toggle vim" }]);
     registry.registerSkills(["commit"]);
     expect(registry.find("/vim")).toBeDefined();
@@ -106,7 +95,6 @@ describe("SlashCommandRegistry (dynamic)", () => {
     registry.clearDynamic();
     expect(registry.find("/vim")).toBeUndefined();
     expect(registry.find("/commit")).toBeUndefined();
-    // Built-ins remain
     expect(registry.find("/help")).toBeDefined();
   });
 
