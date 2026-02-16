@@ -42,7 +42,7 @@ function createMockCodec(): JsonRpcCodec {
       id,
       error: { code, message },
     })),
-    encode: vi.fn((msg: unknown) => JSON.stringify(msg) + "\n"),
+    encode: vi.fn((msg: unknown) => `${JSON.stringify(msg)}\n`),
     decode: vi.fn((line: string) => JSON.parse(line.trim())),
   } as unknown as JsonRpcCodec;
 }
@@ -60,7 +60,7 @@ function stdinWrite(proc: ChildProcess): ReturnType<typeof vi.fn> {
 
 /** Emit a JSON message on the child's stdout as a data event. */
 function emitStdout(proc: ChildProcess, msg: unknown): void {
-  (proc.stdout as unknown as EventEmitter).emit("data", Buffer.from(JSON.stringify(msg) + "\n"));
+  (proc.stdout as unknown as EventEmitter).emit("data", Buffer.from(`${JSON.stringify(msg)}\n`));
 }
 
 /** Emit the stdout "close" event. */
@@ -236,7 +236,13 @@ describe("AcpSession", () => {
     });
 
     it("rejects pending requests on close", async () => {
+      const pendingRequest = { resolve: vi.fn(), reject: vi.fn() };
+      (session as any).pendingRequests.set(1, pendingRequest);
+
       await session.close();
+
+      expect(pendingRequest.reject).toHaveBeenCalledWith(new Error("Session closed"));
+      expect(pendingRequest.resolve).not.toHaveBeenCalled();
     });
 
     it("is idempotent — second close returns immediately", async () => {
@@ -350,7 +356,7 @@ describe("AcpSession", () => {
       // Emit two lines: one bad, one good
       (child.stdout as unknown as EventEmitter).emit(
         "data",
-        Buffer.from("not valid json\n" + JSON.stringify(validMsg) + "\n"),
+        Buffer.from(`not valid json\n${JSON.stringify(validMsg)}\n`),
       );
 
       const msg = await iter.next();

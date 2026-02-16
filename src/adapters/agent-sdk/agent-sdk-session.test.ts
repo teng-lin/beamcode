@@ -310,14 +310,28 @@ describe("AgentSdkSession", () => {
     });
 
     it("resolves pending inputResolve with done", async () => {
-      const ctrl = createControllableQueryFn();
-      const session = new AgentSdkSession("sess-1", ctrl.queryFn);
+      // Track whether the query's prompt iterator received a done signal
+      let promptIterDone = false;
+      const queryFn: QueryFn = ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          if (typeof prompt !== "string") {
+            const iter = (prompt as AsyncIterable<SDKUserMessage>)[Symbol.asyncIterator]();
+            await iter.next(); // consume first message
+            const result = await iter.next(); // this will block until close resolves it
+            promptIterDone = result.done ?? false;
+            yield assistantSdkMessage("done");
+          }
+        },
+      });
 
+      const session = new AgentSdkSession("sess-1", queryFn);
       session.send(userMessage("hello"));
-      await tick();
+      await tick(); // let query start and consume first message
 
       await session.close();
-      ctrl.end();
+      await tick(); // let the iterator resolve
+
+      expect(promptIterDone).toBe(true);
     });
 
     it("is idempotent — second close returns immediately", async () => {
