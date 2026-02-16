@@ -3114,4 +3114,155 @@ describe("SessionBridge", () => {
       expect(handler).not.toHaveBeenCalled();
     });
   });
+
+  // ── Registry integration ──────────────────────────────────────────────
+
+  describe("SlashCommandRegistry integration", () => {
+    it("populates registry when CLI reports slash_commands and skills in init", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({
+          slash_commands: ["/compact", "/vim"],
+          skills: ["commit", "review-pr"],
+        }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // Execute /help — should include CLI commands and skills from registry
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.content).toContain("/commit");
+      expect(result.content).toContain("/review-pr");
+    });
+
+    it("forwards skill commands to CLI as user messages", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: ["commit"] }),
+      );
+
+      cliSocket.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/commit" }),
+      );
+
+      // CLI should receive a user message with "/commit"
+      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
+      expect(
+        cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/commit"),
+      ).toBe(true);
+    });
+
+    it("clearDynamic resets non-built-in commands on re-init", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+
+      // First init with skills
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: ["commit"] }),
+      );
+
+      // Re-init without skills (simulates CLI reconnect)
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: [] }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // /commit should no longer appear in /help
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.content).not.toContain("/commit");
+    });
+
+    it("enriches registry from capabilities commands", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ skills: ["commit"] }),
+      );
+
+      // Simulate capabilities response with rich metadata
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: "test-uuid",
+            response: {
+              commands: [
+                { name: "/compact", description: "Compact conversation", argumentHint: "[strategy]" },
+                { name: "/vim", description: "Toggle vim mode" },
+              ],
+              models: [],
+              account: null,
+            },
+          },
+        }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      // Should have capabilities descriptions AND skill commands
+      expect(result.content).toContain("/compact");
+      expect(result.content).toContain("/commit");
+    });
+  });
 });
