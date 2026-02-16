@@ -80,6 +80,11 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     });
   }
 
+  /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
+  setServer(server: WebSocketServerLike): void {
+    this.server = server;
+  }
+
   /**
    * Start the session manager:
    * 1. Wire bridge + launcher events

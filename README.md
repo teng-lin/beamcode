@@ -293,11 +293,63 @@ import type { SequencedMessage } from "beamcode";
 
 ### Web Consumer
 
-A minimal (500-1000 LOC) HTML/JS client in `src/consumer/` handles:
-- E2E decryption of messages from the relay
-- Markdown rendering of assistant responses
-- Permission request UI (approve/deny with signing)
-- Reconnection with message replay
+A React 19 + Zustand + Tailwind v4 app in `web/` that builds to a single HTML file (~300 KB, ~94 KB gzip):
+
+- **3-panel responsive layout**: collapsible sidebar, chat view, task panel
+- **Multi-adapter visibility**: adapter badges per session (Claude Code, Codex, Gemini CLI, etc.)
+- **Rich message rendering**: 3-level grouping (content-block, message, subagent), markdown via `marked` + DOMPurify
+- **Streaming UX**: blinking cursor, elapsed time, token count
+- **Slash command menu**: categorized typeahead with keyboard navigation
+- **Permission UI**: tool-specific previews (Bash commands, Edit diffs, file paths)
+- **Context gauge**: color-coded token usage bar (green/yellow/red)
+- **Reconnection**: WebSocket connect-on-switch pattern with message replay
+
+#### Development
+
+Two terminals:
+
+```sh
+# Terminal 1: Start the beamcode server
+pnpm start                    # Runs on :3456
+
+# Terminal 2: Start the Vite dev server with HMR
+pnpm dev:web                  # Runs on :5174, proxies /ws and /api to :3456
+```
+
+Open `http://localhost:5174` for live development with hot module replacement.
+
+#### Building
+
+```sh
+pnpm build:web                # Builds web/ → single HTML file in web/dist/
+pnpm build                    # Builds library + web consumer, copies to dist/consumer/
+```
+
+#### Testing the frontend
+
+1. Verify the build produces a single HTML file under 300 KB:
+   ```sh
+   cd web && npx vite build && ls -lh dist/index.html
+   ```
+
+2. Run the full build pipeline:
+   ```sh
+   pnpm build
+   ```
+
+3. Test with a live session:
+   ```sh
+   pnpm start                  # Start server on :3456
+   # Open http://localhost:3456 in a browser
+   # Send a message, verify streamed response appears
+   ```
+
+4. Test dev workflow with HMR:
+   ```sh
+   pnpm start &                # Background the server
+   pnpm dev:web                # Start Vite dev server
+   # Open http://localhost:5174
+   # Edit web/src/ files and verify HMR updates
 
 ## Configuration
 

@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
-import { createServer } from "node:http";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 
 import { ConsoleLogger } from "../adapters/console-logger.js";
 import { FileStorage } from "../adapters/file-storage.js";
@@ -10,6 +8,8 @@ import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
+import { loadConsumerHtml } from "../http/consumer-html.js";
+import { createBeamcodeServer } from "../http/server.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
 import { OriginValidator } from "../server/origin-validator.js";
 
@@ -103,27 +103,14 @@ function parseArgs(argv: string[]): CliConfig {
   return config;
 }
 
-// ── Consumer HTML ──────────────────────────────────────────────────────────
-
-function loadConsumerHtml(): string {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  // Try dist layout first (compiled: dist/bin/beamcode.js → dist/consumer/index.html)
-  const distPath = join(__dirname, "..", "consumer", "index.html");
-  try {
-    return readFileSync(distPath, "utf-8");
-  } catch {
-    // Fall back to source layout (running from src via tsx)
-    const srcPath = join(__dirname, "..", "consumer", "index.html");
-    return readFileSync(srcPath, "utf-8");
-  }
-}
-
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv);
   const logger = new ConsoleLogger();
-  const html = loadConsumerHtml();
+
+  // Pre-load consumer HTML (also caches gzipped version)
+  loadConsumerHtml();
 
   // 1. Start daemon (lock file, state file, health check)
   const daemon = new Daemon();
@@ -138,59 +125,7 @@ async function main(): Promise<void> {
     throw err;
   }
 
-  // 2. Create HTTP server (serves consumer HTML; sessionId set after launch)
-  let activeSessionId = "";
-  const httpServer = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-
-    // Redirect bare / to /?session=<id> so the consumer connects automatically
-    if (url.pathname === "/" && !url.searchParams.has("session") && activeSessionId) {
-      res.writeHead(302, { Location: `/?session=${activeSessionId}` });
-      res.end();
-      return;
-    }
-    if (url.pathname === "/" || url.pathname === "/index.html") {
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "X-Frame-Options": "DENY",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy":
-          "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws: wss:;",
-      });
-      res.end(html);
-      return;
-    }
-    // Health check endpoint
-    if (url.pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok" }));
-      return;
-    }
-    res.writeHead(404);
-    res.end("Not Found");
-  });
-
-  // 3. Start HTTP server and wait for it to be listening
-  await new Promise<void>((resolve, reject) => {
-    httpServer.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        console.error(`Error: Port ${config.port} is already in use.`);
-        console.error(`Try a different port: beamcode --port ${config.port + 1}`);
-        process.exit(1);
-      }
-      reject(err);
-    });
-    httpServer.listen(config.port, () => resolve());
-  });
-
-  // 4. Attach WebSocket server to HTTP server
-  const wsServer = new NodeWebSocketServer({
-    port: config.port,
-    server: httpServer,
-    originValidator: new OriginValidator(),
-  });
-
-  // 5. Start CloudflaredManager (unless --no-tunnel)
+  // 2. Start CloudflaredManager (unless --no-tunnel) — start early so we know tunnel state
   const cloudflared = new CloudflaredManager();
   let tunnelUrl: string | null = null;
 
@@ -214,7 +149,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // 6. Create and start SessionManager
+  // 3. Create SessionManager (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
   const sessionManager = new SessionManager({
     config: {
@@ -226,17 +161,45 @@ async function main(): Promise<void> {
     processManager: new NodeProcessManager(),
     storage,
     logger: config.verbose ? logger : undefined,
-    server: wsServer,
   });
 
+  // 4. Generate API key and create HTTP server
+  const apiKey = randomBytes(24).toString("base64url");
+  const httpServer = createBeamcodeServer({
+    sessionManager,
+    activeSessionId: "",
+    apiKey,
+  });
+
+  // 5. Start HTTP server and wait for it to be listening
+  await new Promise<void>((resolve, reject) => {
+    httpServer.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`Error: Port ${config.port} is already in use.`);
+        console.error(`Try a different port: beamcode --port ${config.port + 1}`);
+        process.exit(1);
+      }
+      reject(err);
+    });
+    httpServer.listen(config.port, () => resolve());
+  });
+
+  // 6. Attach WebSocket server and start SessionManager
+  const wsServer = new NodeWebSocketServer({
+    port: config.port,
+    server: httpServer,
+    originValidator: new OriginValidator(),
+  });
+  sessionManager.setServer(wsServer);
   await sessionManager.start();
 
-  // 7. Auto-launch a session so the browser "just works"
+  // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
   const session = sessionManager.launcher.launch({
     cwd: config.cwd,
     model: config.model,
   });
-  activeSessionId = session.sessionId;
+  const activeSessionId = session.sessionId;
+  httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner
   const localUrl = `http://localhost:${config.port}`;
@@ -248,8 +211,10 @@ async function main(): Promise<void> {
 
   Session: ${activeSessionId}
   CWD:     ${config.cwd}
+  API Key: ${apiKey}
 
   Open ${tunnelSessionUrl ? "the tunnel URL" : "the local URL"} on your phone to start coding remotely.
+  API requests require: Authorization: Bearer ${apiKey}
 
   Press Ctrl+C to stop
 `);
@@ -260,7 +225,6 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     if (shuttingDown) {
-      // Double Ctrl+C → force exit
       console.log("\n  Force exiting...");
       if (forceExitTimer) clearTimeout(forceExitTimer);
       process.exit(1);
@@ -268,7 +232,6 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log("\n  Shutting down...");
 
-    // Force exit after 10s if graceful shutdown stalls
     forceExitTimer = setTimeout(() => {
       console.error("  Shutdown timed out, force exiting.");
       process.exit(1);
