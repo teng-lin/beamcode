@@ -496,7 +496,7 @@
       hdr.textContent = command || 'command';
       el.appendChild(hdr);
       const pre = document.createElement('pre');
-      pre.textContent = content;
+      pre.textContent = truncate(content, 5000);
       el.appendChild(pre);
       return el;
     }

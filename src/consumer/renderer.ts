@@ -104,7 +104,7 @@ export class MessageRenderer {
     const el = document.createElement("div");
     el.className = "msg msg-status";
     el.textContent = status === "idle" ? "" : status;
-    return status === "idle" ? el : el;
+    return el;
   }
 
   private renderBlock(block: ConsumerContentBlock): HTMLElement {
@@ -194,7 +194,7 @@ export class MessageRenderer {
     hdr.textContent = command || "command";
     el.appendChild(hdr);
     const pre = document.createElement("pre");
-    pre.textContent = content;
+    pre.textContent = truncate(content, 5000);
     el.appendChild(pre);
     return el;
   }
