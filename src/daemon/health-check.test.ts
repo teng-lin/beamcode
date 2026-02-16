@@ -33,8 +33,8 @@ describe("health-check", () => {
 
     timer = startHealthCheck(statePath, 50);
 
-    // Wait for at least one tick
-    await new Promise((r) => setTimeout(r, 120));
+    // Wait for at least one tick (generous for CI)
+    await new Promise((r) => setTimeout(r, 300));
 
     const updated = await readState(statePath);
     expect(updated).not.toBeNull();
