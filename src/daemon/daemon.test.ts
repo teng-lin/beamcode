@@ -1,7 +1,7 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Daemon } from "./daemon.js";
 import { readState } from "./state-file.js";
 
@@ -63,5 +63,75 @@ describe("Daemon", () => {
     await daemon.start({ dataDir: dir });
     await daemon.stop();
     await daemon.stop(); // no throw
+  });
+
+  it("start releases lock if writeState throws", async () => {
+    const daemon = new Daemon();
+
+    // Mock writeState to throw after lock is acquired
+    const stateFile = await import("./state-file.js");
+    const writeSpy = vi
+      .spyOn(stateFile, "writeState")
+      .mockRejectedValueOnce(new Error("write failed"));
+
+    try {
+      await expect(daemon.start({ dataDir: dir })).rejects.toThrow("write failed");
+
+      // Lock should be released — a second daemon should be able to start
+      const d2 = new Daemon();
+      const result = await d2.start({ dataDir: dir });
+      expect(result.port).toBeDefined();
+      await d2.stop();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it("stop calls supervisor.stopAll() when supervisor is set", async () => {
+    const daemon = new Daemon();
+    await daemon.start({ dataDir: dir });
+
+    const mockSupervisor = { stopAll: vi.fn().mockResolvedValue(undefined) };
+    daemon.setSupervisor(mockSupervisor);
+
+    await daemon.stop();
+
+    expect(mockSupervisor.stopAll).toHaveBeenCalledOnce();
+    expect(daemon.isRunning()).toBe(false);
+  });
+
+  it("stop completes even when supervisor.stopAll() throws", async () => {
+    const daemon = new Daemon();
+    await daemon.start({ dataDir: dir });
+
+    const mockSupervisor = {
+      stopAll: vi.fn().mockRejectedValue(new Error("supervisor crash")),
+    };
+    daemon.setSupervisor(mockSupervisor);
+
+    // Suppress expected console.error
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await daemon.stop();
+
+    expect(mockSupervisor.stopAll).toHaveBeenCalledOnce();
+    expect(daemon.isRunning()).toBe(false);
+
+    // Lock file should be gone even after supervisor error
+    await expect(stat(join(dir, "daemon.lock"))).rejects.toThrow();
+
+    errSpy.mockRestore();
+  });
+
+  it("stop handles already-deleted state file gracefully", async () => {
+    const daemon = new Daemon();
+    await daemon.start({ dataDir: dir });
+
+    // Manually delete the state file before stop
+    await unlink(join(dir, "daemon.json"));
+
+    // stop should not throw
+    await expect(daemon.stop()).resolves.toBeUndefined();
+    expect(daemon.isRunning()).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonState } from "./state-file.js";
 import { readState, updateHeartbeat, writeState } from "./state-file.js";
 
@@ -50,5 +50,26 @@ describe("state-file", () => {
     // Other fields unchanged
     expect(updated!.pid).toBe(sampleState.pid);
     expect(updated!.port).toBe(sampleState.port);
+  });
+
+  it("writeState cleans up tmp file and re-throws when rename fails", async () => {
+    // Make statePath a directory so rename(tmpPath, statePath) fails with EISDIR
+    await mkdir(statePath);
+
+    await expect(writeState(statePath, sampleState)).rejects.toThrow();
+
+    // The tmp file should have been cleaned up
+    const tmpPath = `${statePath}.tmp`;
+    await expect(stat(tmpPath)).rejects.toThrow();
+  });
+
+  it("updateHeartbeat is a no-op when state file does not exist", async () => {
+    const missingPath = join(dir, "nonexistent-state.json");
+
+    // Should not throw
+    await expect(updateHeartbeat(missingPath)).resolves.toBeUndefined();
+
+    // No file should have been created
+    await expect(stat(missingPath)).rejects.toThrow();
   });
 });
