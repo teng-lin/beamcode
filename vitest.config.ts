@@ -5,7 +5,6 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.test.ts"],
     exclude: ["src/**/*.e2e.test.ts"],
-    pool: "forks",
     poolOptions: { forks: { maxForks: 4 } },
     coverage: {
       provider: "v8",
