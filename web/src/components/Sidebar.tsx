@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 
@@ -24,7 +25,7 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
 const STATUS_DEFAULT = { dot: "border border-bc-text-muted/50", label: "Offline" };
 
 function StatusDot({ status }: { status: string | null }) {
-  const { dot, label } = (status && STATUS_STYLES[status]) || STATUS_DEFAULT;
+  const { dot, label } = (status ? STATUS_STYLES[status] : null) ?? STATUS_DEFAULT;
   return (
     <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`} role="img" aria-label={label} />
   );
@@ -40,7 +41,7 @@ function formatTime(ts: number): string {
 }
 
 /** Individual session row — subscribes only to its own status (primitive selector). */
-function SessionItem({
+const SessionItem = memo(function SessionItem({
   info,
   isActive,
   onSelect,
@@ -79,7 +80,7 @@ function SessionItem({
       </div>
     </button>
   );
-}
+});
 
 export function Sidebar() {
   const sessions = useStore((s) => s.sessions);

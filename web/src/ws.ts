@@ -44,35 +44,43 @@ function handleMessage(sessionId: string, data: string): void {
 
   switch (msg.type) {
     case "assistant":
-    case "user_message":
+      store.clearStreaming(sessionId);
+      store.addMessage(sessionId, msg);
+      break;
+
     case "result":
+      store.setSessionStatus(sessionId, "idle");
+      store.addMessage(sessionId, msg);
+      break;
+
+    case "user_message":
     case "error":
     case "slash_command_result":
     case "slash_command_error":
-      if (msg.type === "assistant") {
-        store.clearStreaming(sessionId);
-      }
-      if (msg.type === "result") {
-        store.setSessionStatus(sessionId, "idle");
-      }
       store.addMessage(sessionId, msg);
       break;
 
     case "stream_event": {
       const { event } = msg;
-      if (event.type === "message_start") {
-        store.setStreamingStarted(sessionId, Date.now());
-        store.setStreaming(sessionId, "");
-        store.setSessionStatus(sessionId, "running");
-      } else if (event.type === "content_block_delta") {
-        const delta = (event as { delta?: { type: string; text?: string } }).delta;
-        if (delta?.type === "text_delta" && delta.text) {
-          store.appendStreaming(sessionId, delta.text);
+      switch (event.type) {
+        case "message_start":
+          store.setStreamingStarted(sessionId, Date.now());
+          store.setStreaming(sessionId, "");
+          store.setSessionStatus(sessionId, "running");
+          break;
+        case "content_block_delta": {
+          const delta = (event as { delta?: { type: string; text?: string } }).delta;
+          if (delta?.type === "text_delta" && delta.text) {
+            store.appendStreaming(sessionId, delta.text);
+          }
+          break;
         }
-      } else if (event.type === "message_delta") {
-        const usage = (event as { usage?: { output_tokens?: number } }).usage;
-        if (usage?.output_tokens) {
-          store.setStreamingOutputTokens(sessionId, usage.output_tokens);
+        case "message_delta": {
+          const usage = (event as { usage?: { output_tokens?: number } }).usage;
+          if (usage?.output_tokens) {
+            store.setStreamingOutputTokens(sessionId, usage.output_tokens);
+          }
+          break;
         }
       }
       break;

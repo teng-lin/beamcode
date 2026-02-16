@@ -667,24 +667,16 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.broadcastToConsumers(session, userMsg);
 
     // Build content: if images are present, use content block array; otherwise plain string
-    let messageContent: string | unknown[];
-    if (options?.images?.length) {
-      const blocks: unknown[] = [];
-      for (const img of options.images) {
-        blocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: img.media_type,
-            data: img.data,
-          },
-        });
-      }
-      blocks.push({ type: "text", text: content });
-      messageContent = blocks;
-    } else {
-      messageContent = content;
-    }
+    const images = options?.images;
+    const messageContent: string | unknown[] = images?.length
+      ? [
+          ...images.map((img) => ({
+            type: "image",
+            source: { type: "base64", media_type: img.media_type, data: img.data },
+          })),
+          { type: "text", text: content },
+        ]
+      : content;
 
     const ndjson = serializeNDJSON({
       type: "user",

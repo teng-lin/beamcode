@@ -16,25 +16,21 @@ const NATIVE_COMMANDS = new Set(["/compact", "/files", "/release-notes"]);
 /** Commands we can emulate from SessionState without the CLI. */
 const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
   "/help": (state) => {
-    const lines: string[] = ["Available commands:"];
-    // List capabilities commands from the CLI (if available)
     const capCmds = state.capabilities?.commands;
     if (capCmds && capCmds.length > 0) {
-      for (const cmd of capCmds) {
+      const formatted = capCmds.map((cmd) => {
         const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
-        lines.push(`  ${cmd.name}${hint} — ${cmd.description}`);
-      }
-    } else {
-      // Fallback: list native + emulated commands
-      for (const name of NATIVE_COMMANDS) {
-        lines.push(`  ${name}`);
-      }
-      for (const name of Object.keys(EMULATABLE_COMMANDS)) {
-        if (name === "/help") continue;
-        lines.push(`  ${name}`);
-      }
+        return `  ${cmd.name}${hint} — ${cmd.description}`;
+      });
+      return ["Available commands:", ...formatted].join("\n");
     }
-    return lines.join("\n");
+
+    // Fallback: list native + emulated commands when capabilities are unavailable
+    const allNames = [
+      ...NATIVE_COMMANDS,
+      ...Object.keys(EMULATABLE_COMMANDS).filter((name) => name !== "/help"),
+    ];
+    return ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
   },
 
   "/model": (state) => state.model || "unknown",

@@ -1,16 +1,22 @@
 import { useStore } from "../store";
 
 export function TopBar() {
-  const sessionData = useStore((s) =>
-    s.currentSessionId ? s.sessionData[s.currentSessionId] : null,
+  const connectionStatus = useStore(
+    (s) =>
+      (s.currentSessionId ? s.sessionData[s.currentSessionId]?.connectionStatus : null) ??
+      "disconnected",
   );
+  const model = useStore(
+    (s) => (s.currentSessionId ? s.sessionData[s.currentSessionId]?.state?.model : null) ?? "",
+  );
+  const pendingCount = useStore((s) => {
+    if (!s.currentSessionId) return 0;
+    const perms = s.sessionData[s.currentSessionId]?.pendingPermissions;
+    return perms ? Object.keys(perms).length : 0;
+  });
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
-
-  const connectionStatus = sessionData?.connectionStatus ?? "disconnected";
-  const model = sessionData?.state?.model ?? "";
-  const pendingCount = sessionData ? Object.keys(sessionData.pendingPermissions).length : 0;
 
   return (
     <header className="flex h-11 items-center gap-3 border-b border-bc-border bg-bc-surface px-3">
