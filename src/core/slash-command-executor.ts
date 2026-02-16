@@ -1,6 +1,7 @@
 import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { ResolvedConfig } from "../types/config.js";
 import type { SessionState } from "../types/session-state.js";
+import type { SlashCommandRegistry } from "./slash-command-registry.js";
 
 export interface SlashCommandResult {
   content: string;
@@ -122,15 +123,26 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
 export class SlashCommandExecutor {
   private commandRunner: CommandRunner | null;
   private config: ResolvedConfig;
+  private registry: SlashCommandRegistry | null;
   /** Per-session serialization queues to prevent --resume conflicts. */
   private ptyQueues = new Map<string, Promise<void>>();
 
   constructor(options: {
     commandRunner?: CommandRunner;
     config: ResolvedConfig;
+    registry?: SlashCommandRegistry;
   }) {
     this.commandRunner = options.commandRunner ?? null;
     this.config = options.config;
+    this.registry = options.registry ?? null;
+  }
+
+  /** Returns true if the command is a skill command in the registry. */
+  isSkillCommand(command: string): boolean {
+    if (!this.registry) return false;
+    const name = commandName(command);
+    const cmd = this.registry.find(name);
+    return cmd?.source === "skill";
   }
 
   /** Returns true if the command is supported by the backend AND not emulatable locally. */
@@ -161,7 +173,11 @@ export class SlashCommandExecutor {
     // Try emulation first
     const emulator = EMULATABLE_COMMANDS[name];
     if (emulator) {
-      const content = emulator(state);
+      let content = emulator(state);
+      // Augment /help with registry commands (skills, CLI-registered)
+      if (name === "/help" && this.registry) {
+        content = this.augmentHelp(content, state);
+      }
       return {
         content,
         source: "emulated",
@@ -210,6 +226,38 @@ export class SlashCommandExecutor {
     } finally {
       resolve?.();
     }
+  }
+
+  /** Augment /help output with registry commands not already listed. */
+  private augmentHelp(baseContent: string, state: SessionState): string {
+    if (!this.registry) return baseContent;
+
+    const registryCommands = this.registry.getAll();
+    const hasCapabilities =
+      state.capabilities?.commands && state.capabilities.commands.length > 0;
+
+    // Collect names already present in the help output
+    const existingNames = new Set<string>();
+    for (const line of baseContent.split("\n")) {
+      const match = line.match(/^\s+(\/\S+)/);
+      if (match) existingNames.add(match[1]);
+    }
+
+    // Find registry commands not yet listed
+    const extra = registryCommands.filter(
+      (c) => !existingNames.has(c.name),
+    );
+    if (extra.length === 0) return baseContent;
+
+    const formatted = extra.map((cmd) => {
+      const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
+      if (hasCapabilities) {
+        return `  ${cmd.name}${hint} — ${cmd.description}`;
+      }
+      return `  ${cmd.name}`;
+    });
+
+    return baseContent + "\n" + formatted.join("\n");
   }
 
   dispose(): void {
