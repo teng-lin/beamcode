@@ -41,6 +41,7 @@ export interface SessionData {
     models: InitializeModel[];
   } | null;
   toolProgress: Record<string, { toolName: string; elapsedSeconds: number }>;
+  reconnectAttempt: number;
 }
 
 interface AppState {
@@ -91,6 +92,7 @@ interface AppState {
     toolName: string,
     elapsedSeconds: number,
   ) => void;
+  setReconnectAttempt: (sessionId: string, attempt: number) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -114,6 +116,7 @@ function emptySessionData(): SessionData {
     state: null,
     capabilities: null,
     toolProgress: {},
+    reconnectAttempt: 0,
   };
 }
 
@@ -242,6 +245,9 @@ export const useStore = create<AppState>()((set, get) => ({
         },
       });
     }),
+
+  setReconnectAttempt: (sessionId, attempt) =>
+    set((s) => patchSession(s, sessionId, { reconnectAttempt: attempt })),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>
