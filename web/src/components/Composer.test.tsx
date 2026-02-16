@@ -288,4 +288,64 @@ describe("Composer", () => {
       expect(screen.getByLabelText("Send message")).toBeEnabled();
     });
   });
+
+  // ── Argument hints ──────────────────────────────────────────────────
+
+  describe("argument hints", () => {
+    it("shows argument hint when a known command is followed by a space", async () => {
+      const user = userEvent.setup();
+      store().ensureSessionData(SESSION);
+      store().setCapabilities(SESSION, {
+        commands: [{ name: "model", description: "Show or switch model", argumentHint: "[model]" }],
+        models: [],
+      });
+      render(<Composer sessionId={SESSION} />);
+
+      await user.type(screen.getByLabelText("Message input"), "/model ");
+      expect(screen.getByText("[model]")).toBeInTheDocument();
+    });
+
+    it("does not show argument hint when command has no hint", async () => {
+      const user = userEvent.setup();
+      store().ensureSessionData(SESSION);
+      store().setCapabilities(SESSION, {
+        commands: [{ name: "help", description: "Show help" }],
+        models: [],
+      });
+      render(<Composer sessionId={SESSION} />);
+
+      await user.type(screen.getByLabelText("Message input"), "/help ");
+      expect(screen.queryByTestId("argument-hint")).not.toBeInTheDocument();
+    });
+
+    it("hides argument hint once the user starts typing arguments", async () => {
+      const user = userEvent.setup();
+      store().ensureSessionData(SESSION);
+      store().setCapabilities(SESSION, {
+        commands: [{ name: "model", description: "Show or switch model", argumentHint: "[model]" }],
+        models: [],
+      });
+      render(<Composer sessionId={SESSION} />);
+
+      const textarea = screen.getByLabelText("Message input");
+      await user.type(textarea, "/model ");
+      expect(screen.getByText("[model]")).toBeInTheDocument();
+
+      await user.type(textarea, "opus");
+      expect(screen.queryByText("[model]")).not.toBeInTheDocument();
+    });
+
+    it("matches command names with or without leading slash", async () => {
+      const user = userEvent.setup();
+      store().ensureSessionData(SESSION);
+      store().setCapabilities(SESSION, {
+        commands: [{ name: "/config", description: "Show config", argumentHint: "[key]" }],
+        models: [],
+      });
+      render(<Composer sessionId={SESSION} />);
+
+      await user.type(screen.getByLabelText("Message input"), "/config ");
+      expect(screen.getByText("[key]")).toBeInTheDocument();
+    });
+  });
 });

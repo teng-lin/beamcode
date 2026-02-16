@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
@@ -25,7 +25,17 @@ export function Composer({ sessionId }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const slashMenuRef = useRef<SlashMenuHandle>(null);
   const sessionStatus = useStore((s) => s.sessionData[sessionId]?.sessionStatus);
+  const capabilities = useStore((s) => s.sessionData[sessionId]?.capabilities);
   const isRunning = sessionStatus === "running";
+
+  const argumentHint = useMemo(() => {
+    // Show hint only when value is exactly "/command " (trailing space, no args yet)
+    const match = value.match(/^(\/\S+)\s$/);
+    if (!match) return null;
+    const cmdName = match[1];
+    const cmd = capabilities?.commands?.find((c) => c.name === cmdName || `/${c.name}` === cmdName);
+    return cmd?.argumentHint ?? null;
+  }, [value, capabilities]);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -230,6 +240,15 @@ export function Composer({ sessionId }: ComposerProps) {
               className="min-h-[42px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-2.5 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none"
               aria-label="Message input"
             />
+            {argumentHint && (
+              <div
+                data-testid="argument-hint"
+                className="pointer-events-none absolute inset-0 overflow-hidden px-4 py-2.5 text-sm"
+              >
+                <span className="invisible">{value}</span>
+                <span className="text-bc-text-muted/40">{argumentHint}</span>
+              </div>
+            )}
           </div>
           <button
             type="button"
