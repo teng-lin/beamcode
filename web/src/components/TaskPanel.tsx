@@ -1,4 +1,5 @@
 import { useStore } from "../store";
+import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
 
@@ -14,6 +15,16 @@ export function TaskPanel() {
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
+
+  const handleExportJson = () => {
+    const content = exportAsJson(sessionData.messages);
+    downloadFile(content, `beamcode-session-${currentSessionId}.json`, "application/json");
+  };
+
+  const handleExportMarkdown = () => {
+    const content = exportAsMarkdown(sessionData.messages);
+    downloadFile(content, `beamcode-session-${currentSessionId}.md`, "text/markdown");
+  };
 
   return (
     <aside className="flex h-full w-[280px] flex-shrink-0 flex-col border-l border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40">
@@ -95,6 +106,29 @@ export function TaskPanel() {
             })}
           </div>
         )}
+
+        {/* Export */}
+        <div className="mt-5 border-t border-bc-border/40 pt-4">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+            Export
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleExportMarkdown}
+              className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+            >
+              Markdown
+            </button>
+            <button
+              type="button"
+              onClick={handleExportJson}
+              className="flex-1 rounded-lg border border-bc-border/60 px-3 py-1.5 text-xs text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+            >
+              JSON
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );
