@@ -5,14 +5,20 @@ import { ConnectionBanner } from "./ConnectionBanner";
 
 vi.mock("../ws", () => ({
   connectToSession: vi.fn(),
-  getActiveSessionId: vi.fn(() => "s1"),
 }));
 
-import { connectToSession, getActiveSessionId } from "../ws";
+vi.mock("../store", async () => {
+  const actual = await vi.importActual("../store");
+  return actual;
+});
+
+import { useStore } from "../store";
+import { connectToSession } from "../ws";
 
 describe("ConnectionBanner", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useStore.setState({ currentSessionId: "s1" });
   });
 
   it("renders an alert with disconnection message", () => {
@@ -44,7 +50,7 @@ describe("ConnectionBanner", () => {
 
   it("calls connectToSession when retry is clicked", async () => {
     const user = userEvent.setup();
-    vi.mocked(getActiveSessionId).mockReturnValue("s1");
+    useStore.setState({ currentSessionId: "s1" });
 
     render(<ConnectionBanner />);
     await user.click(screen.getByRole("button", { name: /retry/i }));
@@ -54,7 +60,7 @@ describe("ConnectionBanner", () => {
 
   it("does not call connectToSession when no active session", async () => {
     const user = userEvent.setup();
-    vi.mocked(getActiveSessionId).mockReturnValue(null);
+    useStore.setState({ currentSessionId: null });
 
     render(<ConnectionBanner />);
     await user.click(screen.getByRole("button", { name: /retry/i }));

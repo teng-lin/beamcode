@@ -139,24 +139,27 @@ export function Composer({ sessionId }: ComposerProps) {
     if (!trimmed && images.length === 0) return;
 
     if (trimmed.startsWith("/")) {
-      send({ type: "slash_command", command: trimmed });
+      send({ type: "slash_command", command: trimmed }, sessionId);
     } else {
-      send({
-        type: "user_message",
-        content: trimmed,
-        ...(images.length > 0 && {
-          images: images.map(({ media_type, data }) => ({ media_type, data })),
-        }),
-      });
+      send(
+        {
+          type: "user_message",
+          content: trimmed,
+          ...(images.length > 0 && {
+            images: images.map(({ media_type, data }) => ({ media_type, data })),
+          }),
+        },
+        sessionId,
+      );
     }
     setValue("");
     setImages([]);
     setShowSlash(false);
-  }, [value, images]);
+  }, [value, images, sessionId]);
 
   const handleInterrupt = useCallback(() => {
-    send({ type: "interrupt" });
-  }, []);
+    send({ type: "interrupt" }, sessionId);
+  }, [sessionId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

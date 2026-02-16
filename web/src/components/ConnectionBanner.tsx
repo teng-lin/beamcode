@@ -1,16 +1,19 @@
-import { connectToSession, getActiveSessionId } from "../ws";
+import { useCallback } from "react";
+import { useStore } from "../store";
+import { connectToSession } from "../ws";
 
 interface ConnectionBannerProps {
   reconnectAttempt?: number;
 }
 
 export function ConnectionBanner({ reconnectAttempt }: ConnectionBannerProps) {
-  const handleRetry = () => {
-    const sessionId = getActiveSessionId();
-    if (sessionId) {
-      connectToSession(sessionId);
+  const currentSessionId = useStore((s) => s.currentSessionId);
+
+  const handleRetry = useCallback(() => {
+    if (currentSessionId) {
+      connectToSession(currentSessionId);
     }
-  };
+  }, [currentSessionId]);
 
   return (
     <div
