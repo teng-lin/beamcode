@@ -120,15 +120,11 @@ describe("ChatView", () => {
     expect(screen.getByTestId("permission-banner")).toBeInTheDocument();
   });
 
-  it("renders AgentGridView when session has Task tool_use blocks", () => {
+  // Grid mode disabled — background/team agents don't stream through parent NDJSON.
+  // Re-enable when Anthropic adds --sdk-url propagation to child agents.
+  it("does not render AgentGridView (feature disabled)", () => {
     setupSessionWithMessage();
     addTaskToolUse("tu-1", "researcher");
-    render(<ChatView />);
-    expect(screen.getByTestId("agent-grid-view")).toBeInTheDocument();
-  });
-
-  it("does not render AgentGridView when no agents", () => {
-    setupSessionWithMessage();
     render(<ChatView />);
     expect(screen.queryByTestId("agent-grid-view")).not.toBeInTheDocument();
   });

@@ -11,9 +11,9 @@ vi.mock("./AgentColumn", () => ({
 const SESSION = "grid-view-test";
 
 const agents: AgentGridItem[] = [
-  { blockId: "tu-1", name: "researcher", type: "general-purpose", status: "active" },
-  { blockId: "tu-2", name: "tester", type: "Bash", status: "idle" },
-  { blockId: "tu-3", name: "reviewer", type: "code-reviewer", status: "shutdown" },
+  { blockId: "tu-1", name: "researcher", type: "general-purpose", status: "active", messages: [] },
+  { blockId: "tu-2", name: "tester", type: "Bash", status: "idle", messages: [] },
+  { blockId: "tu-3", name: "reviewer", type: "code-reviewer", status: "shutdown", messages: [] },
 ];
 
 describe("AgentGridView", () => {

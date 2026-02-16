@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAgentGrid } from "../hooks/useAgentGrid";
+import { useCallback, useRef, useState } from "react";
 import type { SessionData } from "../store";
 import { useStore } from "../store";
-import { AgentGridView } from "./AgentGridView";
 import { AgentPane } from "./AgentPane";
 import { Composer } from "./Composer";
 import { ConnectionBanner } from "./ConnectionBanner";
@@ -82,8 +80,6 @@ export function ChatView() {
   const inspectedAgentId = useStore((s) => s.inspectedAgentId);
   const setInspectedAgent = useStore((s) => s.setInspectedAgent);
 
-  const { agents, shouldShowGrid } = useAgentGrid(currentSessionId ?? "");
-
   const [splitRatio, setSplitRatio] = useState(0.45);
   const splitRef = useRef<HTMLDivElement>(null);
 
@@ -93,30 +89,17 @@ export function ChatView() {
     setSplitRatio((prev) => Math.max(MIN_MAIN_RATIO, Math.min(MAX_MAIN_RATIO, prev + delta)));
   }, []);
 
-  // Grid supersedes single-agent inspection — clear stale state
-  useEffect(() => {
-    if (shouldShowGrid && inspectedAgentId) setInspectedAgent(null);
-  }, [shouldShowGrid, inspectedAgentId, setInspectedAgent]);
-
   if (!currentSessionId || !sessionData) {
     return <EmptyState />;
   }
 
   const mainChat = <MainChatContent sessionId={currentSessionId} sessionData={sessionData} />;
 
-  // Grid mode: show all agents in columns beside the main chat
-  if (shouldShowGrid) {
-    return (
-      <SplitLayout
-        splitRef={splitRef}
-        splitRatio={splitRatio}
-        onResize={handleResize}
-        left={mainChat}
-        right={<AgentGridView agents={agents} sessionId={currentSessionId} />}
-        rightClassName="flex min-h-0 min-w-0"
-      />
-    );
-  }
+  // Grid mode: disabled — background/team agents don't stream through
+  // the parent's NDJSON output, so columns only show "Waiting...".
+  // Re-enable when Anthropic adds --sdk-url propagation to child agents.
+  // See: https://github.com/anthropics/claude-code/issues/1770
+  // if (shouldShowGrid) { ... }
 
   // Single-agent inspection (legacy split-pane)
   if (inspectedAgentId) {
