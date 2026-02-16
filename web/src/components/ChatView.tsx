@@ -69,7 +69,7 @@ export function ChatView() {
       <div style={{ flexBasis: `${splitRatio * 100}%` }} className="flex min-w-0 flex-col">
         <MainChatContent sessionId={currentSessionId} sessionData={sessionData} />
       </div>
-      <ResizeDivider onResize={handleResize} containerRef={splitRef} />
+      <ResizeDivider onResize={handleResize} containerRef={splitRef} value={splitRatio} />
       <div style={{ flexBasis: `${(1 - splitRatio) * 100}%` }} className="min-w-0">
         <AgentPane
           agentId={inspectedAgentId}

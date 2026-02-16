@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef } from "react";
 interface ResizeDividerProps {
   onResize: (fraction: number) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  value?: number;
 }
 
-export function ResizeDivider({ onResize, containerRef }: ResizeDividerProps) {
+export function ResizeDivider({ onResize, containerRef, value = 0.5 }: ResizeDividerProps) {
   const cleanupRef = useRef<(() => void) | null>(null);
 
   // Cleanup on unmount — prevents leaked listeners if unmounted mid-drag
@@ -52,7 +53,9 @@ export function ResizeDivider({ onResize, containerRef }: ResizeDividerProps) {
       role="separator"
       tabIndex={0}
       aria-orientation="vertical"
-      aria-valuenow={50}
+      aria-valuenow={Math.round(value * 100)}
+      aria-valuemin={25}
+      aria-valuemax={75}
       aria-label="Resize pane divider"
     />
   );

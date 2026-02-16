@@ -114,13 +114,10 @@ export function AgentPane({ agentId, sessionId, onClose }: AgentPaneProps) {
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
           <div className="mx-auto flex max-w-3xl flex-col gap-2">
-            {agentMessages.map((msg) => (
-              <MessageBubble
-                key={msg.type === "assistant" ? msg.message.id : `agent-${agentId}`}
-                message={msg}
-                sessionId={sessionId}
-              />
-            ))}
+            {agentMessages.map((msg) => {
+              if (msg.type !== "assistant") return null;
+              return <MessageBubble key={msg.message.id} message={msg} sessionId={sessionId} />;
+            })}
             <div ref={bottomRef} />
           </div>
         </div>

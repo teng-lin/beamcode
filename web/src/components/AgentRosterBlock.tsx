@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import type { ConsumerTeamMember } from "../../../shared/consumer-types";
 import { useStore } from "../store";
@@ -29,6 +29,11 @@ export function AgentRosterBlock({ blocks }: AgentRosterBlockProps) {
   );
   const inspectedAgentId = useStore((s) => s.inspectedAgentId);
   const setInspectedAgent = useStore((s) => s.setInspectedAgent);
+
+  const teamMembersByName = useMemo(
+    () => new Map(teamMembers.map((m) => [m.name, m])),
+    [teamMembers],
+  );
 
   if (blocks.length === 0) return null;
 
@@ -85,7 +90,7 @@ export function AgentRosterBlock({ blocks }: AgentRosterBlockProps) {
             const name = taskInput.name ?? "Agent";
             const type = taskInput.subagent_type ?? "";
             const desc = taskInput.description ?? "";
-            const member = teamMembers.find((m) => m.name === name);
+            const member = teamMembersByName.get(name);
             const dotClass = memberStatusDotClass(member?.status ?? "shutdown");
             const isInspected = inspectedAgentId === block.id;
 
