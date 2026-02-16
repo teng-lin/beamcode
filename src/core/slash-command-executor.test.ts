@@ -4,6 +4,7 @@ import type { ResolvedConfig } from "../types/config.js";
 import { DEFAULT_CONFIG } from "../types/config.js";
 import type { SessionState } from "../types/session-state.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
+import { SlashCommandRegistry } from "./slash-command-registry.js";
 
 function makeState(overrides: Partial<SessionState> = {}): SessionState {
   return {
@@ -399,6 +400,45 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/vim on", state)).toBe(true);
       expect(executor.isNativeCommand("/compact --force", state)).toBe(true);
       expect(executor.canHandle("/model gpt-4", state)).toBe(true);
+    });
+  });
+
+  describe("registry-aware execution", () => {
+    it("isSkillCommand identifies skill commands from registry", () => {
+      const registry = new SlashCommandRegistry();
+      registry.registerSkills(["commit"]);
+      const { executor } = createExecutor();
+      expect(executor.isSkillCommand("/commit", registry)).toBe(true);
+      expect(executor.isSkillCommand("/help", registry)).toBe(false);
+      expect(executor.isSkillCommand("/nonexistent", registry)).toBe(false);
+    });
+
+    it("isSkillCommand returns false when no registry", () => {
+      const { executor } = createExecutor();
+      expect(executor.isSkillCommand("/commit", null)).toBe(false);
+    });
+
+    it("registry-reported commands appear in /help", async () => {
+      const registry = new SlashCommandRegistry();
+      registry.registerFromCLI([{ name: "/vim", description: "Toggle vim mode" }]);
+      registry.registerSkills(["commit"]);
+      const { executor } = createExecutor();
+      const state = makeState();
+      const result = await executor.execute(state, "/help", "cli-123", registry);
+      expect(result.content).toContain("/vim");
+      expect(result.content).toContain("/commit");
+    });
+
+    it("/help prefers capabilities over registry when both available", async () => {
+      const registry = new SlashCommandRegistry();
+      registry.registerSkills(["commit"]);
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      const result = await executor.execute(state, "/help", "cli-123", registry);
+      // Capabilities descriptions should be used
+      expect(result.content).toContain("/compact — Compact conversation history");
+      // Skills from registry should also appear
+      expect(result.content).toContain("/commit");
     });
   });
 

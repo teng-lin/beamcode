@@ -43,6 +43,7 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
 import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
+import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 import type { TeamState } from "./types/team-types.js";
@@ -72,6 +73,8 @@ interface Session {
   } | null;
   /** Per-session correlation buffer for team tool_use↔tool_result pairing. */
   teamCorrelationBuffer: TeamToolCorrelationBuffer;
+  /** Per-session slash command registry. */
+  registry: SlashCommandRegistry;
 }
 
 function makeDefaultState(sessionId: string): SessionState {
@@ -182,6 +185,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         lastActivity: Date.now(),
         pendingInitialize: null,
         teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
+        registry: new SlashCommandRegistry(),
       };
       this.sessions.set(p.id, session);
       count++;
@@ -224,6 +228,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         lastActivity: Date.now(),
         pendingInitialize: null,
         teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
+        registry: new SlashCommandRegistry(),
       };
       this.sessions.set(sessionId, session);
       // Emit metrics event
@@ -505,6 +510,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         commands: session.state.capabilities.commands,
         models: session.state.capabilities.models,
         account: session.state.capabilities.account,
+        skills: session.state.skills,
       });
     }
 
@@ -835,6 +841,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.state.slash_commands = msg.slash_commands ?? [];
       session.state.skills = msg.skills ?? [];
 
+      // Populate registry from init data (per-session)
+      session.registry.clearDynamic();
+      if (session.state.slash_commands.length > 0) {
+        session.registry.registerFromCLI(
+          session.state.slash_commands.map((name: string) => ({ name, description: "" })),
+        );
+      }
+      if (session.state.skills.length > 0) {
+        session.registry.registerSkills(session.state.skills);
+      }
+
       // Resolve git info from session cwd using injected resolver
       if (session.state.cwd && this.gitResolver) {
         const gitInfo = this.gitResolver.resolve(session.state.cwd);
@@ -1072,12 +1089,32 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const models = Array.isArray(inner.models) ? inner.models : [];
     const account = inner.account ?? null;
 
+    this.applyCapabilities(session, commands, models, account);
+  }
+
+  /** Shared logic for applying capabilities from either control_response or unified control_response. */
+  private applyCapabilities(
+    session: Session,
+    commands: InitializeCommand[],
+    models: InitializeModel[],
+    account: InitializeAccount | null,
+  ): void {
     session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
     this.logger.info(
       `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
     );
 
-    this.broadcastToConsumers(session, { type: "capabilities_ready", commands, models, account });
+    if (commands.length > 0) {
+      session.registry.registerFromCLI(commands);
+    }
+
+    this.broadcastToConsumers(session, {
+      type: "capabilities_ready",
+      commands,
+      models,
+      account,
+      skills: session.state.skills,
+    });
     this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
     this.persistSession(session);
   }
@@ -1159,14 +1196,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Slash command handling ───────────────────────────────────────────────
 
+  /** Returns true if the command should be forwarded to the CLI as a user message (native or skill). */
+  private shouldForwardToCLI(command: string, session: Session): boolean {
+    return (
+      this.slashCommandExecutor.isNativeCommand(command, session.state) ||
+      this.slashCommandExecutor.isSkillCommand(command, session.registry)
+    );
+  }
+
   private handleSlashCommand(
     session: Session,
     msg: { type: "slash_command"; command: string; request_id?: string },
   ): void {
     const { command, request_id } = msg;
 
-    // Native commands are forwarded directly to the CLI as user messages
-    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
+    if (this.shouldForwardToCLI(command, session)) {
       this.sendUserMessage(session.id, command);
       return;
     }
@@ -1188,7 +1232,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     this.slashCommandExecutor
-      .execute(session.state, command, session.cliSessionId ?? session.id)
+      .execute(session.state, command, session.cliSessionId ?? session.id, session.registry)
       .then((result) => {
         this.broadcastToConsumers(session, {
           type: "slash_command_result",
@@ -1228,7 +1272,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
-    if (this.slashCommandExecutor.isNativeCommand(command, session.state)) {
+    if (this.shouldForwardToCLI(command, session)) {
       this.sendUserMessage(sessionId, command);
       return null; // result comes back via normal CLI message flow
     }
@@ -1241,6 +1285,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.state,
       command,
       session.cliSessionId ?? session.id,
+      session.registry,
     );
     return { content: result.content, source: result.source };
   }
@@ -1880,14 +1925,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const models = Array.isArray(response.models) ? (response.models as InitializeModel[]) : [];
     const account = (response.account as InitializeAccount | null) ?? null;
 
-    session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
-    this.logger.info(
-      `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
-    );
-
-    this.broadcastToConsumers(session, { type: "capabilities_ready", commands, models, account });
-    this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
-    this.persistSession(session);
+    this.applyCapabilities(session, commands, models, account);
   }
 
   private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {

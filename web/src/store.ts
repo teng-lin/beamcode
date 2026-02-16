@@ -39,6 +39,7 @@ export interface SessionData {
   capabilities: {
     commands: InitializeCommand[];
     models: InitializeModel[];
+    skills: string[];
   } | null;
   toolProgress: Record<string, { toolName: string; elapsedSeconds: number }>;
   reconnectAttempt: number;
@@ -85,7 +86,7 @@ export interface AppState {
   setSessionState: (sessionId: string, state: ConsumerSessionState | null) => void;
   setCapabilities: (
     sessionId: string,
-    caps: { commands: InitializeCommand[]; models: InitializeModel[] },
+    caps: { commands: InitializeCommand[]; models: InitializeModel[]; skills: string[] },
   ) => void;
   setToolProgress: (
     sessionId: string,

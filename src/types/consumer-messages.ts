@@ -179,4 +179,5 @@ export type ConsumerMessage =
       commands: InitializeCommand[];
       models: InitializeModel[];
       account: InitializeAccount | null;
+      skills: string[];
     };

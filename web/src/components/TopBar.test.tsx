@@ -138,6 +138,7 @@ describe("TopBar", () => {
         { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
         { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
       ],
+      skills: [],
     });
     render(<TopBar />);
 
@@ -154,6 +155,7 @@ describe("TopBar", () => {
         { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
         { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
       ],
+      skills: [],
     });
     render(<TopBar />);
 
@@ -181,6 +183,7 @@ describe("TopBar", () => {
         { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
         { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
       ],
+      skills: [],
     });
     render(<TopBar />);
 
@@ -202,6 +205,7 @@ describe("TopBar", () => {
         { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
         { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
       ],
+      skills: [],
     });
     render(<TopBar />);
 

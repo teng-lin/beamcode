@@ -10,9 +10,12 @@ const SESSION = "slash-test";
 const onSelect = vi.fn();
 const onClose = vi.fn();
 
-function setupCommands(commands: Array<{ name: string; description: string }>): void {
+function setupCommands(
+  commands: Array<{ name: string; description: string }>,
+  skills: string[] = [],
+): void {
   store().ensureSessionData(SESSION);
-  store().setCapabilities(SESSION, { commands, models: [] });
+  store().setCapabilities(SESSION, { commands, models: [], skills });
 }
 
 function renderMenu(query = ""): ReturnType<typeof render> {
@@ -278,6 +281,56 @@ describe("SlashMenu", () => {
       expect(screen.getByText("Other")).toBeInTheDocument();
       expect(screen.getByText("/help")).toBeInTheDocument();
       expect(screen.getByText("/unknown-cmd")).toBeInTheDocument();
+    });
+  });
+
+  // ── Skills rendering ──────────────────────────────────────────────────
+
+  describe("skills rendering", () => {
+    it("renders skills with Skills category", () => {
+      setupCommands(
+        [{ name: "model", description: "Change model" }],
+        ["commit", "review-pr"],
+      );
+      renderMenu();
+
+      expect(screen.getByText("Skills")).toBeInTheDocument();
+      expect(screen.getByText("/commit")).toBeInTheDocument();
+      expect(screen.getByText("/review-pr")).toBeInTheDocument();
+    });
+
+    it("filters skills along with commands", () => {
+      setupCommands(
+        [{ name: "compact", description: "Compact context" }],
+        ["commit"],
+      );
+      renderMenu("com");
+
+      expect(screen.getByText("/compact")).toBeInTheDocument();
+      expect(screen.getByText("/commit")).toBeInTheDocument();
+    });
+
+    it("does not show skills that don't match filter", () => {
+      setupCommands(
+        [{ name: "model", description: "Change model" }],
+        ["commit"],
+      );
+      renderMenu("mod");
+
+      expect(screen.getByText("/model")).toBeInTheDocument();
+      expect(screen.queryByText("/commit")).not.toBeInTheDocument();
+    });
+
+    it("skills are selectable via keyboard", () => {
+      setupCommands([], ["commit"]);
+      const { ref } = renderMenuWithRef();
+
+      let consumed: boolean;
+      act(() => {
+        consumed = ref.current!.handleKeyDown(syntheticKeyEvent("Enter"));
+      });
+      expect(consumed!).toBe(true);
+      expect(onSelect).toHaveBeenCalledWith("commit");
     });
   });
 });

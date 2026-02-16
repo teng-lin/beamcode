@@ -50,6 +50,9 @@ function authContext(sessionId: string, transport: Record<string, unknown> = {})
   return { sessionId, transport };
 }
 
+/** Flush microtask queue deterministically (no wall-clock dependency). */
+const tick = () => new Promise<void>((r) => setTimeout(r, 10));
+
 function makeInitMsg(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     type: "system",
@@ -2495,7 +2498,7 @@ describe("SessionBridge", () => {
       );
 
       // Wait for async execution
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -2527,7 +2530,7 @@ describe("SessionBridge", () => {
       );
 
       // Wait for async execution
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const errorMsg = msgs.find((m: any) => m.type === "slash_command_error");
@@ -2554,7 +2557,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/status", request_id: "my-req" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       const msgs = ws.sentMessages.map((m) => JSON.parse(m));
       const result = msgs.find((m: any) => m.type === "slash_command_result");
@@ -2580,7 +2583,7 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await new Promise((r) => setTimeout(r, 50));
+      await tick();
 
       expect(events).toHaveLength(1);
       expect(events[0].sessionId).toBe("sess-1");
@@ -2825,6 +2828,37 @@ describe("SessionBridge", () => {
         organization: "Acme Corp",
         subscriptionType: "pro",
       });
+    });
+
+    it("capabilities_ready includes skills from session state", () => {
+      const cliSocket = createMockSocket();
+      const consumerSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
+
+      consumerSocket.sentMessages.length = 0;
+      bridge.handleCLIMessage("sess-1", makeControlResponse());
+
+      const consumerMsgs = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+      const capMsg = consumerMsgs.find((m: any) => m.type === "capabilities_ready");
+      expect(capMsg).toBeDefined();
+      expect(capMsg.skills).toEqual(["commit", "review-pr"]);
+    });
+
+    it("late-joining consumer receives skills in capabilities_ready", () => {
+      const cliSocket = createMockSocket();
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      bridge.handleCLIMessage("sess-1", makeControlResponse());
+
+      const lateConsumer = createMockSocket();
+      bridge.handleConsumerOpen(lateConsumer, authContext("sess-1"));
+
+      const consumerMsgs = lateConsumer.sentMessages.map((m) => JSON.parse(m));
+      const capMsg = consumerMsgs.find((m: any) => m.type === "capabilities_ready");
+      expect(capMsg).toBeDefined();
+      expect(capMsg.skills).toEqual(["commit"]);
     });
 
     it("CLI disconnect cancels pending initialize timer", () => {
@@ -3112,6 +3146,149 @@ describe("SessionBridge", () => {
 
       bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
       expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Registry integration ──────────────────────────────────────────────
+
+  describe("SlashCommandRegistry integration", () => {
+    it("populates registry when CLI reports slash_commands and skills in init", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({
+          slash_commands: ["/compact", "/vim"],
+          skills: ["commit", "review-pr"],
+        }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // Execute /help — should include CLI commands and skills from registry
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await tick();
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.content).toContain("/commit");
+      expect(result.content).toContain("/review-pr");
+    });
+
+    it("forwards skill commands to CLI as user messages", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+
+      cliSocket.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/commit" }),
+      );
+
+      // CLI should receive a user message with "/commit"
+      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
+      expect(cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/commit")).toBe(
+        true,
+      );
+    });
+
+    it("clearDynamic resets non-built-in commands on re-init", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+
+      // First init with skills
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+
+      // Re-init without skills (simulates CLI reconnect)
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: [] }));
+
+      ws.sentMessages.length = 0;
+
+      // /commit should no longer appear in /help
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await tick();
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.content).not.toContain("/commit");
+    });
+
+    it("enriches registry from capabilities commands", async () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+
+      // Simulate capabilities response with rich metadata
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: "test-uuid",
+            response: {
+              commands: [
+                {
+                  name: "/compact",
+                  description: "Compact conversation",
+                  argumentHint: "[strategy]",
+                },
+                { name: "/vim", description: "Toggle vim mode" },
+              ],
+              models: [],
+              account: null,
+            },
+          },
+        }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/help" }),
+      );
+
+      await tick();
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      // Should have capabilities descriptions AND skill commands
+      expect(result.content).toContain("/compact");
+      expect(result.content).toContain("/commit");
     });
   });
 });

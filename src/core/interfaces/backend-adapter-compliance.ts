@@ -246,5 +246,96 @@ export function runBackendAdapterComplianceTests(
         result.then((s) => s.close()).catch(() => {});
       });
     });
+
+    // -----------------------------------------------------------------
+    // 8. Skill message patterns
+    // -----------------------------------------------------------------
+
+    describe("skill message patterns", () => {
+      it(
+        "accepts session_init with skills metadata without error",
+        async () => {
+          const session = await adapter.connect({
+            sessionId: "compliance-skills-init",
+          });
+
+          // session_init is a control message — adapters must accept it
+          // but are not required to respond (only user_message triggers a reply)
+          const msg = createUnifiedMessage({
+            type: "session_init",
+            role: "system",
+            metadata: {
+              skills: ["commit", "review-pr"],
+              slash_commands: ["/compact", "/vim"],
+            },
+          });
+
+          expect(() => session.send(msg)).not.toThrow();
+
+          await session.close();
+        },
+        timeout,
+      );
+
+      it(
+        "forwards skill commands as user messages",
+        async () => {
+          const session = await adapter.connect({
+            sessionId: "compliance-skills-fwd",
+          });
+
+          // Skill commands are forwarded to the backend as user_message
+          const msg = createUnifiedMessage({
+            type: "user_message",
+            role: "user",
+            content: [{ type: "text", text: "/commit" }],
+          });
+
+          session.send(msg);
+
+          const iter = session.messages[Symbol.asyncIterator]();
+          const { value, done } = await iter.next();
+
+          expect(done).toBe(false);
+          expect(isUnifiedMessage(value)).toBe(true);
+
+          await session.close();
+        },
+        timeout,
+      );
+
+      it(
+        "handles init-then-skill-command sequence",
+        async () => {
+          const session = await adapter.connect({
+            sessionId: "compliance-skills-seq",
+          });
+
+          // 1. session_init with skills — accepted without response expected
+          const initMsg = createUnifiedMessage({
+            type: "session_init",
+            role: "system",
+            metadata: { skills: ["commit"] },
+          });
+          expect(() => session.send(initMsg)).not.toThrow();
+
+          // 2. Forward skill command as user_message — must yield a response
+          const cmdMsg = createUnifiedMessage({
+            type: "user_message",
+            role: "user",
+            content: [{ type: "text", text: "/commit" }],
+          });
+          session.send(cmdMsg);
+
+          const iter = session.messages[Symbol.asyncIterator]();
+          const { value, done } = await iter.next();
+          expect(done).toBe(false);
+          expect(isUnifiedMessage(value)).toBe(true);
+
+          await session.close();
+        },
+        timeout,
+      );
+    });
   });
 }
