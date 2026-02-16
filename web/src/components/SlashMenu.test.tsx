@@ -1,21 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useStore } from "../store";
+import { resetStore, store } from "../test/factories";
 import { SlashMenu } from "./SlashMenu";
 
 const SESSION = "slash-test";
-const store = () => useStore.getState();
 
 const onSelect = vi.fn();
 const onClose = vi.fn();
 
-function setupCommands(commands: Array<{ name: string; description: string }>) {
+function setupCommands(commands: Array<{ name: string; description: string }>): void {
   store().ensureSessionData(SESSION);
   store().setCapabilities(SESSION, { commands, models: [] });
 }
 
-function renderMenu(query = "") {
+function renderMenu(query = ""): ReturnType<typeof render> {
   return render(
     <SlashMenu sessionId={SESSION} query={query} onSelect={onSelect} onClose={onClose} />,
   );
@@ -23,11 +22,7 @@ function renderMenu(query = "") {
 
 describe("SlashMenu", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
+    resetStore();
     vi.clearAllMocks();
   });
 
@@ -82,7 +77,6 @@ describe("SlashMenu", () => {
 
   it("renders nothing when capabilities are null", () => {
     store().ensureSessionData(SESSION);
-    // capabilities default to null, don't set them
     const { container } = renderMenu();
     expect(container.firstChild).toBeNull();
   });

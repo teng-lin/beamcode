@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ConsumerMessage } from "../../../shared/consumer-types";
+import { makeAssistantContent } from "../test/factories";
 import { MessageBubble } from "./MessageBubble";
 
 vi.mock("./AssistantMessage", () => ({
@@ -53,7 +54,6 @@ describe("MessageBubble", () => {
   });
 
   it("renders nothing for unknown message types", () => {
-    // "cli_connected" is a valid ConsumerMessage type but not handled by MessageBubble
     const message: ConsumerMessage = { type: "cli_connected" };
     const { container } = render(<MessageBubble message={message} sessionId={SESSION_ID} />);
     expect(container.firstChild).toBeNull();
@@ -63,20 +63,7 @@ describe("MessageBubble", () => {
     const message: ConsumerMessage = {
       type: "assistant",
       parent_tool_use_id: null,
-      message: {
-        id: "msg-1",
-        type: "message",
-        role: "assistant",
-        model: "claude-3-opus",
-        content: [{ type: "text", text: "Hi" }],
-        stop_reason: "end_turn",
-        usage: {
-          input_tokens: 100,
-          output_tokens: 50,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
+      message: makeAssistantContent([{ type: "text", text: "Hi" }]),
     };
     render(<MessageBubble message={message} sessionId={SESSION_ID} />);
     expect(screen.getByTestId("assistant-message")).toBeInTheDocument();

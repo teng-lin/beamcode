@@ -1,18 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useStore } from "../store";
+import { resetStore, store } from "../test/factories";
 import { TaskPanel } from "./TaskPanel";
 
 const SESSION = "task-panel-test";
-const store = () => useStore.getState();
 
 describe("TaskPanel", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
+    resetStore();
   });
 
   it("renders nothing when no current session", () => {

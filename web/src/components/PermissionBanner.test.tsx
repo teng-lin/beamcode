@@ -1,9 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConsumerPermissionRequest } from "../../../shared/consumer-types";
-import { useStore } from "../store";
-import { makePermission } from "../test/factories";
+import { makePermission, resetStore, store } from "../test/factories";
 import * as ws from "../ws";
 import { PermissionBanner } from "./PermissionBanner";
 
@@ -12,7 +11,6 @@ vi.mock("../ws", () => ({
 }));
 
 const SESSION_ID = "perm-test-session";
-const store = () => useStore.getState();
 
 function renderWithPermission(
   ...permissions: ConsumerPermissionRequest[]
@@ -26,14 +24,7 @@ function renderWithPermission(
 
 describe("PermissionBanner", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
-  });
-
-  afterEach(() => {
+    resetStore();
     vi.clearAllMocks();
   });
 

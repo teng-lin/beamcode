@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AssistantContent, ConsumerContentBlock } from "../../../shared/consumer-types";
+import { makeAssistantContent } from "../test/factories";
 import { AssistantMessage } from "./AssistantMessage";
 
 vi.mock("./MarkdownContent", () => ({
@@ -21,27 +21,6 @@ vi.mock("./ToolGroupBlock", () => ({
 }));
 
 const SESSION_ID = "test-session";
-
-function makeAssistantContent(
-  content: ConsumerContentBlock[],
-  overrides?: Partial<AssistantContent>,
-): AssistantContent {
-  return {
-    id: "msg-1",
-    type: "message",
-    role: "assistant",
-    model: "claude-3-opus",
-    content,
-    stop_reason: "end_turn",
-    usage: {
-      input_tokens: 100,
-      output_tokens: 50,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
-    ...overrides,
-  };
-}
 
 describe("AssistantMessage", () => {
   it("renders text blocks via MarkdownContent", () => {
@@ -75,11 +54,7 @@ describe("AssistantMessage", () => {
 
   it("renders tool_result as collapsible details", () => {
     const message = makeAssistantContent([
-      {
-        type: "tool_result",
-        tool_use_id: "tu-1",
-        content: "result output",
-      },
+      { type: "tool_result", tool_use_id: "tu-1", content: "result output" },
     ]);
     render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
     expect(screen.getByText(/Tool result/)).toBeInTheDocument();
@@ -88,12 +63,7 @@ describe("AssistantMessage", () => {
 
   it("renders tool_result error state with (error) text", () => {
     const message = makeAssistantContent([
-      {
-        type: "tool_result",
-        tool_use_id: "tu-1",
-        content: "something failed",
-        is_error: true,
-      },
+      { type: "tool_result", tool_use_id: "tu-1", content: "something failed", is_error: true },
     ]);
     render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
     expect(screen.getByText(/Tool result/)).toBeInTheDocument();
@@ -103,7 +73,6 @@ describe("AssistantMessage", () => {
   it("handles empty content array", () => {
     const message = makeAssistantContent([]);
     const { container } = render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
-    // The wrapper div renders but has no children
     expect(container.firstChild).toBeInTheDocument();
     expect(container.firstChild?.childNodes.length).toBe(0);
   });

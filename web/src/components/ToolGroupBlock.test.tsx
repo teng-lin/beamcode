@@ -1,25 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useStore } from "../store";
+import { makeToolUseBlock, resetStore } from "../test/factories";
 import { ToolGroupBlock } from "./ToolGroupBlock";
 
 const SESSION = "group-test";
 
-function makeToolUseBlock(
-  overrides?: Partial<{ id: string; name: string; input: Record<string, unknown> }>,
-): { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } {
-  return {
-    type: "tool_use",
-    id: overrides?.id ?? "t1",
-    name: overrides?.name ?? "Bash",
-    input: overrides?.input ?? { command: "ls" },
-  };
-}
-
 describe("ToolGroupBlock", () => {
   beforeEach(() => {
-    useStore.setState({ sessionData: {}, sessions: {}, currentSessionId: null });
+    resetStore();
   });
 
   it("renders nothing when blocks is empty", () => {

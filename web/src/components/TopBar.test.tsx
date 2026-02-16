@@ -2,59 +2,45 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useStore } from "../store";
+import { makePermission, resetStore, store } from "../test/factories";
 import { TopBar } from "./TopBar";
 
 const SESSION = "topbar-test";
-const store = () => useStore.getState();
 
 function setupSession(
-  overrides?: Partial<{
-    connectionStatus: string;
+  options?: Partial<{
+    connectionStatus: "connected" | "connecting" | "disconnected";
     model: string;
-    pendingPermissions: Record<string, unknown>;
+    permissionCount: number;
   }>,
-) {
+): void {
   store().ensureSessionData(SESSION);
   useStore.setState({ currentSessionId: SESSION });
-  if (overrides?.connectionStatus)
-    store().setConnectionStatus(
-      SESSION,
-      overrides.connectionStatus as "connected" | "connecting" | "disconnected",
-    );
-  if (overrides?.model)
+
+  if (options?.connectionStatus) {
+    store().setConnectionStatus(SESSION, options.connectionStatus);
+  }
+  if (options?.model) {
     store().setSessionState(SESSION, {
       session_id: SESSION,
-      model: overrides.model,
+      model: options.model,
       cwd: "/tmp",
       total_cost_usd: 0,
       num_turns: 0,
       context_used_percent: 0,
       is_compacting: false,
     });
-  if (overrides?.pendingPermissions) {
-    for (const [id, perm] of Object.entries(overrides.pendingPermissions)) {
-      store().addPermission(SESSION, {
-        request_id: id,
-        tool_use_id: `tu-${id}`,
-        tool_name: "Bash",
-        description: "Run a command",
-        input: { command: "ls" },
-        timestamp: Date.now(),
-        ...(perm as Record<string, unknown>),
-      });
+  }
+  if (options?.permissionCount) {
+    for (let i = 1; i <= options.permissionCount; i++) {
+      store().addPermission(SESSION, makePermission({ request_id: `req-${i}` }));
     }
   }
 }
 
 describe("TopBar", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-      sidebarOpen: true,
-      taskPanelOpen: false,
-    });
+    resetStore({ sidebarOpen: true, taskPanelOpen: false });
   });
 
   it("renders connection status text", () => {
@@ -87,10 +73,7 @@ describe("TopBar", () => {
   });
 
   it("renders pending permissions count badge when > 0", () => {
-    setupSession({
-      connectionStatus: "connected",
-      pendingPermissions: { "req-1": {}, "req-2": {} },
-    });
+    setupSession({ connectionStatus: "connected", permissionCount: 2 });
     render(<TopBar />);
     expect(screen.getByText("2")).toBeInTheDocument();
   });
@@ -98,19 +81,16 @@ describe("TopBar", () => {
   it("does not render badge when count is 0", () => {
     setupSession({ connectionStatus: "connected" });
     render(<TopBar />);
-    // No numeric badge should be present
     const badges = screen.queryByText(/^\d+$/);
     expect(badges).not.toBeInTheDocument();
   });
 
   it("sidebar toggle button has correct aria-label based on sidebarOpen state", () => {
     setupSession();
-    // sidebarOpen is true by default in beforeEach
     const { unmount } = render(<TopBar />);
     expect(screen.getByLabelText("Close sidebar")).toBeInTheDocument();
     unmount();
 
-    // Toggle sidebar closed
     useStore.setState({ sidebarOpen: false });
     render(<TopBar />);
     expect(screen.getByLabelText("Open sidebar")).toBeInTheDocument();

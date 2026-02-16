@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SdkSessionInfo } from "../store";
 import { useStore } from "../store";
-import { makeSessionInfo } from "../test/factories";
+import { makeSessionInfo, resetStore } from "../test/factories";
 import { Sidebar } from "./Sidebar";
 
 vi.mock("../api", () => ({
@@ -15,7 +15,7 @@ vi.mock("../ws", () => ({
   disconnect: vi.fn(),
 }));
 
-function setupSessions(...sessions: SdkSessionInfo[]) {
+function setupSessions(...sessions: SdkSessionInfo[]): void {
   const map: Record<string, SdkSessionInfo> = {};
   for (const s of sessions) map[s.sessionId] = s;
   useStore.setState({ sessions: map });
@@ -23,11 +23,7 @@ function setupSessions(...sessions: SdkSessionInfo[]) {
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
+    resetStore();
     vi.clearAllMocks();
   });
 

@@ -1,14 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useStore } from "../store";
+import { resetStore, store } from "../test/factories";
 import { StreamingIndicator } from "./StreamingIndicator";
 
 const SESSION = "stream-test";
-const store = () => useStore.getState();
 
 describe("StreamingIndicator", () => {
   beforeEach(() => {
-    useStore.setState({ sessionData: {}, sessions: {}, currentSessionId: null });
+    resetStore();
   });
 
   it("renders nothing when no streaming data", () => {

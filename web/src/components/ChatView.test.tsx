@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
+import { makePermission, resetStore, store } from "../test/factories";
 import { ChatView } from "./ChatView";
 
 vi.mock("./EmptyState", () => ({ EmptyState: () => <div data-testid="empty-state" /> }));
@@ -17,15 +18,24 @@ vi.mock("./StreamingIndicator", () => ({
 }));
 
 const SESSION = "chatview-test";
-const store = () => useStore.getState();
+
+function addUserMessage(): void {
+  store().addMessage(SESSION, {
+    role: "user",
+    content: [{ type: "text", text: "hello" }],
+    timestamp: Date.now(),
+  });
+}
+
+function setupSessionWithMessage(): void {
+  store().ensureSessionData(SESSION);
+  addUserMessage();
+  useStore.setState({ currentSessionId: SESSION });
+}
 
 describe("ChatView", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
+    resetStore();
   });
 
   it("renders EmptyState when no currentSessionId", () => {
@@ -47,25 +57,13 @@ describe("ChatView", () => {
   });
 
   it("renders MessageFeed when session has messages", () => {
-    store().ensureSessionData(SESSION);
-    store().addMessage(SESSION, {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: Date.now(),
-    });
-    useStore.setState({ currentSessionId: SESSION });
+    setupSessionWithMessage();
     render(<ChatView />);
     expect(screen.getByTestId("message-feed")).toBeInTheDocument();
   });
 
   it("renders Composer", () => {
-    store().ensureSessionData(SESSION);
-    store().addMessage(SESSION, {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: Date.now(),
-    });
-    useStore.setState({ currentSessionId: SESSION });
+    setupSessionWithMessage();
     render(<ChatView />);
     expect(screen.getByTestId("composer")).toBeInTheDocument();
   });
@@ -74,11 +72,7 @@ describe("ChatView", () => {
     store().ensureSessionData(SESSION);
     store().setConnectionStatus(SESSION, "connected");
     store().setCliConnected(SESSION, false);
-    store().addMessage(SESSION, {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: Date.now(),
-    });
+    addUserMessage();
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
     expect(screen.getByTestId("connection-banner")).toBeInTheDocument();
@@ -88,11 +82,7 @@ describe("ChatView", () => {
     store().ensureSessionData(SESSION);
     store().setConnectionStatus(SESSION, "connected");
     store().setCliConnected(SESSION, true);
-    store().addMessage(SESSION, {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: Date.now(),
-    });
+    addUserMessage();
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
     expect(screen.queryByTestId("connection-banner")).not.toBeInTheDocument();
@@ -100,19 +90,8 @@ describe("ChatView", () => {
 
   it("renders PermissionBanner when permissions pending", () => {
     store().ensureSessionData(SESSION);
-    store().addPermission(SESSION, {
-      request_id: "perm-1",
-      tool_use_id: "tu-1",
-      tool_name: "Bash",
-      description: "Run a command",
-      input: { command: "ls" },
-      timestamp: Date.now(),
-    });
-    store().addMessage(SESSION, {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: Date.now(),
-    });
+    store().addPermission(SESSION, makePermission());
+    addUserMessage();
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
     expect(screen.getByTestId("permission-banner")).toBeInTheDocument();

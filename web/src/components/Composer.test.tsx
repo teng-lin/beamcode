@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useStore } from "../store";
+import { resetStore, store } from "../test/factories";
 import { Composer } from "./Composer";
 
 vi.mock("../ws", () => ({ send: vi.fn() }));
@@ -12,15 +12,10 @@ vi.mock("./SlashMenu", () => ({
 import { send } from "../ws";
 
 const SESSION = "composer-test";
-const store = () => useStore.getState();
 
 describe("Composer", () => {
   beforeEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
+    resetStore();
     vi.clearAllMocks();
   });
 
@@ -65,7 +60,6 @@ describe("Composer", () => {
     render(<Composer sessionId={SESSION} />);
 
     const textarea = screen.getByLabelText("Message input");
-    // Type "/help" then press Enter
     await user.type(textarea, "/help{Enter}");
 
     expect(send).toHaveBeenCalledWith({

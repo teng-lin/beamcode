@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AssistantContent, ConsumerMessage } from "../../../shared/consumer-types";
+import type { ConsumerMessage } from "../../../shared/consumer-types";
+import { makeAssistantMessage } from "../test/factories";
 import { MessageFeed } from "./MessageFeed";
 
 vi.mock("./MessageBubble", () => ({
@@ -13,27 +14,6 @@ vi.mock("./ResultBanner", () => ({
 }));
 
 const SESSION_ID = "test-session";
-
-function makeAssistantMsg(parentToolUseId: string | null = null, id = "msg-1"): ConsumerMessage {
-  return {
-    type: "assistant",
-    parent_tool_use_id: parentToolUseId,
-    message: {
-      id,
-      type: "message",
-      role: "assistant",
-      model: "claude-3-opus",
-      content: [{ type: "text", text: "Hello" }],
-      stop_reason: "end_turn",
-      usage: {
-        input_tokens: 100,
-        output_tokens: 50,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    } satisfies AssistantContent,
-  };
-}
 
 describe("MessageFeed", () => {
   it("renders a log element with message history label", () => {
@@ -82,29 +62,27 @@ describe("MessageFeed", () => {
 
   it("groups subagent messages (assistant with parent_tool_use_id) in details", () => {
     const messages: ConsumerMessage[] = [
-      makeAssistantMsg("parent-tu-1", "msg-1"),
-      makeAssistantMsg("parent-tu-1", "msg-2"),
+      makeAssistantMessage("parent-tu-1", "msg-1"),
+      makeAssistantMessage("parent-tu-1", "msg-2"),
     ];
     render(<MessageFeed messages={messages} sessionId={SESSION_ID} />);
-    // Subagent groups are rendered inside <details>
     const details = document.querySelector("details");
     expect(details).toBeInTheDocument();
-    // MessageBubble mocks should be inside the details
     const bubbles = screen.getAllByTestId("message-bubble");
     expect(bubbles).toHaveLength(2);
   });
 
   it('renders "Subagent" label for grouped messages', () => {
-    const messages: ConsumerMessage[] = [makeAssistantMsg("parent-tu-1", "msg-1")];
+    const messages: ConsumerMessage[] = [makeAssistantMessage("parent-tu-1", "msg-1")];
     render(<MessageFeed messages={messages} sessionId={SESSION_ID} />);
     expect(screen.getByText("Subagent")).toBeInTheDocument();
   });
 
   it("shows subagent message count badge", () => {
     const messages: ConsumerMessage[] = [
-      makeAssistantMsg("parent-tu-1", "msg-1"),
-      makeAssistantMsg("parent-tu-1", "msg-2"),
-      makeAssistantMsg("parent-tu-1", "msg-3"),
+      makeAssistantMessage("parent-tu-1", "msg-1"),
+      makeAssistantMessage("parent-tu-1", "msg-2"),
+      makeAssistantMessage("parent-tu-1", "msg-3"),
     ];
     render(<MessageFeed messages={messages} sessionId={SESSION_ID} />);
     expect(screen.getByText("3")).toBeInTheDocument();
@@ -112,11 +90,10 @@ describe("MessageFeed", () => {
 
   it("does not group assistant messages without parent_tool_use_id", () => {
     const messages: ConsumerMessage[] = [
-      makeAssistantMsg(null, "msg-1"),
-      makeAssistantMsg(null, "msg-2"),
+      makeAssistantMessage(null, "msg-1"),
+      makeAssistantMessage(null, "msg-2"),
     ];
     render(<MessageFeed messages={messages} sessionId={SESSION_ID} />);
-    // Both should be rendered as individual message bubbles, no <details>
     const details = document.querySelector("details");
     expect(details).toBeNull();
     const bubbles = screen.getAllByTestId("message-bubble");
