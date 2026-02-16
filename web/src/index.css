@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+@theme {
+  /* Colors */
+  --color-bc-bg: #0f0f12;
+  --color-bc-surface: #18181d;
+  --color-bc-surface-2: #222228;
+  --color-bc-border: #2a2a32;
+  --color-bc-text: #f0ede6;
+  --color-bc-text-muted: #9a9aa6;
+  --color-bc-accent: #e8a040;
+  --color-bc-accent-hover: #f0b050;
+  --color-bc-accent-glow: rgba(232, 160, 64, 0.15);
+  --color-bc-user-bg: #2a2520;
+  --color-bc-success: #3db8a0;
+  --color-bc-error: #e85040;
+  --color-bc-warning: #e8a040;
+  --color-bc-code-bg: #0d0d10;
+  --color-bc-sidebar: #141418;
+  --color-bc-hover: rgba(255, 255, 255, 0.04);
+  --color-bc-active: rgba(232, 160, 64, 0.08);
+
+  /* Adapter colors */
+  --color-bc-adapter-claude: #e8a040;
+  --color-bc-adapter-codex: #3db8a0;
+  --color-bc-adapter-continue: #a078d0;
+  --color-bc-adapter-gemini: #4a90d0;
+  --color-bc-adapter-default: #6b6b78;
+
+  /* Typography */
+  --font-sans-ui: "Geist", system-ui, -apple-system, sans-serif;
+  --font-mono-code: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* Animations */
+  --animate-fadeSlideIn: fadeSlideIn 0.2s ease-out;
+  --animate-shimmer: shimmer 2s infinite;
+}
+
+/* ── Keyframes ───────────────────────────────────────────────────────────── */
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Base Styles ─────────────────────────────────────────────────────────── */
+
+body {
+  font-family: var(--font-sans-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Prose (Markdown Content) ────────────────────────────────────────────── */
+
+.prose-bc {
+  line-height: 1.65;
+  color: var(--color-bc-text);
+}
+
+.prose-bc p {
+  margin-bottom: 0.5em;
+}
+
+.prose-bc p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-bc h1,
+.prose-bc h2,
+.prose-bc h3 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  color: var(--color-bc-text);
+}
+
+.prose-bc h1 {
+  font-size: 1.25em;
+}
+.prose-bc h2 {
+  font-size: 1.125em;
+}
+.prose-bc h3 {
+  font-size: 1em;
+}
+
+.prose-bc code {
+  font-family: var(--font-mono-code);
+  font-size: 0.85em;
+  background: var(--color-bc-code-bg);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  color: var(--color-bc-accent);
+}
+
+.prose-bc pre {
+  background: var(--color-bc-code-bg);
+  border: 1px solid var(--color-bc-border);
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.prose-bc pre code {
+  background: none;
+  padding: 0;
+  color: var(--color-bc-text-muted);
+  font-size: 0.8em;
+}
+
+.prose-bc a {
+  color: var(--color-bc-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-bc a:hover {
+  color: var(--color-bc-accent-hover);
+}
+
+.prose-bc ul,
+.prose-bc ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.prose-bc li {
+  margin-bottom: 0.25em;
+}
+
+.prose-bc blockquote {
+  border-left: 3px solid var(--color-bc-accent);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--color-bc-text-muted);
+}
+
+.prose-bc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+
+.prose-bc th,
+.prose-bc td {
+  border: 1px solid var(--color-bc-border);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+
+.prose-bc th {
+  background: var(--color-bc-surface-2);
+  font-weight: 600;
+}
+
+.prose-bc hr {
+  border: none;
+  border-top: 1px solid var(--color-bc-border);
+  margin: 1em 0;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bc-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-bc-text-muted);
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────── */
+
+::selection {
+  background: var(--color-bc-accent-glow);
+  color: var(--color-bc-text);
+}

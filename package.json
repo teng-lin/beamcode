@@ -52,7 +52,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsdown && node scripts/fix-dts.js && node scripts/copy-consumer.js",
+    "build:lib": "tsdown && node scripts/fix-dts.js",
+    "build:web": "cd web && npx vite build",
+    "build": "pnpm build:lib && pnpm build:web && node scripts/copy-consumer.js",
+    "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.js",
     "test": "vitest run",
     "test:watch": "vitest",
