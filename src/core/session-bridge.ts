@@ -1575,6 +1575,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // No change
     if (prevTeam === currentTeam) return;
 
+    // Broadcast team state to consumers (works for create, update, and delete).
+    // Use null (not undefined) for deletion so JSON.stringify preserves the key.
+    this.broadcastToConsumers(session, {
+      type: "session_update",
+      session: { team: currentTeam ?? null } as Partial<SessionState>,
+    });
+
     // Team created
     if (!prevTeam && currentTeam) {
       this.emit("team:created", { sessionId, teamName: currentTeam.name });

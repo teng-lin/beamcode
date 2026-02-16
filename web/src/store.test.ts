@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ConsumerContentBlock } from "../../shared/consumer-types";
 import { useStore } from "./store";
-import { makePermission, makeSessionInfo } from "./test/factories";
+import { makePermission, makeSessionInfo, makeTeamState } from "./test/factories";
 
 const SESSION_ID = "test-session-1";
 const store = () => useStore.getState();
@@ -194,6 +194,121 @@ describe("store", () => {
       const progress = store().sessionData[SESSION_ID].toolProgress;
       expect(progress["tu-1"]).toEqual({ toolName: "Bash", elapsedSeconds: 5 });
       expect(progress["tu-2"]).toEqual({ toolName: "Read", elapsedSeconds: 2 });
+    });
+  });
+
+  describe("team state", () => {
+    it("setSessionState stores team data", () => {
+      const team = makeTeamState();
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toEqual(team);
+    });
+
+    it("session_update merges team into existing state", () => {
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeUndefined();
+
+      const team = makeTeamState();
+      const prev = store().sessionData[SESSION_ID].state!;
+      store().setSessionState(SESSION_ID, { ...prev, team });
+      expect(store().sessionData[SESSION_ID].state?.team).toEqual(team);
+    });
+
+    it("session_update can clear team via null", () => {
+      const team = makeTeamState();
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team,
+      });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeDefined();
+
+      // Simulate session_update with team: null (as sent over JSON)
+      const prev = store().sessionData[SESSION_ID].state!;
+      store().setSessionState(SESSION_ID, { ...prev, team: null });
+      expect(store().sessionData[SESSION_ID].state?.team).toBeNull();
+    });
+
+    it("session_init preserves optional fields via spread", () => {
+      // Simulates what ws.ts session_init handler does: spread then override
+      const initPayload = {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0.5,
+        num_turns: 3,
+        context_used_percent: 25,
+        is_compacting: false,
+        git_branch: "feat/test",
+        team: makeTeamState(),
+        tools: ["Bash", "Read"],
+      };
+
+      store().setSessionState(SESSION_ID, {
+        ...initPayload,
+        session_id: initPayload.session_id ?? SESSION_ID,
+        model: initPayload.model ?? "",
+        cwd: initPayload.cwd ?? "",
+        total_cost_usd: initPayload.total_cost_usd ?? 0,
+        num_turns: initPayload.num_turns ?? 0,
+        context_used_percent: initPayload.context_used_percent ?? 0,
+        is_compacting: initPayload.is_compacting ?? false,
+      });
+
+      const state = store().sessionData[SESSION_ID].state!;
+      expect(state.git_branch).toBe("feat/test");
+      expect(state.team).toBeDefined();
+      expect(state.tools).toEqual(["Bash", "Read"]);
+    });
+
+    it("auto-open task panel uses setTaskPanelOpen", () => {
+      // Set up a session with no team
+      store().setSessionState(SESSION_ID, {
+        session_id: SESSION_ID,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      expect(store().taskPanelOpen).toBe(false);
+
+      // Simulate session_update with team appearing
+      const prev = store().sessionData[SESSION_ID].state!;
+      const team = makeTeamState();
+      if (!prev.team && team && !store().taskPanelOpen) {
+        store().setTaskPanelOpen(true);
+      }
+      store().setSessionState(SESSION_ID, { ...prev, team });
+
+      expect(store().taskPanelOpen).toBe(true);
+
+      // Calling setTaskPanelOpen(true) again should be idempotent (not toggle)
+      store().setTaskPanelOpen(true);
+      expect(store().taskPanelOpen).toBe(true);
     });
   });
 

@@ -106,6 +106,35 @@ export interface InitializeAccount {
   apiKeySource?: string;
 }
 
+// ── Team Types (flattened for frontend) ──────────────────────────────────────
+
+export interface ConsumerTeamMember {
+  name: string;
+  agentId: string;
+  agentType: string;
+  status: "active" | "idle" | "shutdown";
+  model?: string;
+  color?: string;
+}
+
+export interface ConsumerTeamTask {
+  id: string;
+  subject: string;
+  description?: string;
+  status: "pending" | "in_progress" | "completed" | "deleted";
+  owner?: string;
+  activeForm?: string;
+  blockedBy: string[];
+  blocks: string[];
+}
+
+export interface ConsumerTeamState {
+  name: string;
+  role: "lead" | "teammate";
+  members: ConsumerTeamMember[];
+  tasks: ConsumerTeamTask[];
+}
+
 // ── Consumer Session State (flattened subset) ───────────────────────────────
 
 export interface ConsumerSessionState {
@@ -136,6 +165,7 @@ export interface ConsumerSessionState {
   >;
   last_duration_ms?: number;
   last_duration_api_ms?: number;
+  team?: ConsumerTeamState | null;
 }
 
 // ── Stream Events ──────────────────────────────────────────────────────────

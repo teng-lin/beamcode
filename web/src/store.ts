@@ -60,6 +60,7 @@ export interface AppState {
   setCurrentSession: (id: string) => void;
   toggleSidebar: () => void;
   toggleTaskPanel: () => void;
+  setTaskPanelOpen: (open: boolean) => void;
   toggleDarkMode: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
 
@@ -98,6 +99,13 @@ export interface AppState {
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
   updateSession: (id: string, update: Partial<SdkSessionInfo>) => void;
   removeSession: (id: string) => void;
+}
+
+// ── Selector helpers ────────────────────────────────────────────────────────
+
+/** Get the current session's data, or undefined if no session is active. */
+export function currentData(s: AppState) {
+  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -179,6 +187,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return { sidebarOpen: next };
     }),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
+  setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;

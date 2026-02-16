@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppState } from "../store";
-import { useStore } from "../store";
+import { useShallow } from "zustand/shallow";
+import { currentData, useStore } from "../store";
 import { send } from "../ws";
 
 const CONNECTION_DOT_STYLES: Record<string, string> = {
@@ -8,11 +8,6 @@ const CONNECTION_DOT_STYLES: Record<string, string> = {
   connecting: "bg-bc-warning animate-pulse",
 };
 const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
-
-/** Get the current session's data, or undefined if no session is active. */
-function currentData(s: AppState) {
-  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
-}
 
 export function TopBar() {
   const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
@@ -27,6 +22,12 @@ export function TopBar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
+  const { teamName, memberCount } = useStore(
+    useShallow((s) => ({
+      teamName: currentData(s)?.state?.team?.name ?? null,
+      memberCount: currentData(s)?.state?.team?.members.length ?? 0,
+    })),
+  );
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
 
@@ -159,6 +160,23 @@ export function TopBar() {
         </output>
       )}
 
+      {teamName && (
+        <output
+          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 text-[11px] text-bc-text-muted"
+          aria-label="Team"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <circle cx="3" cy="3.5" r="1.5" />
+            <circle cx="7" cy="3.5" r="1.5" />
+            <path
+              d="M0.5 8.5c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5M4.5 8.5c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5"
+              opacity="0.7"
+            />
+          </svg>
+          {teamName} ({memberCount})
+        </output>
+      )}
+
       <div className="flex-1" />
 
       {/* Pending permissions badge */}
@@ -172,12 +190,15 @@ export function TopBar() {
       <button
         type="button"
         onClick={toggleTaskPanel}
-        className="flex h-7 w-7 items-center justify-center rounded text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+        className="relative flex h-7 w-7 items-center justify-center rounded text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
         aria-label="Toggle task panel"
       >
         <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
           <path d="M2 3.5h11v1.2H2zM2 6.9h7.5v1.2H2zM2 10.3h9v1.2H2z" />
         </svg>
+        {teamName && (
+          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-bc-accent" />
+        )}
       </button>
     </header>
   );

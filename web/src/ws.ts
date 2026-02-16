@@ -100,6 +100,9 @@ function handleMessage(sessionId: string, data: string): void {
 
     case "session_init":
       store.setSessionState(sessionId, {
+        // Spread first to preserve optional fields (git_branch, tools, etc.)
+        ...msg.session,
+        // Override required fields with safe defaults
         session_id: msg.session.session_id ?? sessionId,
         model: msg.session.model ?? "",
         cwd: msg.session.cwd ?? "",
@@ -113,6 +116,10 @@ function handleMessage(sessionId: string, data: string): void {
     case "session_update": {
       const prev = store.sessionData[sessionId]?.state;
       if (prev) {
+        // Auto-open task panel when team first appears
+        if (!prev.team && msg.session.team && !store.taskPanelOpen) {
+          store.setTaskPanelOpen(true);
+        }
         store.setSessionState(sessionId, { ...prev, ...msg.session });
       } else {
         // Accept update even without prior session_init

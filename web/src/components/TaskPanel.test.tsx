@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useStore } from "../store";
-import { resetStore, store } from "../test/factories";
+import { makeTeamMember, makeTeamState, makeTeamTask, resetStore, store } from "../test/factories";
 import { TaskPanel } from "./TaskPanel";
 
 const SESSION = "task-panel-test";
@@ -130,6 +130,154 @@ describe("TaskPanel", () => {
     // Should show formatted token counts separately
     expect(screen.getByText("1.0k")).toBeInTheDocument(); // inputTokens
     expect(screen.getByText("500")).toBeInTheDocument(); // outputTokens
+  });
+
+  // ── Team display ─────────────────────────────────────────────────────
+
+  describe("team members", () => {
+    it("does not render Team Members section when no team", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText("Team Members")).not.toBeInTheDocument();
+    });
+
+    it("renders Team Members section when team is present", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team: makeTeamState({
+          members: [
+            makeTeamMember({ name: "researcher", agentType: "Explore" }),
+            makeTeamMember({
+              name: "coder",
+              agentId: "agent-2",
+              agentType: "general-purpose",
+              status: "idle",
+            }),
+          ],
+        }),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("Team Members")).toBeInTheDocument();
+      expect(screen.getByText("researcher")).toBeInTheDocument();
+      expect(screen.getByText("coder")).toBeInTheDocument();
+      expect(screen.getByText("Explore")).toBeInTheDocument();
+    });
+
+    it("shows 'No members' when team has empty members", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team: makeTeamState({ members: [] }),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("No members")).toBeInTheDocument();
+    });
+  });
+
+  describe("team tasks", () => {
+    it("does not render Team Tasks when no team", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText("Team Tasks")).not.toBeInTheDocument();
+    });
+
+    it("renders task list with progress bar", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team: makeTeamState({
+          tasks: [
+            makeTeamTask({ id: "t1", subject: "Research API", status: "completed" }),
+            makeTeamTask({
+              id: "t2",
+              subject: "Write code",
+              status: "in_progress",
+              owner: "coder",
+              activeForm: "Writing code",
+            }),
+            makeTeamTask({ id: "t3", subject: "Write tests", status: "pending" }),
+          ],
+        }),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("Team Tasks")).toBeInTheDocument();
+      expect(screen.getByText("1/3")).toBeInTheDocument();
+      expect(screen.getByText("Research API")).toBeInTheDocument();
+      expect(screen.getByText("Write code")).toBeInTheDocument();
+      expect(screen.getByText("coder")).toBeInTheDocument();
+      expect(screen.getByText("Writing code")).toBeInTheDocument();
+      expect(screen.getByText("Write tests")).toBeInTheDocument();
+    });
+
+    it("excludes deleted tasks from display", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        team: makeTeamState({
+          tasks: [
+            makeTeamTask({ id: "t1", subject: "Active task", status: "pending" }),
+            makeTeamTask({ id: "t2", subject: "Deleted task", status: "deleted" }),
+          ],
+        }),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("Active task")).toBeInTheDocument();
+      expect(screen.queryByText("Deleted task")).not.toBeInTheDocument();
+      expect(screen.getByText("0/1")).toBeInTheDocument();
+    });
   });
 
   // ── Enhanced cost/token tracking ────────────────────────────────────
