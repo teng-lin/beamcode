@@ -1,9 +1,50 @@
 import { WebSocket } from "ws";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
+import { MockProcessManager } from "../../adapters/mock-process-manager.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
 import { SessionManager } from "../../core/session-manager.js";
+import type { ProcessManager } from "../../interfaces/process-manager.js";
 import type { ProviderConfig } from "../../types/config.js";
+import { isClaudeAvailable } from "../../utils/claude-detection.js";
+
+// ── Adaptive Process Manager ────────────────────────────────────────────────
+
+/**
+ * Creates a ProcessManager that adapts based on environment:
+ * - Returns MockProcessManager if:
+ *   - USE_MOCK_CLI=true is set (forced mock mode)
+ *   - Claude CLI is not available (auto-detect)
+ * - Returns NodeProcessManager if:
+ *   - USE_REAL_CLI=true is set (forced real mode)
+ *   - Claude CLI is available and no forced mode is set
+ *
+ * This allows e2e tests to run in CI environments without Claude CLI,
+ * while still testing with real CLI when available locally.
+ */
+export function createProcessManager(): ProcessManager {
+  // Check for forced mock/real mode via environment variables
+  if (process.env.USE_MOCK_CLI === "true") {
+    console.log("[Test] Using MockProcessManager (forced via USE_MOCK_CLI=true)");
+    return new MockProcessManager();
+  }
+
+  if (process.env.USE_REAL_CLI === "true") {
+    console.log("[Test] Using NodeProcessManager (forced via USE_REAL_CLI=true)");
+    return new NodeProcessManager();
+  }
+
+  // Auto-detect: use real CLI if available, mock otherwise
+  const claudeAvailable = isClaudeAvailable();
+
+  if (claudeAvailable) {
+    console.log("[Test] Using NodeProcessManager (Claude CLI detected)");
+    return new NodeProcessManager();
+  }
+
+  console.log("[Test] Using MockProcessManager (Claude CLI not available)");
+  return new MockProcessManager();
+}
 
 // ── Session Manager Setup ────────────────────────────────────────────────────
 
@@ -22,7 +63,7 @@ export async function setupTestSessionManager(
   const server = new NodeWebSocketServer({ port: 0 });
   const manager = new SessionManager({
     config: { port: 0, ...options.config },
-    processManager: new NodeProcessManager(),
+    processManager: createProcessManager(),
     storage: new MemoryStorage(),
     server,
   });

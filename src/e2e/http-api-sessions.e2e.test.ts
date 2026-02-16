@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import { createBeamcodeServer } from "../http/server.js";
+import { createProcessManager } from "./helpers/test-utils.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -39,7 +39,7 @@ describe("E2E: HTTP API /api/sessions", () => {
   beforeEach(async () => {
     sessionManager = new SessionManager({
       config: { port: 0 },
-      processManager: new NodeProcessManager(),
+      processManager: createProcessManager(),
       storage: new MemoryStorage(),
       server: new NodeWebSocketServer({ port: 0 }),
     });

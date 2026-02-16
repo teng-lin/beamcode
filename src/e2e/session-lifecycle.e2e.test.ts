@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { FileStorage } from "../adapters/file-storage.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import {
@@ -13,6 +12,7 @@ import {
   collectMessages,
   connectTestCLI,
   connectTestConsumer,
+  createProcessManager,
   getMessageText,
   mockAssistantMessage,
   waitForMessageType,
@@ -36,7 +36,7 @@ async function setupTestEnv(): Promise<TestEnv> {
   const wsServer = new NodeWebSocketServer({ port: 0 });
   const manager = new SessionManager({
     config: { port: 0 },
-    processManager: new NodeProcessManager(),
+    processManager: createProcessManager(),
     storage: new MemoryStorage(),
     server: wsServer,
   });
@@ -105,7 +105,7 @@ describe("E2E: Full Session Lifecycle", () => {
     try {
       const manager1 = new SessionManager({
         config: { port: 3457 },
-        processManager: new NodeProcessManager(),
+        processManager: createProcessManager(),
         storage,
       });
       await manager1.start();
@@ -122,7 +122,7 @@ describe("E2E: Full Session Lifecycle", () => {
       // Restart with same storage
       const manager2 = new SessionManager({
         config: { port: 3457 },
-        processManager: new NodeProcessManager(),
+        processManager: createProcessManager(),
         storage,
       });
       await manager2.start();
