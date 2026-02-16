@@ -32,6 +32,35 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
   };
 }
 
+/** State with typical backend commands reported via slash_commands (init). */
+function makeStateWithSlashCommands(extra: Partial<SessionState> = {}): SessionState {
+  return makeState({
+    slash_commands: ["/compact", "/files", "/release-notes", "/vim"],
+    ...extra,
+  });
+}
+
+/** State with capabilities.commands (authoritative). */
+function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionState {
+  return makeState({
+    slash_commands: ["/compact", "/files", "/release-notes"],
+    capabilities: {
+      commands: [
+        { name: "/compact", description: "Compact conversation history" },
+        { name: "/files", description: "List files in context" },
+        { name: "/release-notes", description: "Show release notes" },
+        { name: "/vim", description: "Toggle vim mode", argumentHint: "[on|off]" },
+        { name: "/help", description: "Show available commands" },
+        { name: "/model", description: "Show or switch model", argumentHint: "[model]" },
+      ],
+      models: [],
+      account: null,
+      receivedAt: Date.now(),
+    },
+    ...extra,
+  });
+}
+
 function createExecutor(options?: {
   commandRunner?: MockCommandRunner;
   config?: Partial<ResolvedConfig>;
@@ -48,39 +77,73 @@ function createExecutor(options?: {
 
 describe("SlashCommandExecutor", () => {
   describe("isNativeCommand", () => {
-    it("identifies native commands", () => {
+    it("identifies native commands from capabilities", () => {
       const { executor } = createExecutor();
-      expect(executor.isNativeCommand("/compact")).toBe(true);
-      expect(executor.isNativeCommand("/files")).toBe(true);
-      expect(executor.isNativeCommand("/release-notes")).toBe(true);
+      const state = makeStateWithCapabilities();
+      expect(executor.isNativeCommand("/compact", state)).toBe(true);
+      expect(executor.isNativeCommand("/files", state)).toBe(true);
+      expect(executor.isNativeCommand("/release-notes", state)).toBe(true);
+      expect(executor.isNativeCommand("/vim", state)).toBe(true);
     });
 
-    it("rejects non-native commands", () => {
+    it("identifies native commands from slash_commands fallback", () => {
       const { executor } = createExecutor();
-      expect(executor.isNativeCommand("/model")).toBe(false);
-      expect(executor.isNativeCommand("/usage")).toBe(false);
-      expect(executor.isNativeCommand("/status")).toBe(false);
-      expect(executor.isNativeCommand("/cost")).toBe(false);
-      expect(executor.isNativeCommand("/context")).toBe(false);
+      const state = makeStateWithSlashCommands();
+      expect(executor.isNativeCommand("/compact", state)).toBe(true);
+      expect(executor.isNativeCommand("/vim", state)).toBe(true);
+    });
+
+    it("rejects emulatable commands even if in backend commands", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      // /model and /help are in capabilities but are emulatable — should NOT be native
+      expect(executor.isNativeCommand("/model", state)).toBe(false);
+      expect(executor.isNativeCommand("/help", state)).toBe(false);
+      expect(executor.isNativeCommand("/status", state)).toBe(false);
+      expect(executor.isNativeCommand("/cost", state)).toBe(false);
+      expect(executor.isNativeCommand("/context", state)).toBe(false);
+    });
+
+    it("rejects unknown commands", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      expect(executor.isNativeCommand("/nonexistent", state)).toBe(false);
+    });
+
+    it("returns false for all commands when no backend info available", () => {
+      const { executor } = createExecutor();
+      const state = makeState(); // no slash_commands, no capabilities
+      expect(executor.isNativeCommand("/compact", state)).toBe(false);
+      expect(executor.isNativeCommand("/files", state)).toBe(false);
     });
   });
 
   describe("canHandle", () => {
-    it("handles emulatable commands", () => {
+    it("handles emulatable commands regardless of backend state", () => {
       const { executor } = createExecutor();
-      expect(executor.canHandle("/model")).toBe(true);
-      expect(executor.canHandle("/status")).toBe(true);
-      expect(executor.canHandle("/config")).toBe(true);
-      expect(executor.canHandle("/cost")).toBe(true);
-      expect(executor.canHandle("/context")).toBe(true);
+      const state = makeState(); // no backend info at all
+      expect(executor.canHandle("/model", state)).toBe(true);
+      expect(executor.canHandle("/status", state)).toBe(true);
+      expect(executor.canHandle("/config", state)).toBe(true);
+      expect(executor.canHandle("/cost", state)).toBe(true);
+      expect(executor.canHandle("/context", state)).toBe(true);
+      expect(executor.canHandle("/help", state)).toBe(true);
     });
 
-    it("handles non-emulatable commands when PTY is available", () => {
+    it("handles backend-known commands", () => {
       const { executor } = createExecutor();
-      expect(executor.canHandle("/usage")).toBe(true);
+      const state = makeStateWithCapabilities();
+      expect(executor.canHandle("/compact", state)).toBe(true);
+      expect(executor.canHandle("/vim", state)).toBe(true);
     });
 
-    it("rejects non-emulatable commands when PTY is disabled", () => {
+    it("handles unknown commands when PTY is available", () => {
+      const { executor } = createExecutor();
+      const state = makeState();
+      expect(executor.canHandle("/usage", state)).toBe(true);
+    });
+
+    it("rejects unknown commands when PTY is disabled", () => {
       const { executor } = createExecutor({
         config: {
           slashCommand: {
@@ -90,14 +153,16 @@ describe("SlashCommandExecutor", () => {
           },
         },
       });
-      expect(executor.canHandle("/usage")).toBe(false);
+      const state = makeState();
+      expect(executor.canHandle("/usage", state)).toBe(false);
     });
 
-    it("rejects non-emulatable commands when no runner is provided", () => {
+    it("rejects unknown commands when no runner is provided", () => {
       const executor = new SlashCommandExecutor({
         config: DEFAULT_CONFIG,
       });
-      expect(executor.canHandle("/usage")).toBe(false);
+      const state = makeState();
+      expect(executor.canHandle("/usage", state)).toBe(false);
     });
   });
 
@@ -261,6 +326,73 @@ describe("SlashCommandExecutor", () => {
       expect(r2.source).toBe("pty");
       // Both should have executed in order
       expect(executionOrder).toEqual([1, 2]);
+    });
+  });
+
+  describe("capabilities-driven routing", () => {
+    it("uses capabilities.commands when available", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      // /vim is in capabilities but not emulatable → native
+      expect(executor.isNativeCommand("/vim", state)).toBe(true);
+      expect(executor.canHandle("/vim", state)).toBe(true);
+    });
+
+    it("falls back to slash_commands when capabilities unavailable", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithSlashCommands(); // no capabilities
+      expect(executor.isNativeCommand("/vim", state)).toBe(true);
+      expect(executor.canHandle("/vim", state)).toBe(true);
+    });
+
+    it("falls back to empty set when both unavailable", () => {
+      const { executor } = createExecutor();
+      const state = makeState(); // no slash_commands, no capabilities
+      // Only emulatable commands should work
+      expect(executor.canHandle("/model", state)).toBe(true);
+      expect(executor.canHandle("/help", state)).toBe(true);
+      // Non-emulatable, non-backend commands require PTY
+      expect(executor.isNativeCommand("/compact", state)).toBe(false);
+    });
+
+    it("emulatable commands are never considered native even if in capabilities", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      // /model and /help are in capabilities but should be emulated locally
+      expect(executor.isNativeCommand("/model", state)).toBe(false);
+      expect(executor.isNativeCommand("/help", state)).toBe(false);
+    });
+
+    it("/help shows capabilities descriptions when available", async () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      const result = await executor.execute(state, "/help", "cli-123");
+      expect(result.source).toBe("emulated");
+      expect(result.content).toContain("/compact — Compact conversation history");
+      expect(result.content).toContain("/vim [on|off] — Toggle vim mode");
+      expect(result.content).toContain("/model [model] — Show or switch model");
+    });
+
+    it("/help falls back to slash_commands names when capabilities unavailable", async () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithSlashCommands();
+      const result = await executor.execute(state, "/help", "cli-123");
+      expect(result.source).toBe("emulated");
+      expect(result.content).toContain("/compact");
+      expect(result.content).toContain("/vim");
+      // Emulatable commands should also appear
+      expect(result.content).toContain("/model");
+      expect(result.content).toContain("/status");
+    });
+
+    it("/help shows only emulatable commands when no backend info", async () => {
+      const { executor } = createExecutor();
+      const state = makeState(); // no slash_commands, no capabilities
+      const result = await executor.execute(state, "/help", "cli-123");
+      expect(result.source).toBe("emulated");
+      expect(result.content).toContain("/model");
+      expect(result.content).toContain("/status");
+      expect(result.content).not.toContain("/compact");
     });
   });
 

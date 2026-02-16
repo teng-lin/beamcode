@@ -10,8 +10,23 @@ export interface SlashCommandResult {
 
 type EmulatorFn = (state: SessionState) => string;
 
-/** Commands that the CLI handles natively in headless mode. */
-const NATIVE_COMMANDS = new Set(["/compact", "/files", "/release-notes"]);
+/**
+ * Derive the set of backend-supported commands from SessionState.
+ * Three-tier fallback:
+ *   1. capabilities.commands (preferred — rich metadata, authoritative)
+ *   2. slash_commands from system/init (available immediately)
+ *   3. Empty set (before CLI connects — only emulated commands work)
+ */
+function getBackendCommands(state: SessionState): Set<string> {
+  const capCmds = state.capabilities?.commands;
+  if (capCmds && capCmds.length > 0) {
+    return new Set(capCmds.map((c) => c.name));
+  }
+  if (state.slash_commands.length > 0) {
+    return new Set(state.slash_commands);
+  }
+  return new Set();
+}
 
 /** Commands we can emulate from SessionState without the CLI. */
 const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
@@ -25,10 +40,13 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
       return ["Available commands:", ...formatted].join("\n");
     }
 
-    // Fallback: list native + emulated commands when capabilities are unavailable
+    // Fallback: list backend + emulated commands when capabilities are unavailable
+    const backendNames = getBackendCommands(state);
     const allNames = [
-      ...NATIVE_COMMANDS,
-      ...Object.keys(EMULATABLE_COMMANDS).filter((name) => name !== "/help"),
+      ...backendNames,
+      ...Object.keys(EMULATABLE_COMMANDS).filter(
+        (name) => name !== "/help" && !backendNames.has(name),
+      ),
     ];
     return ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
   },
@@ -114,16 +132,18 @@ export class SlashCommandExecutor {
     this.config = options.config;
   }
 
-  /** Returns true if the command is handled natively by the CLI in headless mode. */
-  isNativeCommand(command: string): boolean {
+  /** Returns true if the command is supported by the backend AND not emulatable locally. */
+  isNativeCommand(command: string, state: SessionState): boolean {
     const name = command.split(/\s+/)[0];
-    return NATIVE_COMMANDS.has(name);
+    if (name in EMULATABLE_COMMANDS) return false;
+    return getBackendCommands(state).has(name);
   }
 
-  /** Returns true if we can handle this command (emulation or PTY). */
-  canHandle(command: string): boolean {
+  /** Returns true if we can handle this command (emulation, backend-known, or PTY). */
+  canHandle(command: string, state: SessionState): boolean {
     const name = command.split(/\s+/)[0];
     if (name in EMULATABLE_COMMANDS) return true;
+    if (getBackendCommands(state).has(name)) return true;
     if (this.commandRunner && this.config.slashCommand.ptyEnabled) return true;
     return false;
   }

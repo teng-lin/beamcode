@@ -2456,7 +2456,10 @@ describe("SessionBridge", () => {
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
+      );
 
       ws.sentMessages.length = 0;
       cliSocket.sentMessages.length = 0;
@@ -2647,7 +2650,10 @@ describe("SessionBridge", () => {
       const { bridge } = createBridge();
       const cliSocket = createMockSocket();
       bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
+      );
 
       cliSocket.sentMessages.length = 0;
 
