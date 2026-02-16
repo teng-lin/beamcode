@@ -548,6 +548,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     session.lastActivity = Date.now();
 
+    // Reject oversized messages before parsing
+    if (raw.length > SessionBridge.MAX_CONSUMER_MESSAGE_SIZE) {
+      this.logger.warn(
+        `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${SessionBridge.MAX_CONSUMER_MESSAGE_SIZE})`,
+      );
+      ws.close(1009, "Message Too Big");
+      return;
+    }
+
     let msg: InboundMessage;
     try {
       msg = JSON.parse(raw);
@@ -1281,10 +1290,22 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
   }
 
+  private static readonly MAX_CONSUMER_MESSAGE_SIZE = 262_144; // 256 KB
+  private static readonly BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB
+
   private broadcastToConsumers(session: Session, msg: ConsumerMessage): void {
     const json = JSON.stringify(msg);
     const failed: WebSocketLike[] = [];
     for (const ws of session.consumerSockets.keys()) {
+      if (
+        ws.bufferedAmount !== undefined &&
+        ws.bufferedAmount > SessionBridge.BACKPRESSURE_THRESHOLD
+      ) {
+        this.logger.warn(
+          `Dropping message to consumer in session ${session.id}: backpressure (buffered=${ws.bufferedAmount})`,
+        );
+        continue;
+      }
       try {
         ws.send(json);
       } catch (err) {

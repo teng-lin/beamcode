@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type { ChildProcessSupervisor, CreateSessionOptions } from "./child-process-supervisor.js";
@@ -72,7 +73,10 @@ export class ControlApi {
     const authHeader = req.headers.authorization;
     if (!authHeader) return false;
     const [scheme, value] = authHeader.split(" ", 2);
-    return scheme === "Bearer" && value === this.token;
+    if (scheme !== "Bearer" || !value) return false;
+    const a = createHash("sha256").update(value).digest();
+    const b = createHash("sha256").update(this.token).digest();
+    return timingSafeEqual(a, b);
   }
 
   private handleHealth(res: ServerResponse): void {
@@ -112,8 +116,12 @@ export class ControlApi {
         const session = this.supervisor.createSession(parsed);
         sendJson(res, 201, session);
       })
-      .catch(() => {
-        sendJson(res, 500, { error: "Failed to read request body" });
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.message === "Request body too large") {
+          sendJson(res, 413, { error: "Request body too large" });
+        } else {
+          sendJson(res, 500, { error: "Failed to read request body" });
+        }
       });
   }
 
@@ -140,11 +148,29 @@ function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
+const MAX_BODY_SIZE = 65_536; // 64 KB
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject);
+    let totalBytes = 0;
+    let destroyed = false;
+    req.on("data", (chunk: Buffer) => {
+      if (destroyed) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_SIZE) {
+        destroyed = true;
+        req.destroy(new Error("Request body too large"));
+        reject(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (!destroyed) resolve(Buffer.concat(chunks).toString("utf-8"));
+    });
+    req.on("error", (err) => {
+      if (!destroyed) reject(err);
+    });
   });
 }

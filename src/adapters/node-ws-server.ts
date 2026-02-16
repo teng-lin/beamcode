@@ -17,6 +17,9 @@ function wrapSocket(ws: WebSocket): Parameters<OnCLIConnection>[0] {
   return {
     send: (data: string) => ws.send(data),
     close: (code?: number, reason?: string) => ws.close(code, reason),
+    get bufferedAmount() {
+      return ws.bufferedAmount;
+    },
     on: ((event: string, handler: (...args: unknown[]) => void) => {
       ws.on(event, handler);
     }) as Parameters<OnCLIConnection>[0]["on"],
@@ -30,6 +33,8 @@ export interface NodeWebSocketServerOptions {
   host?: string;
   /** Optional origin validator to reject connections from untrusted origins. */
   originValidator?: OriginValidator;
+  /** Maximum payload size in bytes (default: 1MB). */
+  maxPayload?: number;
   /** Optional external HTTP server to attach to. When provided, WS piggybacks on this server instead of creating its own. */
   server?: import("http").Server;
 }
@@ -80,6 +85,7 @@ export class NodeWebSocketServer implements WebSocketServerLike {
       // Attach to an external HTTP server — no standalone listen needed
       this.wss = new WSServer({
         server: this.options.server,
+        maxPayload: this.options.maxPayload ?? 1_048_576,
         ...(verifyClient && { verifyClient }),
       });
       this.wireConnectionHandler(onCLIConnection, onConsumerConnection);
@@ -90,6 +96,7 @@ export class NodeWebSocketServer implements WebSocketServerLike {
       this.wss = new WSServer({
         port: this.options.port,
         host: this.options.host ?? "127.0.0.1",
+        maxPayload: this.options.maxPayload ?? 1_048_576,
         ...(verifyClient && { verifyClient }),
       });
 

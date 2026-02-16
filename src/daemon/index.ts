@@ -2,7 +2,7 @@ export type { CreateSessionOptions, DaemonSessionInfo } from "./child-process-su
 export { ChildProcessSupervisor } from "./child-process-supervisor.js";
 export type { ControlApiOptions } from "./control-api.js";
 export { ControlApi } from "./control-api.js";
-export type { DaemonOptions } from "./daemon.js";
+export type { DaemonOptions, Stoppable } from "./daemon.js";
 export { Daemon } from "./daemon.js";
 export { startHealthCheck } from "./health-check.js";
 export { acquireLock, isLockStale, releaseLock } from "./lock-file.js";

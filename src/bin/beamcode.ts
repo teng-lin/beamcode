@@ -11,6 +11,7 @@ import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
+import { OriginValidator } from "../server/origin-validator.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -149,7 +150,13 @@ async function main(): Promise<void> {
       return;
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy":
+          "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws: wss:;",
+      });
       res.end(html);
       return;
     }
@@ -180,6 +187,7 @@ async function main(): Promise<void> {
   const wsServer = new NodeWebSocketServer({
     port: config.port,
     server: httpServer,
+    originValidator: new OriginValidator(),
   });
 
   // 5. Start CloudflaredManager (unless --no-tunnel)
@@ -246,7 +254,7 @@ async function main(): Promise<void> {
   Press Ctrl+C to stop
 `);
 
-  // 8. Graceful shutdown
+  // 9. Graceful shutdown
   let shuttingDown = false;
   let forceExitTimer: ReturnType<typeof setTimeout> | null = null;
 

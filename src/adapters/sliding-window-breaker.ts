@@ -10,50 +10,45 @@ import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
  */
 export class SlidingWindowBreaker implements CircuitBreaker {
   private state: "closed" | "open" | "half_open" = "closed";
-  private failureCount = 0;
+  private failureTimestamps: number[] = [];
   private successCount = 0;
   private lastFailureTime = 0;
 
   private readonly failureThreshold: number; // Failures to trigger OPEN
+  private readonly windowMs: number; // Sliding window duration
   private readonly recoveryTimeMs: number; // Time in OPEN before transitioning to HALF_OPEN
   private readonly successThreshold: number; // Successes in HALF_OPEN to return to CLOSED
 
   constructor(options: {
     failureThreshold: number; // e.g., 5 failures
-    windowMs: number; // e.g., 60000 ms (1 minute) — kept for API compatibility
+    windowMs: number; // e.g., 60000 ms (1 minute)
     recoveryTimeMs: number; // e.g., 30000 ms (30 seconds)
     successThreshold: number; // e.g., 2 successes
   }) {
     this.failureThreshold = options.failureThreshold;
-    // Note: windowMs kept for API compatibility but not used in implementation
-    // This circuit breaker uses a simpler count-based approach rather than time-windowed
+    this.windowMs = options.windowMs;
     this.recoveryTimeMs = options.recoveryTimeMs;
     this.successThreshold = options.successThreshold;
   }
 
   canExecute(): boolean {
-    if (this.state === "closed") {
-      return true;
-    }
-
-    if (this.state === "open") {
-      // Check if recovery time has passed
-      const timeSinceLastFailure = Date.now() - this.lastFailureTime;
-      if (timeSinceLastFailure > this.recoveryTimeMs) {
-        // Transition to HALF_OPEN to test if system recovered
-        this.state = "half_open";
-        this.successCount = 0;
+    switch (this.state) {
+      case "closed":
         return true;
+
+      case "open": {
+        const timeSinceLastFailure = Date.now() - this.lastFailureTime;
+        if (timeSinceLastFailure > this.recoveryTimeMs) {
+          this.state = "half_open";
+          this.successCount = 0;
+          return true;
+        }
+        return false;
       }
-      return false; // Still in OPEN, block the request
-    }
 
-    if (this.state === "half_open") {
-      // Allow requests in HALF_OPEN state
-      return true;
+      case "half_open":
+        return true;
     }
-
-    return false;
   }
 
   recordSuccess(): void {
@@ -67,12 +62,17 @@ export class SlidingWindowBreaker implements CircuitBreaker {
   }
 
   recordFailure(): void {
-    this.lastFailureTime = Date.now();
+    const now = Date.now();
+    this.lastFailureTime = now;
 
     if (this.state === "closed") {
-      this.failureCount++;
-      // Check if failures exceed threshold within the window
-      if (this.failureCount >= this.failureThreshold) {
+      // Prune expired failures outside the sliding window
+      const cutoff = now - this.windowMs;
+      this.failureTimestamps = this.failureTimestamps.filter((t) => t > cutoff);
+
+      this.failureTimestamps.push(now);
+
+      if (this.failureTimestamps.length >= this.failureThreshold) {
         this.state = "open";
       }
     } else if (this.state === "half_open") {
@@ -90,7 +90,7 @@ export class SlidingWindowBreaker implements CircuitBreaker {
    */
   private reset(): void {
     this.state = "closed";
-    this.failureCount = 0;
+    this.failureTimestamps = [];
     this.successCount = 0;
     this.lastFailureTime = 0;
   }
@@ -106,6 +106,7 @@ export class SlidingWindowBreaker implements CircuitBreaker {
    * Get failure count (for testing).
    */
   getFailureCount(): number {
-    return this.failureCount;
+    const cutoff = Date.now() - this.windowMs;
+    return this.failureTimestamps.filter((t) => t > cutoff).length;
   }
 }

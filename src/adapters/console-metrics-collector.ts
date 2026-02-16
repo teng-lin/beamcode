@@ -32,6 +32,7 @@ export class ConsoleMetricsCollector implements MetricsCollector {
           `[METRICS] Session closed: ${event.sessionId}${event.reason ? ` (${event.reason})` : ""}`,
         );
         this.sessionConnections.delete(event.sessionId);
+        this.sessionEventCounts.delete(event.sessionId);
         break;
 
       case "consumer:connected":
