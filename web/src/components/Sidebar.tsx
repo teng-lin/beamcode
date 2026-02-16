@@ -185,12 +185,21 @@ export function Sidebar() {
     }
   }, [updateSession, setCurrentSession]);
 
+  const [search, setSearch] = useState("");
+
   const sessionList = Object.values(sessions)
     .filter(
       (s): s is SdkSessionInfo =>
         s != null && typeof s.sessionId === "string" && typeof s.createdAt === "number",
     )
     .sort((a, b) => b.createdAt - a.createdAt);
+
+  const filteredList = search
+    ? sessionList.filter((s) => {
+        const name = s.name ?? cwdBasename(s.cwd ?? "");
+        return name.toLowerCase().includes(search.toLowerCase());
+      })
+    : sessionList;
 
   return (
     <aside className="flex h-full w-[260px] flex-shrink-0 flex-col border-r border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40">
@@ -231,12 +240,27 @@ export function Sidebar() {
         </button>
       </div>
 
+      {/* Search filter */}
+      {sessionList.length > 0 && (
+        <div className="px-3 py-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sessions..."
+            className="w-full rounded-md border border-bc-border bg-bc-bg px-2.5 py-1.5 text-xs text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
+          />
+        </div>
+      )}
+
       {/* Session list */}
       <nav className="flex-1 overflow-y-auto py-1.5" aria-label="Sessions">
-        {sessionList.length === 0 ? (
-          <div className="px-4 py-8 text-center text-xs text-bc-text-muted">No sessions</div>
+        {filteredList.length === 0 ? (
+          <div className="px-4 py-8 text-center text-xs text-bc-text-muted">
+            {search ? "No matches" : "No sessions"}
+          </div>
         ) : (
-          sessionList.map((info) => (
+          filteredList.map((info) => (
             <SessionItem
               key={info.sessionId}
               info={info}

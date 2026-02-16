@@ -392,6 +392,76 @@ describe("Sidebar", () => {
     });
   });
 
+  // ── Session search ──────────────────────────────────────────────────────
+
+  describe("session search", () => {
+    it("renders search input when sessions exist", () => {
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));
+      render(<Sidebar />);
+      expect(screen.getByPlaceholderText("Search sessions...")).toBeInTheDocument();
+    });
+
+    it("filters sessions by cwd basename", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
+        makeSessionInfo({
+          sessionId: "s3",
+          name: "My Project",
+          cwd: "/home/user/gamma",
+          createdAt: 3000,
+        }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "alpha");
+      expect(screen.getByText("alpha")).toBeInTheDocument();
+      expect(screen.queryByText("beta")).not.toBeInTheDocument();
+      expect(screen.queryByText("My Project")).not.toBeInTheDocument();
+    });
+
+    it("filters are case-insensitive", async () => {
+      const user = userEvent.setup();
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/Alpha", createdAt: 1000 }));
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "alpha");
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
+    });
+
+    it("matches against session name property", async () => {
+      const user = userEvent.setup();
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          name: "Cool Project",
+          cwd: "/home/user/proj",
+          createdAt: 1000,
+        }),
+      );
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "cool");
+      expect(screen.getByText("Cool Project")).toBeInTheDocument();
+    });
+
+    it('shows "No matches" when filter has no results', async () => {
+      const user = userEvent.setup();
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));
+      render(<Sidebar />);
+
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "zzzzz");
+      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+      expect(screen.getByText("No matches")).toBeInTheDocument();
+    });
+
+    it("does not show search input when no sessions exist", () => {
+      render(<Sidebar />);
+      expect(screen.queryByPlaceholderText("Search sessions...")).not.toBeInTheDocument();
+    });
+  });
+
   // ── Keyboard navigation ────────────────────────────────────────────────
 
   describe("keyboard navigation", () => {
