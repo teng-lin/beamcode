@@ -10,6 +10,11 @@ export interface SlashCommandResult {
 
 type EmulatorFn = (state: SessionState) => string;
 
+/** Extract the command name (e.g. "/help") from a full command string (e.g. "/help foo"). */
+function commandName(command: string): string {
+  return command.split(/\s+/)[0];
+}
+
 /**
  * Derive the set of backend-supported commands from SessionState.
  * Three-tier fallback:
@@ -54,29 +59,27 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
   "/model": (state) => state.model || "unknown",
 
   "/status": (state) => {
-    const lines: string[] = [];
-    lines.push(`Model: ${state.model || "unknown"}`);
-    lines.push(`CWD: ${state.cwd || "unknown"}`);
-    lines.push(`Permission mode: ${state.permissionMode || "default"}`);
-    lines.push(`Version: ${state.claude_code_version || "unknown"}`);
-    lines.push(`Turns: ${state.num_turns}`);
-    lines.push(`Cost: $${state.total_cost_usd.toFixed(4)}`);
-    lines.push(`Context used: ${state.context_used_percent}%`);
-    if (state.git_branch) {
-      lines.push(`Git branch: ${state.git_branch}`);
-    }
-    if (state.tools.length > 0) {
-      lines.push(`Tools: ${state.tools.join(", ")}`);
-    }
+    const lines = [
+      `Model: ${state.model || "unknown"}`,
+      `CWD: ${state.cwd || "unknown"}`,
+      `Permission mode: ${state.permissionMode || "default"}`,
+      `Version: ${state.claude_code_version || "unknown"}`,
+      `Turns: ${state.num_turns}`,
+      `Cost: $${state.total_cost_usd.toFixed(4)}`,
+      `Context used: ${state.context_used_percent}%`,
+    ];
+    if (state.git_branch) lines.push(`Git branch: ${state.git_branch}`);
+    if (state.tools.length > 0) lines.push(`Tools: ${state.tools.join(", ")}`);
     return lines.join("\n");
   },
 
   "/config": (state) => {
-    const lines: string[] = [];
-    lines.push(`Model: ${state.model || "unknown"}`);
-    lines.push(`Permission mode: ${state.permissionMode || "default"}`);
-    lines.push(`CWD: ${state.cwd || "unknown"}`);
-    lines.push(`Version: ${state.claude_code_version || "unknown"}`);
+    const lines = [
+      `Model: ${state.model || "unknown"}`,
+      `Permission mode: ${state.permissionMode || "default"}`,
+      `CWD: ${state.cwd || "unknown"}`,
+      `Version: ${state.claude_code_version || "unknown"}`,
+    ];
     if (state.mcp_servers.length > 0) {
       lines.push(
         `MCP servers: ${state.mcp_servers.map((s) => `${s.name} (${s.status})`).join(", ")}`,
@@ -86,8 +89,7 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
   },
 
   "/cost": (state) => {
-    const lines: string[] = [];
-    lines.push(`Total cost: $${state.total_cost_usd.toFixed(4)}`);
+    const lines = [`Total cost: $${state.total_cost_usd.toFixed(4)}`];
     if (state.last_duration_ms != null) {
       lines.push(`Last turn duration: ${(state.last_duration_ms / 1000).toFixed(1)}s`);
     }
@@ -105,8 +107,7 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
   },
 
   "/context": (state) => {
-    const lines: string[] = [];
-    lines.push(`Context used: ${state.context_used_percent}%`);
+    const lines = [`Context used: ${state.context_used_percent}%`];
     if (state.last_model_usage) {
       for (const [model, usage] of Object.entries(state.last_model_usage)) {
         const total = usage.inputTokens + usage.outputTokens;
@@ -134,14 +135,14 @@ export class SlashCommandExecutor {
 
   /** Returns true if the command is supported by the backend AND not emulatable locally. */
   isNativeCommand(command: string, state: SessionState): boolean {
-    const name = command.split(/\s+/)[0];
+    const name = commandName(command);
     if (name in EMULATABLE_COMMANDS) return false;
     return getBackendCommands(state).has(name);
   }
 
   /** Returns true if we can handle this command (emulation, backend-known, or PTY). */
   canHandle(command: string, state: SessionState): boolean {
-    const name = command.split(/\s+/)[0];
+    const name = commandName(command);
     if (name in EMULATABLE_COMMANDS) return true;
     if (getBackendCommands(state).has(name)) return true;
     if (this.commandRunner && this.config.slashCommand.ptyEnabled) return true;
@@ -154,7 +155,7 @@ export class SlashCommandExecutor {
     command: string,
     cliSessionId: string,
   ): Promise<SlashCommandResult> {
-    const name = command.split(/\s+/)[0];
+    const name = commandName(command);
     const start = Date.now();
 
     // Try emulation first
@@ -179,14 +180,13 @@ export class SlashCommandExecutor {
 
     // Serialize PTY commands per session to prevent --resume conflicts
     const runner = this.commandRunner;
-    const result = await this.enqueue(cliSessionId, async () => {
-      const runnerResult = await runner.execute(cliSessionId, command, {
+    const result = await this.enqueue(cliSessionId, () =>
+      runner.execute(cliSessionId, command, {
         cwd: state.cwd,
         timeoutMs: this.config.slashCommand.ptyTimeoutMs,
         silenceThresholdMs: this.config.slashCommand.ptySilenceThresholdMs,
-      });
-      return runnerResult;
-    });
+      }),
+    );
 
     return {
       content: result.output,
