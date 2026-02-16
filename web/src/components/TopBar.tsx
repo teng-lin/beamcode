@@ -19,6 +19,10 @@ export function TopBar() {
   const models = useStore((s) =>
     s.currentSessionId ? (s.sessionData[s.currentSessionId]?.capabilities?.models ?? null) : null,
   );
+  const gitBranch = useStore(
+    (s) =>
+      (s.currentSessionId ? s.sessionData[s.currentSessionId]?.state?.git_branch : null) ?? null,
+  );
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
@@ -130,6 +134,28 @@ export function TopBar() {
             </div>
           )}
         </div>
+      )}
+
+      {gitBranch && (
+        <output
+          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted"
+          aria-label="Git branch"
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            aria-hidden="true"
+          >
+            <circle cx="5" cy="2" r="1.2" />
+            <circle cx="5" cy="8" r="1.2" />
+            <path d="M5 3.2V6.8" />
+          </svg>
+          {gitBranch}
+        </output>
       )}
 
       <div className="flex-1" />

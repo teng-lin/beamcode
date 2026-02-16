@@ -206,4 +206,26 @@ describe("TopBar", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByText("Claude Opus 4")).not.toBeInTheDocument();
   });
+
+  it("renders git branch when available", () => {
+    setupSession({ model: "claude-sonnet-4-20250514" });
+    store().setSessionState(SESSION, {
+      session_id: SESSION,
+      model: "claude-sonnet-4-20250514",
+      cwd: "/tmp",
+      total_cost_usd: 0,
+      num_turns: 0,
+      context_used_percent: 0,
+      is_compacting: false,
+      git_branch: "feat/cool-feature",
+    });
+    render(<TopBar />);
+    expect(screen.getByText("feat/cool-feature")).toBeInTheDocument();
+  });
+
+  it("does not render git branch when not available", () => {
+    setupSession({ model: "claude-sonnet-4-20250514" });
+    render(<TopBar />);
+    expect(screen.queryByLabelText("Git branch")).not.toBeInTheDocument();
+  });
 });
