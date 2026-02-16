@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { cwdBasename, formatCost, formatDuration, formatTokens } from "./format";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cwdBasename, formatCost, formatDuration, formatElapsed, formatTokens } from "./format";
 
 describe("formatTokens", () => {
   it("returns raw number below 1k", () => {
@@ -20,6 +20,10 @@ describe("formatTokens", () => {
 });
 
 describe("formatCost", () => {
+  it("formats zero cost", () => {
+    expect(formatCost(0)).toBe("$0.0000");
+  });
+
   it("shows 4 decimals for tiny costs", () => {
     expect(formatCost(0.001)).toBe("$0.0010");
     expect(formatCost(0.0099)).toBe("$0.0099");
@@ -57,14 +61,41 @@ describe("formatDuration", () => {
   });
 });
 
+describe("formatElapsed", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows seconds when under 1 minute", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    expect(formatElapsed(0)).toBe("10s");
+  });
+
+  it("shows 0s when just started", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(500);
+    expect(formatElapsed(0)).toBe("0s");
+  });
+
+  it("shows minutes and seconds at 1min+", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(125_000);
+    expect(formatElapsed(0)).toBe("2m 5s");
+  });
+});
+
 describe("cwdBasename", () => {
   it("returns last path segment", () => {
     expect(cwdBasename("/Users/me/project")).toBe("project");
   });
 
-  it("falls back to full path on trailing slash", () => {
-    // cwdBasename doesn't strip trailing slashes — last split segment is ""
-    expect(cwdBasename("/Users/me/project/")).toBe("/Users/me/project/");
+  it("handles trailing slash", () => {
+    expect(cwdBasename("/Users/me/project/")).toBe("project");
+  });
+
+  it("handles multiple trailing slashes", () => {
+    expect(cwdBasename("/Users/me/project///")).toBe("project");
   });
 
   it("returns full string if no slashes", () => {

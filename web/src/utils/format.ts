@@ -28,6 +28,7 @@ export function formatElapsed(startedAt: number): string {
 }
 
 export function cwdBasename(cwd: string): string {
-  const parts = cwd.split("/");
+  const trimmed = cwd.replace(/\/+$/, "");
+  const parts = trimmed.split("/");
   return parts[parts.length - 1] || cwd;
 }

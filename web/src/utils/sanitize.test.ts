@@ -17,6 +17,11 @@ describe("sanitizeHtml", () => {
     expect(result).not.toContain("onerror");
   });
 
+  it("strips iframe tags", () => {
+    const result = sanitizeHtml('<iframe src="https://evil.com"></iframe>');
+    expect(result).not.toContain("<iframe");
+  });
+
   it("preserves target and rel attributes on links", () => {
     const result = sanitizeHtml('<a href="https://example.com" target="_blank" rel="noopener">link</a>');
     expect(result).toContain('target="_blank"');
@@ -26,5 +31,10 @@ describe("sanitizeHtml", () => {
   it("strips javascript: URLs", () => {
     const result = sanitizeHtml('<a href="javascript:alert(1)">click</a>');
     expect(result).not.toContain("javascript:");
+  });
+
+  it("strips data: URIs in href", () => {
+    const result = sanitizeHtml('<a href="data:text/html,<script>alert(1)</script>">click</a>');
+    expect(result).not.toContain("data:");
   });
 });

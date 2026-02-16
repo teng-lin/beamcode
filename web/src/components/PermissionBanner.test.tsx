@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ConsumerPermissionRequest } from "../../../shared/consumer-types";
 import { useStore } from "../store";
 import * as ws from "../ws";
 import { PermissionBanner } from "./PermissionBanner";
@@ -11,23 +12,19 @@ vi.mock("../ws", () => ({
 
 const SESSION_ID = "perm-test-session";
 
-const bashPermission = {
-  request_id: "req-1",
-  tool_use_id: "tu-1",
-  tool_name: "Bash",
-  description: "Run a command",
-  input: { command: "ls -la" },
-  timestamp: Date.now(),
-};
-
-const editPermission = {
-  request_id: "req-2",
-  tool_use_id: "tu-2",
-  tool_name: "Edit",
-  description: "Edit a file",
-  input: { file_path: "/tmp/test.ts", old_string: "foo", new_string: "bar" },
-  timestamp: Date.now(),
-};
+function makePermission(
+  overrides?: Partial<ConsumerPermissionRequest>,
+): ConsumerPermissionRequest {
+  return {
+    request_id: "req-1",
+    tool_use_id: "tu-1",
+    tool_name: "Bash",
+    description: "Run a command",
+    input: { command: "ls -la" },
+    timestamp: Date.now(),
+    ...overrides,
+  };
+}
 
 describe("PermissionBanner", () => {
   beforeEach(() => {
@@ -40,11 +37,6 @@ describe("PermissionBanner", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
-    });
   });
 
   it("renders nothing when no permissions pending", () => {
@@ -53,9 +45,14 @@ describe("PermissionBanner", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("renders nothing when session data does not exist", () => {
+    const { container } = render(<PermissionBanner sessionId="nonexistent" />);
+    expect(container.firstChild).toBeNull();
+  });
+
   it("renders permission request with tool name", () => {
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, bashPermission);
+    useStore.getState().addPermission(SESSION_ID, makePermission());
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     expect(screen.getByText("Bash")).toBeInTheDocument();
@@ -64,7 +61,7 @@ describe("PermissionBanner", () => {
 
   it("shows Bash command preview", () => {
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, bashPermission);
+    useStore.getState().addPermission(SESSION_ID, makePermission());
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     expect(screen.getByText("$ ls -la")).toBeInTheDocument();
@@ -72,7 +69,16 @@ describe("PermissionBanner", () => {
 
   it("shows Edit tool preview with old/new strings", () => {
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, editPermission);
+    useStore.getState().addPermission(
+      SESSION_ID,
+      makePermission({
+        request_id: "req-2",
+        tool_use_id: "tu-2",
+        tool_name: "Edit",
+        description: "Edit a file",
+        input: { file_path: "/tmp/test.ts", old_string: "foo", new_string: "bar" },
+      }),
+    );
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     expect(screen.getByText("/tmp/test.ts")).toBeInTheDocument();
@@ -83,7 +89,7 @@ describe("PermissionBanner", () => {
   it("sends allow response and removes permission on Allow click", async () => {
     const user = userEvent.setup();
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, bashPermission);
+    useStore.getState().addPermission(SESSION_ID, makePermission());
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     await user.click(screen.getByRole("button", { name: /approve bash/i }));
@@ -98,10 +104,10 @@ describe("PermissionBanner", () => {
     ).toBeUndefined();
   });
 
-  it("sends deny response on Deny click", async () => {
+  it("sends deny response and removes permission on Deny click", async () => {
     const user = userEvent.setup();
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, bashPermission);
+    useStore.getState().addPermission(SESSION_ID, makePermission());
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     await user.click(screen.getByRole("button", { name: /deny bash/i }));
@@ -111,12 +117,24 @@ describe("PermissionBanner", () => {
       request_id: "req-1",
       behavior: "deny",
     });
+    expect(
+      useStore.getState().sessionData[SESSION_ID].pendingPermissions["req-1"],
+    ).toBeUndefined();
   });
 
   it("renders multiple permission requests", () => {
     useStore.getState().ensureSessionData(SESSION_ID);
-    useStore.getState().addPermission(SESSION_ID, bashPermission);
-    useStore.getState().addPermission(SESSION_ID, editPermission);
+    useStore.getState().addPermission(SESSION_ID, makePermission());
+    useStore.getState().addPermission(
+      SESSION_ID,
+      makePermission({
+        request_id: "req-2",
+        tool_use_id: "tu-2",
+        tool_name: "Edit",
+        description: "Edit a file",
+        input: { file_path: "/tmp/test.ts", old_string: "foo", new_string: "bar" },
+      }),
+    );
     render(<PermissionBanner sessionId={SESSION_ID} />);
 
     expect(screen.getByText("Bash")).toBeInTheDocument();

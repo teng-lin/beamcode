@@ -1,12 +1,39 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ConsumerPermissionRequest } from "../../shared/consumer-types";
-import { useStore } from "./store";
+import { beforeEach, describe, expect, it } from "vitest";
+import type {
+  ConsumerContentBlock,
+  ConsumerMessage,
+  ConsumerPermissionRequest,
+} from "../../shared/consumer-types";
+import { type SdkSessionInfo, useStore } from "./store";
 
 const SESSION_ID = "test-session-1";
 
+function makeUserMessage(content: string): ConsumerMessage {
+  return { type: "user_message", content, timestamp: Date.now() };
+}
+
+function makeSessionInfo(
+  overrides: Partial<SdkSessionInfo> & { sessionId: string },
+): SdkSessionInfo {
+  return { cwd: "/tmp", state: "connected", createdAt: Date.now(), ...overrides };
+}
+
+function makePermission(
+  overrides?: Partial<ConsumerPermissionRequest>,
+): ConsumerPermissionRequest {
+  return {
+    request_id: "perm-1",
+    tool_use_id: "tu-1",
+    tool_name: "Bash",
+    description: "Run ls",
+    input: { command: "ls" },
+    timestamp: Date.now(),
+    ...overrides,
+  };
+}
+
 describe("store", () => {
   beforeEach(() => {
-    // Reset store to initial state before each test
     useStore.setState({
       sessionData: {},
       sessions: {},
@@ -14,14 +41,6 @@ describe("store", () => {
       darkMode: true,
       sidebarOpen: false,
       taskPanelOpen: false,
-    });
-  });
-
-  afterEach(() => {
-    useStore.setState({
-      sessionData: {},
-      sessions: {},
-      currentSessionId: null,
     });
   });
 
@@ -67,24 +86,28 @@ describe("store", () => {
 
     it("ensureSessionData is idempotent", () => {
       useStore.getState().ensureSessionData(SESSION_ID);
-      useStore.getState().addMessage(SESSION_ID, {
-        type: "user_message",
-        content: "hello",
-      } as never);
+      useStore.getState().addMessage(SESSION_ID, makeUserMessage("hello"));
       useStore.getState().ensureSessionData(SESSION_ID);
-      // Should not wipe existing data
       expect(useStore.getState().sessionData[SESSION_ID].messages).toHaveLength(1);
     });
 
     it("addMessage appends to session messages", () => {
-      const msg = { type: "user_message", content: "hello" } as never;
+      const msg = makeUserMessage("hello");
       useStore.getState().addMessage(SESSION_ID, msg);
       useStore.getState().addMessage(SESSION_ID, msg);
       expect(useStore.getState().sessionData[SESSION_ID].messages).toHaveLength(2);
     });
 
+    it("addMessage truncates at 2000 messages", () => {
+      const msg = makeUserMessage("x");
+      for (let i = 0; i < 2001; i++) {
+        useStore.getState().addMessage(SESSION_ID, msg);
+      }
+      expect(useStore.getState().sessionData[SESSION_ID].messages).toHaveLength(2000);
+    });
+
     it("setMessages replaces messages", () => {
-      useStore.getState().addMessage(SESSION_ID, { type: "user_message" } as never);
+      useStore.getState().addMessage(SESSION_ID, makeUserMessage("old"));
       useStore.getState().setMessages(SESSION_ID, []);
       expect(useStore.getState().sessionData[SESSION_ID].messages).toHaveLength(0);
     });
@@ -108,7 +131,9 @@ describe("store", () => {
       useStore.getState().setStreaming(SESSION_ID, "text");
       useStore.getState().setStreamingStarted(SESSION_ID, Date.now());
       useStore.getState().setStreamingOutputTokens(SESSION_ID, 100);
-      useStore.getState().setStreamingBlocks(SESSION_ID, [{ type: "text", text: "block" } as never]);
+      useStore.getState().setStreamingBlocks(SESSION_ID, [
+        { type: "text", text: "block" } as ConsumerContentBlock,
+      ]);
 
       useStore.getState().clearStreaming(SESSION_ID);
       const data = useStore.getState().sessionData[SESSION_ID];
@@ -137,16 +162,8 @@ describe("store", () => {
   });
 
   describe("permissions", () => {
-    const permission: ConsumerPermissionRequest = {
-      request_id: "perm-1",
-      tool_use_id: "tu-1",
-      tool_name: "Bash",
-      description: "Run ls",
-      input: { command: "ls" },
-      timestamp: Date.now(),
-    };
-
     it("adds and removes permissions", () => {
+      const permission = makePermission();
       useStore.getState().ensureSessionData(SESSION_ID);
       useStore.getState().addPermission(SESSION_ID, permission);
       expect(useStore.getState().sessionData[SESSION_ID].pendingPermissions["perm-1"]).toEqual(
@@ -160,7 +177,6 @@ describe("store", () => {
     });
 
     it("removePermission is safe for missing session", () => {
-      // Should not throw
       useStore.getState().removePermission("nonexistent", "perm-1");
     });
   });
@@ -168,24 +184,24 @@ describe("store", () => {
   describe("session list", () => {
     it("setSessions replaces all sessions", () => {
       useStore.getState().setSessions({
-        s1: { sessionId: "s1", cwd: "/tmp", state: "connected", createdAt: 1 },
-        s2: { sessionId: "s2", cwd: "/home", state: "running", createdAt: 2 },
-      } as never);
+        s1: makeSessionInfo({ sessionId: "s1" }),
+        s2: makeSessionInfo({ sessionId: "s2", cwd: "/home", state: "running" }),
+      });
       expect(Object.keys(useStore.getState().sessions)).toHaveLength(2);
     });
 
     it("updateSession merges partial data", () => {
       useStore.getState().setSessions({
-        s1: { sessionId: "s1", cwd: "/tmp", state: "connected", createdAt: 1 },
-      } as never);
+        s1: makeSessionInfo({ sessionId: "s1" }),
+      });
       useStore.getState().updateSession("s1", { state: "exited" });
       expect(useStore.getState().sessions.s1.state).toBe("exited");
     });
 
     it("removeSession cleans up both sessions and sessionData", () => {
       useStore.getState().setSessions({
-        s1: { sessionId: "s1", cwd: "/tmp", state: "connected", createdAt: 1 },
-      } as never);
+        s1: makeSessionInfo({ sessionId: "s1" }),
+      });
       useStore.getState().ensureSessionData("s1");
       useStore.getState().removeSession("s1");
       expect(useStore.getState().sessions.s1).toBeUndefined();
