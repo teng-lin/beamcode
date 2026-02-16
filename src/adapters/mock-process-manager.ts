@@ -47,8 +47,8 @@ export class MockProcessManager implements ProcessManager {
         killCalls.push(signal);
         // Auto-resolve exit when killed (simulates real process behavior)
         // Use null exit code to indicate killed by signal
-        if (!this._hasExited) {
-          this._hasExited = true;
+        if (!handle._hasExited) {
+          handle._hasExited = true;
           resolveExit?.(null);
         }
       },
@@ -57,8 +57,8 @@ export class MockProcessManager implements ProcessManager {
       stderr: null,
       // Test control methods
       resolveExit: (code: number | null) => {
-        if (!this._hasExited) {
-          this._hasExited = true;
+        if (!handle._hasExited) {
+          handle._hasExited = true;
           this.alivePids.delete(pid);
           resolveExit?.(code);
         }
