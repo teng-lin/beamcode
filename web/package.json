@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@vitest/coverage-v8": "^4.0.18",
+    "diff": "^8.0.3",
     "dompurify": "3.2.4",
     "marked": "15.0.7",
     "react": "19.1.0",
@@ -23,6 +24,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/diff": "^7.0.2",
     "@types/react": "19.1.0",
     "@types/react-dom": "19.1.0",
     "@vitejs/plugin-react": "4.4.1",
