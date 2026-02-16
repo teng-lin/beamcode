@@ -1579,7 +1579,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // Use null (not undefined) for deletion so JSON.stringify preserves the key.
     this.broadcastToConsumers(session, {
       type: "session_update",
-      session: { team: currentTeam ?? null },
+      session: { team: currentTeam ?? null } as Partial<SessionState>,
     });
 
     // Team created

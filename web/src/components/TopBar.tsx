@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppState } from "../store";
-import { useStore } from "../store";
+import { useShallow } from "zustand/shallow";
+import { currentData, useStore } from "../store";
 import { send } from "../ws";
 
 const CONNECTION_DOT_STYLES: Record<string, string> = {
@@ -8,11 +8,6 @@ const CONNECTION_DOT_STYLES: Record<string, string> = {
   connecting: "bg-bc-warning animate-pulse",
 };
 const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
-
-/** Get the current session's data, or undefined if no session is active. */
-function currentData(s: AppState) {
-  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
-}
 
 export function TopBar() {
   const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
@@ -27,8 +22,12 @@ export function TopBar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
-  const teamName = useStore((s) => currentData(s)?.state?.team?.name ?? null);
-  const memberCount = useStore((s) => currentData(s)?.state?.team?.members.length ?? 0);
+  const { teamName, memberCount } = useStore(
+    useShallow((s) => ({
+      teamName: currentData(s)?.state?.team?.name ?? null,
+      memberCount: currentData(s)?.state?.team?.members.length ?? 0,
+    })),
+  );
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
 

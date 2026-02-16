@@ -101,6 +101,13 @@ export interface AppState {
   removeSession: (id: string) => void;
 }
 
+// ── Selector helpers ────────────────────────────────────────────────────────
+
+/** Get the current session's data, or undefined if no session is active. */
+export function currentData(s: AppState) {
+  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function emptySessionData(): SessionData {

@@ -1,16 +1,9 @@
 import { memo } from "react";
 import type { ConsumerTeamMember, ConsumerTeamTask } from "../../../shared/consumer-types";
-import type { AppState } from "../store";
 import { useStore } from "../store";
 import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function currentData(s: AppState) {
-  return s.currentSessionId ? s.sessionData[s.currentSessionId] : undefined;
-}
 
 interface ModelUsage {
   inputTokens: number;
@@ -112,11 +105,11 @@ export function TaskPanel() {
   const sessionData = useStore((s) =>
     s.currentSessionId ? s.sessionData[s.currentSessionId] : null,
   );
-  const team = useStore((s) => currentData(s)?.state?.team ?? null);
 
   if (!currentSessionId || !sessionData) return null;
 
   const state = sessionData.state;
+  const team = state?.team ?? null;
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
   const contextPercent = state?.context_used_percent ?? 0;
