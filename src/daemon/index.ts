@@ -1,0 +1,11 @@
+export type { CreateSessionOptions, DaemonSessionInfo } from "./child-process-supervisor.js";
+export { ChildProcessSupervisor } from "./child-process-supervisor.js";
+export type { ControlApiOptions } from "./control-api.js";
+export { ControlApi } from "./control-api.js";
+export type { DaemonOptions } from "./daemon.js";
+export { Daemon } from "./daemon.js";
+export { startHealthCheck } from "./health-check.js";
+export { acquireLock, isLockStale, releaseLock } from "./lock-file.js";
+export { registerSignalHandlers } from "./signal-handler.js";
+export type { DaemonState } from "./state-file.js";
+export { readState, updateHeartbeat, writeState } from "./state-file.js";

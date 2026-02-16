@@ -22,5 +22,5 @@
     "exactOptionalPropertyTypes": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "node_modules", "dist"]
+  "exclude": ["src/**/*.test.ts", "src/consumer/**", "node_modules", "dist"]
 }
