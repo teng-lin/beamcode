@@ -12,9 +12,15 @@ interface SlashMenuProps {
   onClose: () => void;
 }
 
+interface CommandItem {
+  name: string;
+  description: string;
+  category?: string;
+}
+
 interface CommandCategory {
   label: string;
-  commands: Array<{ name: string; description: string }>;
+  commands: CommandItem[];
 }
 
 const CATEGORY_MAP: Record<string, string> = {
@@ -31,11 +37,11 @@ const CATEGORY_MAP: Record<string, string> = {
   diff: "Analysis",
 };
 
-function categorize(commands: Array<{ name: string; description: string }>): CommandCategory[] {
-  const categories = new Map<string, Array<{ name: string; description: string }>>();
+function categorize(commands: CommandItem[]): CommandCategory[] {
+  const categories = new Map<string, CommandItem[]>();
 
   for (const cmd of commands) {
-    const cat = CATEGORY_MAP[cmd.name] ?? "Other";
+    const cat = cmd.category ?? CATEGORY_MAP[cmd.name] ?? "Other";
     if (!categories.has(cat)) categories.set(cat, []);
     categories.get(cat)?.push(cmd);
   }
@@ -54,7 +60,15 @@ export const SlashMenu = forwardRef<SlashMenuHandle, SlashMenuProps>(function Sl
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const allCommands = useMemo(() => capabilities?.commands ?? [], [capabilities]);
+  const allCommands = useMemo(() => {
+    const cmds = capabilities?.commands ?? [];
+    const skills = (capabilities?.skills ?? []).map((s) => ({
+      name: s,
+      description: `Run ${s} skill`,
+      category: "Skills",
+    }));
+    return [...cmds, ...skills];
+  }, [capabilities]);
 
   const filtered = useMemo(() => {
     if (!query) return allCommands;

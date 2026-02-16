@@ -95,6 +95,7 @@ function handleMessage(sessionId: string, data: string): void {
       store.setCapabilities(sessionId, {
         commands: msg.commands,
         models: msg.models,
+        skills: msg.skills ?? [],
       });
       break;
 
