@@ -52,7 +52,7 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
       ...Object.keys(EMULATABLE_COMMANDS).filter(
         (name) => name !== "/help" && !backendNames.has(name),
       ),
-    ];
+    ].sort();
     return ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
   },
 
