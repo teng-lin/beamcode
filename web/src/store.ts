@@ -44,7 +44,7 @@ export interface SessionData {
   reconnectAttempt: number;
 }
 
-interface AppState {
+export interface AppState {
   // Session data (grouped per session)
   sessionData: Record<string, SessionData>;
   sessions: Record<string, SdkSessionInfo>;
@@ -137,6 +137,25 @@ function patchSession(
 
 const MAX_MESSAGES_PER_SESSION = 2000;
 
+function readBool(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const val = localStorage.getItem(key);
+    if (val === null) return fallback;
+    return val !== "false";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBool(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage unavailable (SSR, private browsing quota, etc.)
+  }
+}
+
 // ── Store ───────────────────────────────────────────────────────────────────
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -144,15 +163,28 @@ export const useStore = create<AppState>()((set, get) => ({
   sessions: {},
   currentSessionId: null,
 
-  darkMode: true,
-  sidebarOpen: typeof window !== "undefined" && window.innerWidth >= 768,
+  darkMode: readBool("beamcode_dark_mode", true),
+  sidebarOpen: readBool(
+    "beamcode_sidebar_open",
+    typeof window !== "undefined" && window.innerWidth >= 768,
+  ),
   taskPanelOpen: false,
   shortcutsModalOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleSidebar: () =>
+    set((s) => {
+      const next = !s.sidebarOpen;
+      writeBool("beamcode_sidebar_open", next);
+      return { sidebarOpen: next };
+    }),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
-  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  toggleDarkMode: () =>
+    set((s) => {
+      const next = !s.darkMode;
+      writeBool("beamcode_dark_mode", next);
+      return { darkMode: next };
+    }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
 
   ensureSessionData: (id) => {

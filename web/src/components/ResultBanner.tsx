@@ -47,6 +47,13 @@ export function ResultBanner({ data }: ResultBannerProps) {
       <span className="tabular-nums text-bc-text-muted">{formatCost(data.total_cost_usd)}</span>
       <span className="text-bc-text-muted/30">·</span>
       <span className="tabular-nums text-bc-text-muted">{formatTokens(totalTokens)} tokens</span>
+      {(data.total_lines_added != null || data.total_lines_removed != null) && (
+        <>
+          <span className="text-bc-text-muted/30">·</span>
+          <span className="tabular-nums text-bc-success">+{data.total_lines_added ?? 0}</span>
+          <span className="tabular-nums text-bc-error">-{data.total_lines_removed ?? 0}</span>
+        </>
+      )}
     </div>
   );
 }

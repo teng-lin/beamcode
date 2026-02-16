@@ -1,23 +1,9 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { createSession, deleteSession } from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
+import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
 import { connectToSession, disconnect } from "../ws";
-
-/** Update the browser URL's `session` query param without a full navigation. */
-function updateSessionUrl(sessionId: string | null, method: "push" | "replace" = "replace"): void {
-  const url = new URL(window.location.href);
-  if (sessionId) {
-    url.searchParams.set("session", sessionId);
-  } else {
-    url.searchParams.delete("session");
-  }
-  if (method === "push") {
-    window.history.pushState({}, "", url);
-  } else {
-    window.history.replaceState({}, "", url);
-  }
-}
 
 const ADAPTER_COLORS: Record<string, string> = {
   claude: "bg-bc-adapter-claude",
@@ -165,8 +151,8 @@ export function Sidebar() {
   const setCurrentSession = useStore((s) => s.setCurrentSession);
   const updateSession = useStore((s) => s.updateSession);
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
   const creatingRef = useRef(false);
-  const [searchQuery, setSearchQuery] = useState("");
 
   const handleNewSession = useCallback(async () => {
     if (creatingRef.current) return;
@@ -186,17 +172,12 @@ export function Sidebar() {
     }
   }, [updateSession, setCurrentSession]);
 
-  const sessionList = Object.values(sessions)
-    .filter(
-      (s): s is SdkSessionInfo =>
-        s != null && typeof s.sessionId === "string" && typeof s.createdAt === "number",
-    )
-    .filter((s) => {
-      if (!searchQuery) return true;
-      const name = s.name ?? cwdBasename(s.cwd ?? "");
-      return name.toLowerCase().includes(searchQuery.toLowerCase());
-    })
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const sessionList = useMemo(() => sortedSessions(sessions), [sessions]);
+
+  const filteredList = useMemo(
+    () => filterSessionsByQuery(sessionList, search),
+    [sessionList, search],
+  );
 
   return (
     <aside className="flex h-full w-[260px] flex-shrink-0 flex-col border-r border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40">
@@ -237,26 +218,28 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="border-b border-bc-border px-3 py-2">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search sessions..."
-          className="w-full rounded-md border border-bc-border bg-bc-bg px-2.5 py-1.5 text-xs text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
-          aria-label="Search sessions"
-        />
-      </div>
+      {/* Search filter */}
+      {sessionList.length > 0 && (
+        <div className="px-3 py-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sessions..."
+            className="w-full rounded-md border border-bc-border bg-bc-bg px-2.5 py-1.5 text-xs text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
+            aria-label="Search sessions"
+          />
+        </div>
+      )}
 
       {/* Session list */}
       <nav className="flex-1 overflow-y-auto py-1.5" aria-label="Sessions">
-        {sessionList.length === 0 ? (
+        {filteredList.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-bc-text-muted">
-            {searchQuery ? "No matching sessions" : "No sessions"}
+            {search ? "No matches" : "No sessions"}
           </div>
         ) : (
-          sessionList.map((info) => (
+          filteredList.map((info) => (
             <SessionItem
               key={info.sessionId}
               info={info}

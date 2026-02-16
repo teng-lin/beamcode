@@ -392,98 +392,90 @@ describe("Sidebar", () => {
     });
   });
 
-  // ── Session search ──────────────────────────────────────────────────
+  // ── Session search ──────────────────────────────────────────────────────
 
   describe("session search", () => {
-    it("renders a search input", () => {
+    it("renders search input when sessions exist", () => {
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));
       render(<Sidebar />);
       expect(screen.getByPlaceholderText("Search sessions...")).toBeInTheDocument();
     });
 
-    it("filters sessions by name match", async () => {
+    it("filters sessions by cwd basename", async () => {
       const user = userEvent.setup();
       setupSessions(
-        makeSessionInfo({
-          sessionId: "s1",
-          name: "Auth refactor",
-          cwd: "/tmp/auth",
-          createdAt: 1000,
-        }),
-        makeSessionInfo({ sessionId: "s2", name: "API tests", cwd: "/tmp/api", createdAt: 2000 }),
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
         makeSessionInfo({
           sessionId: "s3",
-          name: "Dashboard UI",
-          cwd: "/tmp/dash",
+          name: "My Project",
+          cwd: "/home/user/gamma",
           createdAt: 3000,
         }),
       );
       render(<Sidebar />);
 
-      await user.type(screen.getByPlaceholderText("Search sessions..."), "auth");
-
-      expect(screen.getByText("Auth refactor")).toBeInTheDocument();
-      expect(screen.queryByText("API tests")).not.toBeInTheDocument();
-      expect(screen.queryByText("Dashboard UI")).not.toBeInTheDocument();
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "alpha");
+      expect(screen.getByText("alpha")).toBeInTheDocument();
+      expect(screen.queryByText("beta")).not.toBeInTheDocument();
+      expect(screen.queryByText("My Project")).not.toBeInTheDocument();
     });
 
-    it("filters sessions by cwd basename when name is undefined", async () => {
+    it("filters are case-insensitive", async () => {
       const user = userEvent.setup();
-      setupSessions(
-        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/my-project", createdAt: 1000 }),
-        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/other-thing", createdAt: 2000 }),
-      );
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/Alpha", createdAt: 1000 }));
       render(<Sidebar />);
 
-      await user.type(screen.getByPlaceholderText("Search sessions..."), "my-proj");
-
-      expect(screen.getByText("my-project")).toBeInTheDocument();
-      expect(screen.queryByText("other-thing")).not.toBeInTheDocument();
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "alpha");
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
     });
 
-    it("is case-insensitive", async () => {
+    it("matches against session name property", async () => {
       const user = userEvent.setup();
       setupSessions(
         makeSessionInfo({
           sessionId: "s1",
-          name: "Auth Refactor",
-          cwd: "/tmp/auth",
+          name: "Cool Project",
+          cwd: "/home/user/proj",
           createdAt: 1000,
         }),
       );
       render(<Sidebar />);
 
-      await user.type(screen.getByPlaceholderText("Search sessions..."), "AUTH");
-
-      expect(screen.getByText("Auth Refactor")).toBeInTheDocument();
+      await user.type(screen.getByPlaceholderText("Search sessions..."), "cool");
+      expect(screen.getByText("Cool Project")).toBeInTheDocument();
     });
 
     it("shows all sessions when search is cleared", async () => {
       const user = userEvent.setup();
       setupSessions(
-        makeSessionInfo({ sessionId: "s1", name: "Alpha", cwd: "/tmp/a", createdAt: 1000 }),
-        makeSessionInfo({ sessionId: "s2", name: "Beta", cwd: "/tmp/b", createdAt: 2000 }),
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
       );
       render(<Sidebar />);
 
       const input = screen.getByPlaceholderText("Search sessions...");
-      await user.type(input, "Alpha");
-      expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+      await user.type(input, "alpha");
+      expect(screen.queryByText("beta")).not.toBeInTheDocument();
 
       await user.clear(input);
-      expect(screen.getByText("Alpha")).toBeInTheDocument();
-      expect(screen.getByText("Beta")).toBeInTheDocument();
+      expect(screen.getByText("alpha")).toBeInTheDocument();
+      expect(screen.getByText("beta")).toBeInTheDocument();
     });
 
-    it("shows 'No matching sessions' when search has no results", async () => {
+    it('shows "No matches" when filter has no results', async () => {
       const user = userEvent.setup();
-      setupSessions(
-        makeSessionInfo({ sessionId: "s1", name: "Alpha", cwd: "/tmp/a", createdAt: 1000 }),
-      );
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));
       render(<Sidebar />);
 
       await user.type(screen.getByPlaceholderText("Search sessions..."), "zzzzz");
+      expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+      expect(screen.getByText("No matches")).toBeInTheDocument();
+    });
 
-      expect(screen.getByText("No matching sessions")).toBeInTheDocument();
+    it("does not show search input when no sessions exist", () => {
+      render(<Sidebar />);
+      expect(screen.queryByPlaceholderText("Search sessions...")).not.toBeInTheDocument();
     });
   });
 

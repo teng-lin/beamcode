@@ -64,6 +64,43 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Context Window")).toBeInTheDocument();
   });
 
+  it("renders lines added/removed when available", () => {
+    store().ensureSessionData(SESSION);
+    store().setSessionState(SESSION, {
+      session_id: SESSION,
+      model: "claude-sonnet-4-20250514",
+      cwd: "/tmp",
+      total_cost_usd: 0.1,
+      num_turns: 3,
+      context_used_percent: 30,
+      is_compacting: false,
+      total_lines_added: 42,
+      total_lines_removed: 10,
+    });
+    useStore.setState({ currentSessionId: SESSION });
+    render(<TaskPanel />);
+
+    expect(screen.getByText("+42")).toBeInTheDocument();
+    expect(screen.getByText("-10")).toBeInTheDocument();
+  });
+
+  it("does not render lines section when lines data is absent", () => {
+    store().ensureSessionData(SESSION);
+    store().setSessionState(SESSION, {
+      session_id: SESSION,
+      model: "claude-sonnet-4-20250514",
+      cwd: "/tmp",
+      total_cost_usd: 0.1,
+      num_turns: 3,
+      context_used_percent: 30,
+      is_compacting: false,
+    });
+    useStore.setState({ currentSessionId: SESSION });
+    render(<TaskPanel />);
+
+    expect(screen.queryByText("Lines")).not.toBeInTheDocument();
+  });
+
   it("renders model usage breakdown when available", () => {
     store().ensureSessionData(SESSION);
     store().setSessionState(SESSION, {
