@@ -201,6 +201,48 @@
     }
     #empty-state h2 { font-size: 18px; color: var(--text); font-weight: 600; }
     #empty-state p { font-size: 13px; }
+
+    /* Autocomplete popup */
+    #slash-autocomplete {
+      display: none; position: absolute; bottom: 100%; left: 0; right: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px 8px 0 0; max-height: 240px; overflow-y: auto;
+      margin-bottom: 4px; z-index: 10;
+    }
+    #slash-autocomplete.visible { display: block; }
+    .ac-item {
+      padding: 8px 12px; cursor: pointer; display: flex;
+      align-items: baseline; gap: 8px;
+    }
+    .ac-item:hover, .ac-item.selected {
+      background: var(--surface-2);
+    }
+    .ac-item .ac-name {
+      font-weight: 600; font-size: 13px; color: var(--accent);
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+    }
+    .ac-item .ac-desc {
+      font-size: 12px; color: var(--text-muted);
+    }
+    .ac-item .ac-cat {
+      margin-left: auto; font-size: 10px; color: var(--text-muted);
+      background: var(--surface-2); padding: 1px 6px; border-radius: 8px;
+    }
+
+    /* Command result styling */
+    .msg-command-result {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin: 4px 0;
+    }
+    .msg-command-result .cmd-header {
+      font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px;
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+    }
+    .msg-command-result pre {
+      white-space: pre-wrap; font-size: 13px; color: var(--text);
+      font-family: "SF Mono", SFMono-Regular, Consolas, monospace;
+      margin: 0; line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -217,7 +259,8 @@
     </div>
   </main>
 
-  <footer id="input-bar">
+  <footer id="input-bar" style="position:relative">
+    <div id="slash-autocomplete"></div>
     <textarea id="input" rows="1" placeholder="Send a message…"></textarea>
     <button type="button" id="send-btn" class="input-btn" title="Send">&#x2191;</button>
     <button type="button" id="interrupt-btn" class="input-btn" title="Interrupt">&#x25A0;</button>
@@ -323,13 +366,13 @@
       switch (message.type) {
         case 'assistant': return this.renderAssistant(message.message);
         case 'result': return this.renderResult(message.data);
-        case 'status_change': return this._renderStatus(message.status);
-        case 'error': return this._system(message.message, 'error');
-        case 'cli_connected': return this._system('CLI connected', 'success');
-        case 'cli_disconnected': return this._system('CLI disconnected', 'warning');
-        case 'user_message': return this._renderUser(message.content);
-        case 'slash_command_result': return this._system(message.content, 'info');
-        case 'slash_command_error': return this._system(message.error, 'error');
+        case 'status_change': return this.renderStatus(message.status);
+        case 'error': return this.renderSystem(message.message, 'error');
+        case 'cli_connected': return this.renderSystem('CLI connected', 'success');
+        case 'cli_disconnected': return this.renderSystem('CLI disconnected', 'warning');
+        case 'user_message': return this.renderUserMessage(message.content);
+        case 'slash_command_result': return this.renderCommandResult(message.command, message.content);
+        case 'slash_command_error': return this.renderSystem(message.error, 'error');
         default: return null;
       }
     }
@@ -349,7 +392,7 @@
       w.appendChild(lbl);
       const body = document.createElement('div');
       body.className = 'msg-body';
-      for (const block of content.content) body.appendChild(this._block(block));
+      for (const block of content.content) body.appendChild(this.renderBlock(block));
       w.appendChild(body);
       return w;
     }
@@ -367,7 +410,7 @@
       return el;
     }
 
-    _block(block) {
+    renderBlock(block) {
       switch (block.type) {
         case 'text': {
           const el = document.createElement('div');
@@ -397,7 +440,7 @@
             pre.textContent = truncate(block.content, 2000);
             el.appendChild(pre);
           } else if (Array.isArray(block.content)) {
-            for (const b of block.content) el.appendChild(this._block(b));
+            for (const b of block.content) el.appendChild(this.renderBlock(b));
           }
           return el;
         }
@@ -416,7 +459,7 @@
       }
     }
 
-    _renderUser(content) {
+    renderUserMessage(content) {
       const el = document.createElement('div');
       el.className = 'msg msg-user';
       const lbl = document.createElement('div');
@@ -430,7 +473,7 @@
       return el;
     }
 
-    _renderStatus(status) {
+    renderStatus(status) {
       if (!status || status === 'idle') return null;
       const el = document.createElement('div');
       el.className = 'msg msg-system';
@@ -438,10 +481,23 @@
       return el;
     }
 
-    _system(text, level) {
+    renderSystem(text, level) {
       const el = document.createElement('div');
       el.className = `msg msg-system msg-${level}`;
       el.textContent = text;
+      return el;
+    }
+
+    renderCommandResult(command, content) {
+      const el = document.createElement('div');
+      el.className = 'msg msg-command-result';
+      const hdr = document.createElement('div');
+      hdr.className = 'cmd-header';
+      hdr.textContent = command || 'command';
+      el.appendChild(hdr);
+      const pre = document.createElement('pre');
+      pre.textContent = truncate(content, 5000);
+      el.appendChild(pre);
       return el;
     }
   }
@@ -508,6 +564,161 @@
     }
   }
 
+  // ── SlashCommandHandler ────────────────────────────────────────────────────
+
+  class SlashCommandHandler {
+    constructor() {
+      this._consumerCommands = [
+        { name: '/help', description: 'Show all available commands', category: 'consumer' },
+        { name: '/clear', description: 'Clear the message display', category: 'consumer' },
+      ];
+      this._serverCommands = [];
+    }
+
+    isSlashCommand(input) {
+      return input.trimStart().startsWith('/');
+    }
+
+    parse(input) {
+      const trimmed = input.trim();
+      const spaceIdx = trimmed.indexOf(' ');
+      if (spaceIdx === -1) return { name: trimmed, args: '' };
+      return { name: trimmed.slice(0, spaceIdx), args: trimmed.slice(spaceIdx + 1).trim() };
+    }
+
+    isConsumerLocal(name) {
+      return this._consumerCommands.some((c) => c.name === name);
+    }
+
+    setServerCommands(commands) {
+      this._serverCommands = (commands || []).map((c) => ({
+        name: c.name.startsWith('/') ? c.name : `/${c.name}`,
+        description: c.description || '',
+        category: 'server',
+        argumentHint: c.argumentHint,
+      }));
+    }
+
+    getAllCommands() {
+      const consumerNames = new Set(this._consumerCommands.map((c) => c.name));
+      const uniqueServer = this._serverCommands.filter((c) => !consumerNames.has(c.name));
+      return [...this._consumerCommands, ...uniqueServer];
+    }
+  }
+
+  // ── AutocompleteUI ────────────────────────────────────────────────────────
+
+  class AutocompleteUI {
+    constructor(containerEl, handler, onSelect) {
+      this._el = containerEl;
+      this._handler = handler;
+      this._onSelect = onSelect;
+      this._selectedIdx = -1;
+      this._items = [];
+      this._visible = false;
+    }
+
+    update(value) {
+      const trimmed = value.trimStart();
+      if (!trimmed.startsWith('/') || trimmed.includes(' ') || trimmed === '') {
+        this.hide();
+        return;
+      }
+      const prefix = trimmed.toLowerCase();
+      this._items = this._handler.getAllCommands().filter(
+        (c) => c.name.toLowerCase().startsWith(prefix)
+      );
+      if (this._items.length === 0) { this.hide(); return; }
+      this._selectedIdx = 0;
+      this._render();
+      this._el.classList.add('visible');
+      this._visible = true;
+    }
+
+    hide() {
+      this._el.classList.remove('visible');
+      this._visible = false;
+      this._items = [];
+      this._selectedIdx = -1;
+    }
+
+    isVisible() { return this._visible; }
+
+    getSelected() {
+      if (this._selectedIdx >= 0 && this._selectedIdx < this._items.length) {
+        return this._items[this._selectedIdx].name;
+      }
+      return null;
+    }
+
+    // Returns true if the key was consumed by the autocomplete, false otherwise.
+    // Tab/Enter selection is handled via the onSelect callback.
+    handleKey(e) {
+      if (!this._visible) return false;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this._selectedIdx = Math.min(this._selectedIdx + 1, this._items.length - 1);
+        this._render();
+        return true;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this._selectedIdx = Math.max(this._selectedIdx - 1, 0);
+        this._render();
+        return true;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        const selected = this.getSelected();
+        if (selected) {
+          e.preventDefault();
+          this.hide();
+          this._onSelect(selected);
+          return true;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hide();
+        return true;
+      }
+      return false;
+    }
+
+    _render() {
+      this._el.innerHTML = '';
+      for (let i = 0; i < this._items.length; i++) {
+        const item = this._items[i];
+        const div = document.createElement('div');
+        div.className = 'ac-item' + (i === this._selectedIdx ? ' selected' : '');
+
+        const name = document.createElement('span');
+        name.className = 'ac-name';
+        name.textContent = item.name;
+        div.appendChild(name);
+
+        const desc = document.createElement('span');
+        desc.className = 'ac-desc';
+        desc.textContent = item.description;
+        div.appendChild(desc);
+
+        const cat = document.createElement('span');
+        cat.className = 'ac-cat';
+        cat.textContent = item.category;
+        div.appendChild(cat);
+
+        div.addEventListener('click', () => {
+          this.hide();
+          this._onSelect(item.name);
+        });
+        this._el.appendChild(div);
+      }
+      const selectedEl = this._el.querySelector('.ac-item.selected');
+      if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
   // ── CryptoClient (stub) ────────────────────────────────────────────────────
 
   class CryptoClient {
@@ -552,6 +763,15 @@
     const renderer = new MessageRenderer();
     const permissionUI = new PermissionUI(messagesEl);
     const crypto = new CryptoClient();
+    const slashHandler = new SlashCommandHandler();
+    const autocomplete = new AutocompleteUI(
+      document.getElementById('slash-autocomplete'),
+      slashHandler,
+      (name) => {
+        inputEl.value = name + ' ';
+        inputEl.focus();
+      }
+    );
 
     let cliStatus = null;
     let autoScroll = true;
@@ -586,6 +806,10 @@
           if (msg.session?.model) {
             document.title = `BeamCode — ${msg.session.cwd || ''}`;
           }
+          break;
+
+        case 'capabilities_ready':
+          slashHandler.setServerCommands(msg.commands || []);
           break;
 
         case 'message_history':
@@ -648,19 +872,70 @@
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
       inputEl.style.height = `${Math.min(inputEl.scrollHeight, 120)}px`;
+      autocomplete.update(inputEl.value);
     });
 
-    function sendMessage() {
-      const content = inputEl.value.trim();
-      if (!content) return;
-      client.send({ type: 'user_message', content: content, session_id: sessionId });
-      // Show user message locally immediately
-      appendElement(renderer._renderUser(content));
+    function resetInput() {
       inputEl.value = '';
       inputEl.style.height = 'auto';
     }
 
+    function formatHelpText(commands) {
+      const grouped = {};
+      for (const c of commands) {
+        const cat = c.category || 'other';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(c);
+      }
+      const lines = [];
+      for (const [cat, list] of Object.entries(grouped)) {
+        lines.push(`[${cat}]`);
+        for (const c of list) {
+          lines.push(`  ${c.name.padEnd(20)} ${c.description}`);
+        }
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
+    function sendMessage() {
+      const content = inputEl.value.trim();
+      if (!content) return;
+      autocomplete.hide();
+
+      if (slashHandler.isSlashCommand(content)) {
+        const { name } = slashHandler.parse(content);
+
+        if (name === '/clear') {
+          while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+          resetInput();
+          return;
+        }
+        if (name === '/help') {
+          const helpText = formatHelpText(slashHandler.getAllCommands());
+          appendElement(renderer.renderCommandResult('/help', helpText));
+          resetInput();
+          return;
+        }
+
+        // Server slash command
+        const requestId = window.crypto.randomUUID
+          ? window.crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+        client.send({ type: 'slash_command', command: content, request_id: requestId });
+        appendElement(renderer.renderUserMessage(content));
+        resetInput();
+        return;
+      }
+
+      // Regular message
+      client.send({ type: 'user_message', content: content, session_id: sessionId });
+      appendElement(renderer.renderUserMessage(content));
+      resetInput();
+    }
+
     inputEl.addEventListener('keydown', (e) => {
+      if (autocomplete.handleKey(e)) return;
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();

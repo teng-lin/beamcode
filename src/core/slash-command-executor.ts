@@ -11,7 +11,7 @@ export interface SlashCommandResult {
 type EmulatorFn = (state: SessionState) => string;
 
 /** Commands that the CLI handles natively in headless mode. */
-const NATIVE_COMMANDS = new Set(["/compact", "/cost", "/context", "/files", "/release-notes"]);
+const NATIVE_COMMANDS = new Set(["/compact", "/files", "/release-notes"]);
 
 /** Commands we can emulate from SessionState without the CLI. */
 const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {

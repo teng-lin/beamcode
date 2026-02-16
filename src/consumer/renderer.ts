@@ -52,7 +52,7 @@ export class MessageRenderer {
       case "user_message":
         return this.renderUserMessage(message.content);
       case "slash_command_result":
-        return this.renderSystem(message.content, "info");
+        return this.renderCommandResult(message.command, message.content);
       case "slash_command_error":
         return this.renderSystem(message.error, "error");
       default:
@@ -104,7 +104,7 @@ export class MessageRenderer {
     const el = document.createElement("div");
     el.className = "msg msg-status";
     el.textContent = status === "idle" ? "" : status;
-    return status === "idle" ? el : el;
+    return el;
   }
 
   private renderBlock(block: ConsumerContentBlock): HTMLElement {
@@ -183,6 +183,19 @@ export class MessageRenderer {
     body.className = "msg-body";
     body.textContent = content;
     el.appendChild(body);
+    return el;
+  }
+
+  renderCommandResult(command: string, content: string): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "msg msg-command-result";
+    const hdr = document.createElement("div");
+    hdr.className = "cmd-header";
+    hdr.textContent = command || "command";
+    el.appendChild(hdr);
+    const pre = document.createElement("pre");
+    pre.textContent = truncate(content, 5000);
+    el.appendChild(pre);
     return el;
   }
 
