@@ -1,3 +1,5 @@
+import { diffLines } from "diff";
+
 interface DiffViewProps {
   oldString: string;
   newString: string;
@@ -6,16 +8,16 @@ interface DiffViewProps {
 }
 
 interface DiffLine {
-  type: "added" | "removed";
+  type: "added" | "removed" | "context";
   text: string;
 }
 
 function computeDiff(oldStr: string, newStr: string): DiffLine[] {
-  const removed = oldStr
-    ? oldStr.split("\n").map((text): DiffLine => ({ type: "removed", text }))
-    : [];
-  const added = newStr ? newStr.split("\n").map((text): DiffLine => ({ type: "added", text })) : [];
-  return [...removed, ...added];
+  return diffLines(oldStr, newStr).flatMap((part) => {
+    const type: DiffLine["type"] = part.added ? "added" : part.removed ? "removed" : "context";
+    const lines = part.value.replace(/\n$/, "").split("\n");
+    return lines.map((text): DiffLine => ({ type, text }));
+  });
 }
 
 export function DiffView({ oldString, newString, filePath, maxLines = 40 }: DiffViewProps) {
@@ -32,11 +34,13 @@ export function DiffView({ oldString, newString, filePath, maxLines = 40 }: Diff
       )}
       <pre className="overflow-x-auto p-2 font-mono-code text-xs leading-relaxed">
         {lines.map((line, i) => {
-          const prefix = line.type === "removed" ? "- " : "+ ";
+          const prefix = line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
           const color =
             line.type === "removed"
               ? "bg-bc-error/10 text-bc-error"
-              : "bg-bc-success/10 text-bc-success";
+              : line.type === "added"
+                ? "bg-bc-success/10 text-bc-success"
+                : "text-bc-text-muted";
           return (
             <div key={`${line.type}-${i}`} className={`px-1 ${color}`} data-diff={line.type}>
               {prefix}

@@ -48,22 +48,29 @@ export function Composer({ sessionId }: ComposerProps) {
     textareaRef.current?.focus();
   }, [sessionId]);
 
+  const imagesRef = useRef(images);
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
   const processFiles = useCallback((files: FileList) => {
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith("image/")) continue;
-      if (file.size > MAX_IMAGE_SIZE) continue;
+    const availableSlots = MAX_IMAGES - imagesRef.current.length;
+    if (availableSlots <= 0) return;
+
+    const eligible = Array.from(files)
+      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_IMAGE_SIZE)
+      .slice(0, availableSlots);
+
+    for (const file of eligible) {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const base64 = dataUrl.split(",")[1];
         if (!base64) return;
-        setImages((prev) => {
-          if (prev.length >= MAX_IMAGES) return prev;
-          return [
-            ...prev,
-            { id: crypto.randomUUID(), media_type: file.type, data: base64, preview: dataUrl },
-          ];
-        });
+        setImages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), media_type: file.type, data: base64, preview: dataUrl },
+        ]);
       };
       reader.onerror = () => {
         console.error("Failed to read image file:", file.name);
