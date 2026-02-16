@@ -8,38 +8,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { TeamToolCorrelationBuffer } from "../../core/team-tool-correlation.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
+import {
+  makeDefaultSessionState,
+  makeToolResultMessage,
+  makeToolUseMessage,
+} from "../../testing/fixtures.js";
 import type { SessionState } from "../../types/session-state.js";
 import { reduce } from "./state-reducer.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeDefaultState(): SessionState {
-  return {
-    session_id: "sess-1",
-    model: "",
-    cwd: "",
-    tools: [],
-    permissionMode: "default",
-    claude_code_version: "",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    total_cost_usd: 0,
-    num_turns: 0,
-    context_used_percent: 0,
-    is_compacting: false,
-    git_branch: "",
-    is_worktree: false,
-    repo_root: "",
-    git_ahead: 0,
-    git_behind: 0,
-    total_lines_added: 0,
-    total_lines_removed: 0,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -53,60 +28,22 @@ describe("state-reducer team integration", () => {
   });
 
   describe("tool_use buffering", () => {
-    it("buffers TeamCreate tool_use for later correlation", () => {
-      const state = makeDefaultState();
-      const msg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-1",
-            name: "TeamCreate",
-            input: { team_name: "my-team" },
-          },
-        ],
-      });
-
-      const next = reduce(state, msg, buffer);
-      // State doesn't change until tool_result arrives
-      expect(next.team).toBeUndefined();
+    it("buffers TeamCreate tool_use AND applies optimistically", () => {
+      const state = makeDefaultSessionState();
+      const next = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      // Optimistic: team state applied immediately on tool_use
+      expect(next.team).toBeDefined();
+      expect(next.team!.name).toBe("my-team");
+      // Still buffered for potential tool_result correlation
       expect(buffer.pendingCount).toBe(1);
     });
   });
 
   describe("TeamCreate lifecycle", () => {
     it("applies TeamCreate when tool_result correlates with buffered tool_use", () => {
-      const state = makeDefaultState();
-
-      // Assistant message with TeamCreate tool_use
-      const toolUseMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-1",
-            name: "TeamCreate",
-            input: { team_name: "my-team" },
-          },
-        ],
-      });
-      const s1 = reduce(state, toolUseMsg, buffer);
-
-      // Message with tool_result
-      const toolResultMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-1",
-            content: '{"success": true}',
-          },
-        ],
-      });
-      const s2 = reduce(s1, toolResultMsg, buffer);
+      const state = makeDefaultSessionState();
+      const s1 = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      const s2 = reduce(s1, makeToolResultMessage("tu-1", '{"success": true}'), buffer);
 
       expect(s2.team).toBeDefined();
       expect(s2.team!.name).toBe("my-team");
@@ -119,42 +56,20 @@ describe("state-reducer team integration", () => {
   describe("Task spawn (member add)", () => {
     it("adds member via Task(team_name) tool_use + result", () => {
       const state: SessionState = {
-        ...makeDefaultState(),
-        team: {
-          name: "my-team",
-          role: "lead",
-          members: [],
-          tasks: [],
-        },
+        ...makeDefaultSessionState(),
+        team: { name: "my-team", role: "lead", members: [], tasks: [] },
       };
 
-      // Task tool_use with team_name + name
-      const toolUseMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-2",
-            name: "Task",
-            input: { team_name: "my-team", name: "worker-1", model: "claude-sonnet-4-5-20250929" },
-          },
-        ],
-      });
-      const s1 = reduce(state, toolUseMsg, buffer);
-
-      const resultMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-2",
-            content: '{"success": true}',
-          },
-        ],
-      });
-      const s2 = reduce(s1, resultMsg, buffer);
+      const s1 = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-2", {
+          team_name: "my-team",
+          name: "worker-1",
+          model: "claude-sonnet-4-5-20250929",
+        }),
+        buffer,
+      );
+      const s2 = reduce(s1, makeToolResultMessage("tu-2", '{"success": true}'), buffer);
 
       expect(s2.team!.members).toHaveLength(1);
       expect(s2.team!.members[0]!.name).toBe("worker-1");
@@ -165,41 +80,12 @@ describe("state-reducer team integration", () => {
   describe("backward compatibility", () => {
     it("populates agents[] from team.members", () => {
       const state: SessionState = {
-        ...makeDefaultState(),
-        team: {
-          name: "my-team",
-          role: "lead",
-          members: [],
-          tasks: [],
-        },
+        ...makeDefaultSessionState(),
+        team: { name: "my-team", role: "lead", members: [], tasks: [] },
       };
 
-      const toolUseMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-2",
-            name: "Task",
-            input: { team_name: "my-team", name: "worker-1" },
-          },
-        ],
-      });
-      const s1 = reduce(state, toolUseMsg, buffer);
-
-      const resultMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-2",
-            content: "{}",
-          },
-        ],
-      });
-      const s2 = reduce(s1, resultMsg, buffer);
+      const s1 = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "worker-1" }), buffer);
+      const s2 = reduce(s1, makeToolResultMessage("tu-2", "{}"), buffer);
 
       expect(s2.agents).toEqual(["worker-1"]);
     });
@@ -208,7 +94,7 @@ describe("state-reducer team integration", () => {
   describe("TeamDelete", () => {
     it("removes team and resets agents to []", () => {
       const state: SessionState = {
-        ...makeDefaultState(),
+        ...makeDefaultSessionState(),
         team: {
           name: "my-team",
           role: "lead",
@@ -220,32 +106,8 @@ describe("state-reducer team integration", () => {
         agents: ["worker-1"],
       };
 
-      const toolUseMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-del",
-            name: "TeamDelete",
-            input: {},
-          },
-        ],
-      });
-      const s1 = reduce(state, toolUseMsg, buffer);
-
-      const resultMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-del",
-            content: '{"success": true}',
-          },
-        ],
-      });
-      const s2 = reduce(s1, resultMsg, buffer);
+      const s1 = reduce(state, makeToolUseMessage("TeamDelete", "tu-del", {}), buffer);
+      const s2 = reduce(s1, makeToolResultMessage("tu-del", '{"success": true}'), buffer);
 
       expect(s2.team).toBeUndefined();
       expect(s2.agents).toEqual([]);
@@ -253,66 +115,29 @@ describe("state-reducer team integration", () => {
   });
 
   describe("error handling", () => {
-    it("skips state update on error tool_result", () => {
+    it("optimistic task persists even when error tool_result arrives later", () => {
       const state: SessionState = {
-        ...makeDefaultState(),
-        team: {
-          name: "my-team",
-          role: "lead",
-          members: [],
-          tasks: [],
-        },
+        ...makeDefaultSessionState(),
+        team: { name: "my-team", role: "lead", members: [], tasks: [] },
       };
 
-      const toolUseMsg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-err",
-            name: "TaskCreate",
-            input: { subject: "Fix bug" },
-          },
-        ],
-      });
-      const s1 = reduce(state, toolUseMsg, buffer);
+      const s1 = reduce(state, makeToolUseMessage("TaskCreate", "tu-err", { subject: "Fix bug" }), buffer);
+      // Optimistic: task created with synthetic ID
+      expect(s1.team!.tasks).toHaveLength(1);
+      expect(s1.team!.tasks[0]!.subject).toBe("Fix bug");
 
-      const errorResult = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-err",
-            content: "Something went wrong",
-            is_error: true,
-          },
-        ],
-      });
-      const s2 = reduce(s1, errorResult, buffer);
+      const s2 = reduce(s1, makeToolResultMessage("tu-err", "Something went wrong", true), buffer);
 
-      expect(s2.team!.tasks).toEqual([]);
+      // Error result skips state mutation — optimistic task remains
+      expect(s2.team!.tasks).toHaveLength(1);
+      expect(s2.team!.tasks[0]!.subject).toBe("Fix bug");
     });
   });
 
   describe("non-team tools", () => {
     it("does not affect state for regular tool_use blocks", () => {
-      const state = makeDefaultState();
-
-      const msg = createUnifiedMessage({
-        type: "assistant",
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "tu-read",
-            name: "Read",
-            input: { file_path: "/tmp/test.ts" },
-          },
-        ],
-      });
-      const next = reduce(state, msg, buffer);
+      const state = makeDefaultSessionState();
+      const next = reduce(state, makeToolUseMessage("Read", "tu-read", { file_path: "/tmp/test.ts" }), buffer);
 
       expect(next.team).toBeUndefined();
       expect(buffer.pendingCount).toBe(0);
@@ -320,141 +145,139 @@ describe("state-reducer team integration", () => {
   });
 
   describe("full lifecycle", () => {
-    it("create → member → task → complete → delete", () => {
-      let state = makeDefaultState();
+    it("create → member → task → complete → delete (tool_use only, CLI flow)", () => {
+      let state = makeDefaultSessionState();
 
-      // TeamCreate tool_use + result
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [
-            { type: "tool_use", id: "tu-1", name: "TeamCreate", input: { team_name: "my-team" } },
-          ],
-        }),
-        buffer,
-      );
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_result", tool_use_id: "tu-1", content: "{}" }],
-        }),
-        buffer,
-      );
+      // TeamCreate — optimistic
+      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
       expect(state.team?.name).toBe("my-team");
 
-      // Add member
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu-2",
-              name: "Task",
-              input: { team_name: "my-team", name: "dev-1" },
-            },
-          ],
-        }),
-        buffer,
-      );
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_result", tool_use_id: "tu-2", content: "{}" }],
-        }),
-        buffer,
-      );
+      // Add member — optimistic
+      state = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }), buffer);
       expect(state.team?.members).toHaveLength(1);
       expect(state.agents).toEqual(["dev-1"]);
 
-      // Create task
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [
-            { type: "tool_use", id: "tu-3", name: "TaskCreate", input: { subject: "Fix bug" } },
-          ],
-        }),
-        buffer,
-      );
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_result", tool_use_id: "tu-3", content: '{"id": "1"}' }],
-        }),
-        buffer,
-      );
+      // Create task — optimistic with synthetic ID
+      state = reduce(state, makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }), buffer);
       expect(state.team?.tasks).toHaveLength(1);
-      expect(state.team?.tasks[0].subject).toBe("Fix bug");
+      expect(state.team?.tasks[0]!.subject).toBe("Fix bug");
+      const syntheticTaskId = state.team!.tasks[0]!.id;
 
-      // Complete task
+      // Complete task via synthetic ID
       state = reduce(
         state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu-4",
-              name: "TaskUpdate",
-              input: { taskId: "1", status: "completed" },
-            },
-          ],
-        }),
+        makeToolUseMessage("TaskUpdate", "tu-4", { taskId: syntheticTaskId, status: "completed" }),
         buffer,
       );
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_result", tool_use_id: "tu-4", content: "{}" }],
-        }),
-        buffer,
-      );
-      expect(state.team?.tasks[0].status).toBe("completed");
+      expect(state.team?.tasks[0]!.status).toBe("completed");
 
-      // Delete team
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_use", id: "tu-5", name: "TeamDelete", input: {} }],
-        }),
-        buffer,
-      );
-      state = reduce(
-        state,
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "tool_result", tool_use_id: "tu-5", content: "{}" }],
-        }),
-        buffer,
-      );
+      // Delete team — optimistic
+      state = reduce(state, makeToolUseMessage("TeamDelete", "tu-5", {}), buffer);
       expect(state.team).toBeUndefined();
       expect(state.agents).toEqual([]);
+    });
+
+    it("dual-path: tool_use + tool_result — synthetic replaced by real ID", () => {
+      let state = makeDefaultSessionState();
+
+      // TeamCreate — optimistic + correlation (idempotent)
+      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-1", { team_name: "my-team" }), buffer);
+      state = reduce(state, makeToolResultMessage("tu-1", "{}"), buffer);
+      expect(state.team?.name).toBe("my-team");
+
+      // Add member — optimistic + correlation (idempotent)
+      state = reduce(state, makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "dev-1" }), buffer);
+      state = reduce(state, makeToolResultMessage("tu-2", "{}"), buffer);
+      expect(state.team?.members).toHaveLength(1);
+
+      // TaskCreate — synthetic entry created optimistically, then replaced by real ID
+      state = reduce(state, makeToolUseMessage("TaskCreate", "tu-3", { subject: "Fix bug" }), buffer);
+      expect(state.team?.tasks).toHaveLength(1);
+      expect(state.team?.tasks[0]!.id).toBe("tu-tu-3"); // synthetic
+
+      state = reduce(state, makeToolResultMessage("tu-3", '{"id": "1"}'), buffer);
+      // Synthetic replaced by real — still 1 entry
+      expect(state.team?.tasks).toHaveLength(1);
+      expect(state.team?.tasks[0]!.id).toBe("1");
+      expect(state.team?.tasks[0]!.subject).toBe("Fix bug");
+    });
+  });
+
+  describe("optimistic: CLI flow without tool_result", () => {
+    it("creates team, adds members, and creates tasks with only tool_use messages", () => {
+      let state = makeDefaultSessionState();
+
+      // TeamCreate — tool_use only, no tool_result
+      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-10", { team_name: "cli-team" }), buffer);
+      expect(state.team).toBeDefined();
+      expect(state.team!.name).toBe("cli-team");
+
+      // Task spawn — tool_use only, no tool_result
+      state = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-11", { team_name: "cli-team", name: "researcher" }),
+        buffer,
+      );
+      expect(state.team!.members).toHaveLength(1);
+      expect(state.team!.members[0]!.name).toBe("researcher");
+      expect(state.agents).toEqual(["researcher"]);
+
+      // Second member
+      state = reduce(
+        state,
+        makeToolUseMessage("Task", "tu-12", { team_name: "cli-team", name: "implementer" }),
+        buffer,
+      );
+      expect(state.team!.members).toHaveLength(2);
+      expect(state.agents).toEqual(["researcher", "implementer"]);
+
+      // TaskCreate — uses synthetic ID since no tool_result
+      state = reduce(
+        state,
+        makeToolUseMessage("TaskCreate", "tc-aabbccdd-1234", {
+          subject: "Research API",
+          description: "Look into REST APIs",
+        }),
+        buffer,
+      );
+      expect(state.team!.tasks).toHaveLength(1);
+      expect(state.team!.tasks[0]!.subject).toBe("Research API");
+      expect(state.team!.tasks[0]!.id).toBe("tu-tc-aabbccdd-1234");
+    });
+
+    it("idempotency: duplicate tool_use does not double-apply", () => {
+      let state = makeDefaultSessionState();
+
+      const teamCreateMsg = makeToolUseMessage("TeamCreate", "tu-dup", { team_name: "dup-team" });
+
+      state = reduce(state, teamCreateMsg, buffer);
+      expect(state.team!.name).toBe("dup-team");
+
+      // Apply same message again — idempotent, no change
+      const stateRef = state;
+      state = reduce(state, teamCreateMsg, buffer);
+      expect(state.team).toBe(stateRef.team);
+    });
+
+    it("optimistic + late correlation: both paths coexist", () => {
+      let state = makeDefaultSessionState();
+
+      // TeamCreate tool_use → optimistic applies immediately
+      state = reduce(state, makeToolUseMessage("TeamCreate", "tu-both", { team_name: "both-team" }), buffer);
+      expect(state.team!.name).toBe("both-team");
+
+      // Late tool_result arrives — correlation fires but idempotent (team already exists)
+      const stateBeforeResult = state;
+      state = reduce(state, makeToolResultMessage("tu-both", "{}"), buffer);
+      expect(state.team!.name).toBe("both-team");
+      expect(state.team).toBe(stateBeforeResult.team);
     });
   });
 
   describe("existing reducers unchanged", () => {
     it("session_init still works with team state", () => {
       const state: SessionState = {
-        ...makeDefaultState(),
+        ...makeDefaultSessionState(),
         team: {
           name: "my-team",
           role: "lead",

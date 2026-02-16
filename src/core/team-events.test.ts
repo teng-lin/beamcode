@@ -313,12 +313,14 @@ describe("team event emission (Phase 5.7)", () => {
       const events: unknown[] = [];
       bridge.on("team:task:created", (e) => events.push(e));
 
-      // Create task
+      // Create task — dual path: optimistic (synthetic ID) + correlation (real ID)
       pushTeamToolPair(backend, "TaskCreate", "tu-3", { subject: "Fix bug" }, '{"id": "1"}');
       await tick();
 
-      expect(events).toHaveLength(1);
+      // Two events: one from optimistic apply (synthetic ID), one from correlation (real ID "1")
+      expect(events).toHaveLength(2);
       expect((events[0] as { task: { subject: string } }).task.subject).toBe("Fix bug");
+      expect((events[1] as { task: { subject: string } }).task.subject).toBe("Fix bug");
     });
   });
 
@@ -425,7 +427,7 @@ describe("team event emission (Phase 5.7)", () => {
   });
 
   describe("error tool_result", () => {
-    it("does not emit team events for error tool_result", async () => {
+    it("emits optimistic event on tool_use even if tool_result is an error", async () => {
       const backend = await connectSession();
 
       // Create team first
@@ -435,7 +437,8 @@ describe("team event emission (Phase 5.7)", () => {
       const events: string[] = [];
       bridge.on("team:task:created", () => events.push("team:task:created"));
 
-      // TaskCreate with error result
+      // TaskCreate with error result — optimistic apply fires on tool_use,
+      // error tool_result is skipped by the correlation path
       pushTeamToolPair(
         backend,
         "TaskCreate",
@@ -446,12 +449,13 @@ describe("team event emission (Phase 5.7)", () => {
       );
       await tick();
 
-      expect(events).toHaveLength(0);
+      // 1 event from optimistic apply (error result does not revert it)
+      expect(events).toHaveLength(1);
     });
   });
 
   describe("full lifecycle", () => {
-    it("emits create → member:joined → task:created → task:completed → deleted", async () => {
+    it("emits create → member:joined → task:created(x2) → task:completed → deleted", async () => {
       const backend = await connectSession();
       const events: string[] = [];
 
@@ -461,27 +465,33 @@ describe("team event emission (Phase 5.7)", () => {
       bridge.on("team:task:created", () => events.push("team:task:created"));
       bridge.on("team:task:completed", () => events.push("team:task:completed"));
 
-      // Create team
+      // Create team (idempotent: optimistic + correlation = 1 event)
       pushTeamToolPair(backend, "TeamCreate", "tu-1", { team_name: "alpha" });
       await tick();
       expect(events).toEqual(["team:created"]);
 
-      // Add member
+      // Add member (idempotent: optimistic + correlation = 1 event)
       pushTeamToolPair(backend, "Task", "tu-2", { team_name: "alpha", name: "dev-1" });
       await tick();
       expect(events).toEqual(["team:created", "team:member:joined"]);
 
-      // Create task
+      // Create task — dual path: 2 task:created events (synthetic + real ID)
       pushTeamToolPair(backend, "TaskCreate", "tu-3", { subject: "Fix bug" }, '{"id": "1"}');
       await tick();
-      expect(events).toEqual(["team:created", "team:member:joined", "team:task:created"]);
+      expect(events).toEqual([
+        "team:created",
+        "team:member:joined",
+        "team:task:created",
+        "team:task:created",
+      ]);
 
-      // Complete task
+      // Complete task (real ID "1")
       pushTeamToolPair(backend, "TaskUpdate", "tu-4", { taskId: "1", status: "completed" });
       await tick();
       expect(events).toEqual([
         "team:created",
         "team:member:joined",
+        "team:task:created",
         "team:task:created",
         "team:task:completed",
       ]);
@@ -492,6 +502,7 @@ describe("team event emission (Phase 5.7)", () => {
       expect(events).toEqual([
         "team:created",
         "team:member:joined",
+        "team:task:created",
         "team:task:created",
         "team:task:completed",
         "team:deleted",

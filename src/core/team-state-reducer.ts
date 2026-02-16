@@ -110,11 +110,11 @@ function reduceTaskCreate(
 ): TeamState | undefined {
   if (state === undefined) return undefined;
 
-  // Extract task ID from tool_result content
+  // Extract task ID from tool_result content (or synthetic from toolUseId)
   const taskId = extractTaskId(correlated);
-  if (!taskId) return state; // Can't create task without ID from result
+  if (!taskId) return state; // Can't create task without ID
 
-  // Idempotency: skip if task already exists
+  // Idempotency: skip if task already exists with this exact ID
   if (state.tasks.some((t) => t.id === taskId)) {
     return state;
   }
@@ -129,9 +129,14 @@ function reduceTaskCreate(
     blocks: [],
   };
 
+  // When a real ID arrives via tool_result, replace the synthetic entry
+  // (created by optimistic apply) rather than appending a duplicate.
+  const syntheticId = `tu-${correlated.recognized.toolUseId}`;
+  const tasksWithoutSynthetic = state.tasks.filter((t) => t.id !== syntheticId);
+
   return {
     ...state,
-    tasks: [...state.tasks, task],
+    tasks: [...tasksWithoutSynthetic, task],
   };
 }
 
@@ -243,19 +248,23 @@ function reduceShutdownResponse(state: TeamState): TeamState {
  */
 function extractTaskId(correlated: CorrelatedToolUse): string | undefined {
   const result = correlated.result;
-  if (!result) return undefined;
-
-  try {
-    const parsed = JSON.parse(result.content);
-    if (typeof parsed === "object" && parsed !== null) {
-      if (typeof parsed.id === "string") return parsed.id;
-      if (typeof parsed.id === "number") return String(parsed.id);
+  if (result) {
+    try {
+      const parsed = JSON.parse(result.content);
+      if (typeof parsed === "object" && parsed !== null) {
+        if (typeof parsed.id === "string") return parsed.id;
+        if (typeof parsed.id === "number") return String(parsed.id);
+      }
+    } catch {
+      // Not JSON — try treating content as a plain numeric ID
+      const trimmed = result.content.trim();
+      if (/^\d+$/.test(trimmed)) return trimmed;
     }
-  } catch {
-    // Not JSON — try treating content as a plain numeric ID
-    const trimmed = result.content.trim();
-    if (/^\d+$/.test(trimmed)) return trimmed;
+    return undefined;
   }
 
-  return undefined;
+  // Fallback: synthetic ID from tool_use_id for optimistic (no-result) applies.
+  // Tagged with the full toolUseId so the correlation path can find and replace
+  // the synthetic entry when a real ID arrives (see reduceTaskCreate).
+  return `tu-${correlated.recognized.toolUseId}`;
 }
