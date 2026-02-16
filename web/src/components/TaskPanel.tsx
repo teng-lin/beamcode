@@ -1,5 +1,5 @@
 import { useStore } from "../store";
-import { formatCost } from "../utils/format";
+import { formatCost, formatTokens } from "../utils/format";
 import { ContextGauge } from "./ContextGauge";
 
 export function TaskPanel() {
@@ -63,17 +63,36 @@ export function TaskPanel() {
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
               Model Usage
             </div>
-            {Object.entries(state.last_model_usage).map(([model, usage]) => (
-              <div
-                key={model}
-                className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs"
-              >
-                <div className="font-medium text-bc-text">{model}</div>
-                <div className="mt-1 tabular-nums text-bc-text-muted">
-                  {formatCost(usage.costUSD)} · {usage.inputTokens + usage.outputTokens} tokens
+            {Object.entries(state.last_model_usage).map(([model, usage]) => {
+              const totalInput =
+                usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+              const cacheRatio =
+                totalInput > 0 ? Math.round((usage.cacheReadInputTokens / totalInput) * 100) : 0;
+
+              return (
+                <div
+                  key={model}
+                  className="mb-2 rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs"
+                >
+                  <div className="font-medium text-bc-text">{model}</div>
+                  <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums text-bc-text-muted">
+                    <span>Input</span>
+                    <span className="text-right">{formatTokens(usage.inputTokens)}</span>
+                    <span>Output</span>
+                    <span className="text-right">{formatTokens(usage.outputTokens)}</span>
+                    {cacheRatio > 0 && (
+                      <>
+                        <span>Cache hit</span>
+                        <span className="text-right">{cacheRatio}%</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-1.5 border-t border-bc-border/30 pt-1.5 font-medium tabular-nums text-bc-text">
+                    {formatCost(usage.costUSD)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -90,6 +90,127 @@ describe("TaskPanel", () => {
 
     expect(screen.getByText("Model Usage")).toBeInTheDocument();
     expect(screen.getByText("claude-sonnet-4-20250514")).toBeInTheDocument();
-    expect(screen.getByText(/1500 tokens/)).toBeInTheDocument();
+    // Should show formatted token counts separately
+    expect(screen.getByText("1.0k")).toBeInTheDocument(); // inputTokens
+    expect(screen.getByText("500")).toBeInTheDocument(); // outputTokens
+  });
+
+  // ── Enhanced cost/token tracking ────────────────────────────────────
+
+  describe("enhanced cost tracking", () => {
+    it("shows total input and output tokens separately", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0.05,
+        num_turns: 3,
+        context_used_percent: 45,
+        is_compacting: false,
+        last_model_usage: {
+          "claude-3-opus": {
+            inputTokens: 5000,
+            outputTokens: 2000,
+            cacheReadInputTokens: 1000,
+            cacheCreationInputTokens: 500,
+            contextWindow: 200000,
+            costUSD: 0.05,
+          },
+        },
+      });
+      useStore.setState({ currentSessionId: SESSION });
+
+      render(<TaskPanel />);
+
+      expect(screen.getByText("5.0k")).toBeInTheDocument();
+      expect(screen.getByText("2.0k")).toBeInTheDocument();
+    });
+
+    it("shows cache hit ratio when cache data exists", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0.05,
+        num_turns: 3,
+        context_used_percent: 45,
+        is_compacting: false,
+        last_model_usage: {
+          "claude-3-opus": {
+            inputTokens: 5000,
+            outputTokens: 2000,
+            cacheReadInputTokens: 3000,
+            cacheCreationInputTokens: 500,
+            contextWindow: 200000,
+            costUSD: 0.05,
+          },
+        },
+      });
+      useStore.setState({ currentSessionId: SESSION });
+
+      render(<TaskPanel />);
+
+      expect(screen.getByText(/cache/i)).toBeInTheDocument();
+    });
+
+    it("does not show cache ratio when no cache reads", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0.05,
+        num_turns: 3,
+        context_used_percent: 45,
+        is_compacting: false,
+        last_model_usage: {
+          "claude-3-opus": {
+            inputTokens: 5000,
+            outputTokens: 2000,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200000,
+            costUSD: 0.05,
+          },
+        },
+      });
+      useStore.setState({ currentSessionId: SESSION });
+
+      render(<TaskPanel />);
+
+      expect(screen.queryByText(/cache/i)).not.toBeInTheDocument();
+    });
+
+    it("shows per-model cost formatted", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0.15,
+        num_turns: 3,
+        context_used_percent: 45,
+        is_compacting: false,
+        last_model_usage: {
+          "claude-3-opus": {
+            inputTokens: 5000,
+            outputTokens: 2000,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200000,
+            costUSD: 0.05,
+          },
+        },
+      });
+      useStore.setState({ currentSessionId: SESSION });
+
+      render(<TaskPanel />);
+
+      // Total cost: $0.150, per-model cost: $0.050
+      expect(screen.getByText("$0.150")).toBeInTheDocument();
+      expect(screen.getByText("$0.050")).toBeInTheDocument();
+    });
   });
 });
