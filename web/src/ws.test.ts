@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "./store";
-import { resetStore } from "./test/factories";
+import { makeAssistantContent, makeTeamState, resetStore } from "./test/factories";
 import { _resetForTesting, connectToSession, disconnect, disconnectSession, send } from "./ws";
+
+vi.mock("./utils/audio", () => ({
+  playCompletionSound: vi.fn(),
+}));
 
 // ── Mock WebSocket ────────────────────────────────────────────────────────────
 
@@ -44,6 +48,11 @@ class MockWebSocket {
   simulateClose(): void {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.({} as CloseEvent);
+  }
+
+  /** Simulate a message from the server. */
+  simulateMessage(data: string): void {
+    this.onmessage?.({ data } as MessageEvent);
   }
 }
 
@@ -253,5 +262,676 @@ describe("ws multi-connection manager", () => {
 
     expect(useStore.getState().sessionData.s1?.reconnectAttempt).toBe(0);
     expect(useStore.getState().sessionData.s1?.connectionStatus).toBe("connected");
+  });
+});
+
+// ── handleMessage tests ──────────────────────────────────────────────────────
+
+describe("handleMessage", () => {
+  /** Connect + open a session, return the mock socket for sending messages. */
+  function openSession(id = "s1"): MockWebSocket {
+    connectToSession(id);
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.simulateOpen();
+    return ws;
+  }
+
+  function getSessionData(id = "s1") {
+    return useStore.getState().sessionData[id];
+  }
+
+  // ── Malformed JSON ──────────────────────────────────────────────────────
+
+  it("malformed JSON → silently returns, no crash", () => {
+    const ws = openSession();
+    expect(() => ws.simulateMessage("not valid json{")).not.toThrow();
+    // Store should still have session data, just no messages added
+    expect(getSessionData()?.messages ?? []).toHaveLength(0);
+  });
+
+  // ── assistant ───────────────────────────────────────────────────────────
+
+  it("assistant: adds message and clears streaming", () => {
+    const ws = openSession();
+    // Set up streaming state first
+    useStore.getState().setStreaming("s1", "partial text");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: makeAssistantContent([{ type: "text", text: "Hello" }]),
+      }),
+    );
+
+    expect(getSessionData()?.messages).toHaveLength(1);
+    expect(getSessionData()?.messages[0].type).toBe("assistant");
+    expect(getSessionData()?.streaming).toBeNull();
+  });
+
+  it("assistant with parent_tool_use_id: clears agent streaming", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: "agent-1",
+        message: makeAssistantContent([{ type: "text", text: "Agent done" }]),
+      }),
+    );
+
+    expect(getSessionData()?.messages).toHaveLength(1);
+    // Agent streaming should be cleared
+    expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
+  });
+
+  // ── result ──────────────────────────────────────────────────────────────
+
+  it("result: sets idle status and adds message", () => {
+    const ws = openSession();
+    useStore.getState().setSessionStatus("s1", "running");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "result",
+        data: { is_error: false },
+      }),
+    );
+
+    expect(getSessionData()?.sessionStatus).toBe("idle");
+    expect(getSessionData()?.messages).toHaveLength(1);
+  });
+
+  it("result: plays sound when document.hidden and soundEnabled", async () => {
+    const { playCompletionSound } = await import("./utils/audio");
+    const ws = openSession();
+    useStore.setState((s) => ({ ...s, soundEnabled: true }));
+    Object.defineProperty(document, "hidden", { value: true, writable: true, configurable: true });
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "result",
+        data: { is_error: false },
+      }),
+    );
+
+    expect(playCompletionSound).toHaveBeenCalled();
+
+    // Restore
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  });
+
+  it("result: shows Notification when document.hidden and alertsEnabled", () => {
+    const ws = openSession();
+    useStore.setState((s) => ({ ...s, alertsEnabled: true }));
+    Object.defineProperty(document, "hidden", { value: true, writable: true, configurable: true });
+    const mockNotification = vi.fn();
+    vi.stubGlobal("Notification", Object.assign(mockNotification, { permission: "granted" }));
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "result",
+        data: { is_error: false },
+      }),
+    );
+
+    expect(mockNotification).toHaveBeenCalledWith("Task complete", {
+      body: "Completed successfully",
+    });
+
+    // Error variant
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "result",
+        data: { is_error: true },
+      }),
+    );
+
+    expect(mockNotification).toHaveBeenCalledWith("Task complete", {
+      body: "Completed with errors",
+    });
+
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    vi.unstubAllGlobals();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+  });
+
+  it("result: no sound or notification when document is visible", async () => {
+    const { playCompletionSound } = await import("./utils/audio");
+    (playCompletionSound as ReturnType<typeof vi.fn>).mockClear();
+    const ws = openSession();
+    useStore.setState((s) => ({ ...s, soundEnabled: true, alertsEnabled: true }));
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+
+    ws.simulateMessage(JSON.stringify({ type: "result", data: { is_error: false } }));
+
+    expect(playCompletionSound).not.toHaveBeenCalled();
+  });
+
+  // ── user_message / error / slash_command_result / slash_command_error ──
+
+  it("user_message: adds message to store", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "user_message", content: "hi" }));
+    expect(getSessionData()?.messages).toHaveLength(1);
+    expect(getSessionData()?.messages[0].type).toBe("user_message");
+  });
+
+  it("error: adds message to store", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "error", error: "something broke" }));
+    expect(getSessionData()?.messages).toHaveLength(1);
+  });
+
+  it("slash_command_result: adds message to store", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "slash_command_result", output: "done" }));
+    expect(getSessionData()?.messages).toHaveLength(1);
+  });
+
+  it("slash_command_error: adds message to store", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "slash_command_error", error: "bad cmd" }));
+    expect(getSessionData()?.messages).toHaveLength(1);
+  });
+
+  // ── stream_event → message_start ────────────────────────────────────────
+
+  it("stream_event message_start: sets streaming and status running", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_start" },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    expect(getSessionData()?.streaming).toBe("");
+    expect(getSessionData()?.sessionStatus).toBe("running");
+  });
+
+  it("stream_event message_start with agent: inits agent streaming", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_start" },
+        parent_tool_use_id: "agent-1",
+      }),
+    );
+
+    expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeDefined();
+    expect(getSessionData()?.sessionStatus).toBe("running");
+  });
+
+  // ── stream_event → content_block_delta ──────────────────────────────────
+
+  it("stream_event content_block_delta: appends text to main streaming", () => {
+    const ws = openSession();
+    useStore.getState().setStreaming("s1", "");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "hello " },
+        },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "world" },
+        },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    expect(getSessionData()?.streaming).toBe("hello world");
+  });
+
+  it("stream_event content_block_delta with agent: appends to agent streaming", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "agent text" },
+        },
+        parent_tool_use_id: "agent-1",
+      }),
+    );
+
+    expect(getSessionData()?.agentStreaming?.["agent-1"]?.text).toBe("agent text");
+  });
+
+  // ── stream_event → message_delta ────────────────────────────────────────
+
+  it("stream_event message_delta: sets output tokens", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_delta", usage: { output_tokens: 150 } },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    expect(getSessionData()?.streamingOutputTokens).toBe(150);
+  });
+
+  it("stream_event message_delta with agent: sets agent output tokens", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_delta", usage: { output_tokens: 75 } },
+        parent_tool_use_id: "agent-1",
+      }),
+    );
+
+    expect(getSessionData()?.agentStreaming?.["agent-1"]?.outputTokens).toBe(75);
+  });
+
+  // ── stream_event with unknown inner event ───────────────────────────────
+
+  it("stream_event with unknown inner event type: no crash", () => {
+    const ws = openSession();
+    expect(() =>
+      ws.simulateMessage(
+        JSON.stringify({
+          type: "stream_event",
+          event: { type: "unknown_future_event" },
+          parent_tool_use_id: null,
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  // ── message_history ─────────────────────────────────────────────────────
+
+  it("message_history: sets messages and clears streaming", () => {
+    const ws = openSession();
+    useStore.getState().setStreaming("s1", "partial");
+
+    const messages = [
+      { type: "user_message", content: "hi" },
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: makeAssistantContent([{ type: "text", text: "hey" }]),
+      },
+    ];
+
+    ws.simulateMessage(JSON.stringify({ type: "message_history", messages }));
+
+    expect(getSessionData()?.messages).toHaveLength(2);
+    expect(getSessionData()?.streaming).toBeNull();
+  });
+
+  // ── capabilities_ready ──────────────────────────────────────────────────
+
+  it("capabilities_ready: sets capabilities with commands, models, skills", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "capabilities_ready",
+        commands: [{ name: "/help", description: "Show help" }],
+        models: ["opus", "sonnet"],
+        skills: ["skill-1"],
+      }),
+    );
+
+    const caps = getSessionData()?.capabilities;
+    expect(caps?.commands).toEqual([{ name: "/help", description: "Show help" }]);
+    expect(caps?.models).toEqual(["opus", "sonnet"]);
+    expect(caps?.skills).toEqual(["skill-1"]);
+  });
+
+  // ── session_init ────────────────────────────────────────────────────────
+
+  it("session_init: sets state with safe defaults", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/tmp",
+          total_cost_usd: 1.5,
+          num_turns: 3,
+          context_used_percent: 25,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    const state = getSessionData()?.state;
+    expect(state?.session_id).toBe("s1");
+    expect(state?.model).toBe("opus");
+    expect(state?.cwd).toBe("/tmp");
+  });
+
+  it("session_init: populates capabilities fallback from slash_commands", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/tmp",
+          slash_commands: ["/help", "/commit"],
+          skills: ["my-skill"],
+        },
+      }),
+    );
+
+    const caps = getSessionData()?.capabilities;
+    expect(caps?.commands).toEqual([
+      { name: "/help", description: "" },
+      { name: "/commit", description: "" },
+    ]);
+    expect(caps?.skills).toEqual(["my-skill"]);
+  });
+
+  it("session_init: fills missing fields with defaults", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {},
+      }),
+    );
+
+    const state = getSessionData()?.state;
+    expect(state?.session_id).toBe("s1"); // falls back to sessionId
+    expect(state?.model).toBe("");
+    expect(state?.total_cost_usd).toBe(0);
+    expect(state?.num_turns).toBe(0);
+    expect(state?.is_compacting).toBe(false);
+  });
+
+  // ── session_update ──────────────────────────────────────────────────────
+
+  it("session_update: merges into existing state", () => {
+    const ws = openSession();
+    // First init a session
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_update",
+        session: { total_cost_usd: 2.5, num_turns: 5 },
+      }),
+    );
+
+    const state = getSessionData()?.state;
+    expect(state?.model).toBe("opus"); // preserved
+    expect(state?.total_cost_usd).toBe(2.5); // updated
+    expect(state?.num_turns).toBe(5); // updated
+  });
+
+  it("session_update: auto-opens task panel when team first appears", () => {
+    const ws = openSession();
+    // Init session without team
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    expect(useStore.getState().taskPanelOpen).toBe(false);
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_update",
+        session: { team: makeTeamState() },
+      }),
+    );
+
+    expect(useStore.getState().taskPanelOpen).toBe(true);
+  });
+
+  it("session_update without prior session_init: no crash, accepts state", () => {
+    const ws = openSession();
+    // No session_init first — send update directly
+    expect(() =>
+      ws.simulateMessage(
+        JSON.stringify({
+          type: "session_update",
+          session: { model: "sonnet", cwd: "/home" },
+        }),
+      ),
+    ).not.toThrow();
+
+    const state = getSessionData()?.state;
+    expect(state?.model).toBe("sonnet");
+  });
+
+  // ── status_change ───────────────────────────────────────────────────────
+
+  it("status_change: sets session status", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(JSON.stringify({ type: "status_change", status: "running" }));
+    expect(getSessionData()?.sessionStatus).toBe("running");
+
+    ws.simulateMessage(JSON.stringify({ type: "status_change", status: "idle" }));
+    expect(getSessionData()?.sessionStatus).toBe("idle");
+  });
+
+  // ── permission_request / permission_cancelled ───────────────────────────
+
+  it("permission_request: adds to pending permissions", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "permission_request",
+        request: {
+          request_id: "perm-1",
+          tool_use_id: "tu-1",
+          tool_name: "Bash",
+          description: "Run ls",
+          input: { command: "ls" },
+          timestamp: Date.now(),
+        },
+      }),
+    );
+
+    const perms = getSessionData()?.pendingPermissions;
+    expect(perms?.["perm-1"]).toBeDefined();
+    expect(perms?.["perm-1"].tool_name).toBe("Bash");
+  });
+
+  it("permission_cancelled: removes from pending permissions", () => {
+    const ws = openSession();
+    // First add one
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "permission_request",
+        request: {
+          request_id: "perm-1",
+          tool_use_id: "tu-1",
+          tool_name: "Bash",
+          description: "Run ls",
+          input: {},
+          timestamp: Date.now(),
+        },
+      }),
+    );
+    expect(getSessionData()?.pendingPermissions?.["perm-1"]).toBeDefined();
+
+    ws.simulateMessage(JSON.stringify({ type: "permission_cancelled", request_id: "perm-1" }));
+    expect(getSessionData()?.pendingPermissions?.["perm-1"]).toBeUndefined();
+  });
+
+  // ── cli_connected / cli_disconnected ────────────────────────────────────
+
+  it("cli_connected: sets cliConnected true", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "cli_connected" }));
+    expect(getSessionData()?.cliConnected).toBe(true);
+  });
+
+  it("cli_disconnected: sets cliConnected false", () => {
+    const ws = openSession();
+    ws.simulateMessage(JSON.stringify({ type: "cli_connected" }));
+    ws.simulateMessage(JSON.stringify({ type: "cli_disconnected" }));
+    expect(getSessionData()?.cliConnected).toBe(false);
+  });
+
+  // ── tool_progress ───────────────────────────────────────────────────────
+
+  it("tool_progress: sets tool progress in store", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "tool_progress",
+        tool_use_id: "tu-1",
+        tool_name: "Bash",
+        elapsed_time_seconds: 5,
+      }),
+    );
+
+    expect(getSessionData()?.toolProgress?.["tu-1"]).toEqual({
+      toolName: "Bash",
+      elapsedSeconds: 5,
+    });
+  });
+
+  // ── session_name_update ─────────────────────────────────────────────────
+
+  it("session_name_update: updates session name", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(JSON.stringify({ type: "session_name_update", name: "My Session" }));
+
+    const sessions = useStore.getState().sessions;
+    expect(sessions.s1?.name).toBe("My Session");
+  });
+
+  // ── identity ────────────────────────────────────────────────────────────
+
+  it("identity: sets identity in store", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "identity",
+        userId: "user-1",
+        displayName: "Alice",
+        role: "participant",
+      }),
+    );
+
+    expect(getSessionData()?.identity).toEqual({
+      userId: "user-1",
+      displayName: "Alice",
+      role: "participant",
+    });
+  });
+
+  // ── presence_update ─────────────────────────────────────────────────────
+
+  it("presence_update: sets presence list", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "presence_update",
+        consumers: [
+          { userId: "u1", displayName: "Alice", role: "participant" },
+          { userId: "u2", displayName: "Bob", role: "observer" },
+        ],
+      }),
+    );
+
+    expect(getSessionData()?.presence).toHaveLength(2);
+    expect(getSessionData()?.presence[0].userId).toBe("u1");
+  });
+
+  // ── resume_failed ───────────────────────────────────────────────────────
+
+  it("resume_failed: shows error toast", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(JSON.stringify({ type: "resume_failed", sessionId: "old-sess" }));
+
+    const toasts = useStore.getState().toasts;
+    expect(toasts.length).toBeGreaterThanOrEqual(1);
+    const toast = toasts[toasts.length - 1];
+    expect(toast.message).toContain("Could not resume");
+    expect(toast.type).toBe("error");
+  });
+
+  // ── process_output ──────────────────────────────────────────────────────
+
+  it("process_output: strips ANSI and appends to process log", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "process_output",
+        data: "\x1b[32mGreen text\x1b[0m",
+      }),
+    );
+
+    const logs = useStore.getState().processLogs["s1"];
+    expect(logs).toBeDefined();
+    expect(logs[logs.length - 1]).toBe("Green text");
+  });
+
+  // ── Unhandled message type ──────────────────────────────────────────────
+
+  it("unhandled message type: silent drop, no crash", () => {
+    const ws = openSession();
+    expect(() =>
+      ws.simulateMessage(JSON.stringify({ type: "some_future_type", data: "whatever" })),
+    ).not.toThrow();
   });
 });
