@@ -43,12 +43,21 @@ function PermissionModePicker() {
   const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
   const isObserver = identityRole !== null && identityRole !== "participant";
   const [open, setOpen] = useState(false);
+  const [pendingMode, setPendingMode] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset
   useEffect(() => {
     setOpen(false);
+    setPendingMode(null);
   }, [currentSessionId]);
+
+  // Clear pending state once the server confirms the mode change
+  useEffect(() => {
+    if (pendingMode && permissionMode === pendingMode) {
+      setPendingMode(null);
+    }
+  }, [permissionMode, pendingMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +77,7 @@ function PermissionModePicker() {
 
   const handleSelect = useCallback(
     (mode: string) => {
+      setPendingMode(mode);
       send({ type: "set_permission_mode", mode }, currentSessionId ?? undefined);
       setOpen(false);
     },
@@ -76,8 +86,9 @@ function PermissionModePicker() {
 
   if (!permissionMode || !currentSessionId) return null;
 
-  const current = PERMISSION_MODES.find((m) => m.value === permissionMode) ?? PERMISSION_MODES[0];
-  const colorClass = PERMISSION_STYLES[permissionMode] ?? "text-bc-text-muted";
+  const displayMode = pendingMode ?? permissionMode;
+  const current = PERMISSION_MODES.find((m) => m.value === displayMode) ?? PERMISSION_MODES[0];
+  const colorClass = PERMISSION_STYLES[displayMode] ?? "text-bc-text-muted";
 
   return (
     <div className="relative" ref={ref}>
@@ -107,7 +118,7 @@ function PermissionModePicker() {
               type="button"
               onClick={() => handleSelect(m.value)}
               className={`flex w-full flex-col items-start px-3 py-1.5 text-left transition-colors hover:bg-bc-hover ${
-                m.value === permissionMode ? "font-semibold text-bc-text" : "text-bc-text-muted"
+                m.value === displayMode ? "font-semibold text-bc-text" : "text-bc-text-muted"
               }`}
             >
               <span className="text-[12px]">{m.label}</span>
@@ -222,7 +233,6 @@ function ModelPicker() {
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
 export function StatusBar() {
-  const currentSessionId = useStore((s) => s.currentSessionId);
   const adapterType = useStore((s) =>
     s.currentSessionId ? (s.sessions[s.currentSessionId]?.adapterType ?? null) : null,
   );

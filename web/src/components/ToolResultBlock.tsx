@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ConsumerContentBlock } from "../../../shared/consumer-types";
+import { MarkdownContent } from "./MarkdownContent";
 
 interface ToolResultBlockProps {
   toolName: string | null;
@@ -98,6 +99,15 @@ export function ToolResultBlock({ toolName, content, isError }: ToolResultBlockP
   );
 }
 
+/** Rendered markdown block for tools that return markdown-like content. */
+function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <div className="max-h-80 overflow-auto p-3 text-xs">
+      <MarkdownContent content={text} />
+    </div>
+  );
+}
+
 function renderContent(
   toolName: string | null,
   text: string,
@@ -108,9 +118,13 @@ function renderContent(
     case "Bash":
     case "Read":
     case "Write":
+    case "Edit":
     case "Grep":
     case "Glob":
       return <PreBlock text={text} isError={isError} />;
+    case "WebFetch":
+    case "WebSearch":
+      return <MarkdownBlock text={text} />;
     default:
       return <JsonBlock content={content} />;
   }
