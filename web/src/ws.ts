@@ -103,6 +103,7 @@ function handleMessage(sessionId: string, data: string): void {
     }
 
     case "queued_message_cancelled":
+    case "queued_message_sent":
       store.setQueuedMessage(sessionId, null);
       store.setEditingQueue(sessionId, false);
       break;

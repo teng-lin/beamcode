@@ -370,6 +370,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       }
     }
 
+    // Send current queued message state (if any)
+    if (session.queuedMessage) {
+      this.broadcaster.sendTo(ws, {
+        type: "message_queued",
+        consumer_id: session.queuedMessage.consumerId,
+        display_name: session.queuedMessage.displayName,
+        content: session.queuedMessage.content,
+        images: session.queuedMessage.images,
+        queued_at: session.queuedMessage.queuedAt,
+      });
+    }
+
     // Broadcast presence update to all consumers
     this.broadcaster.broadcastPresence(session);
 
@@ -1321,7 +1333,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     if (status === "idle" && session.queuedMessage) {
       const queued = session.queuedMessage;
       session.queuedMessage = null;
-      this.broadcaster.broadcast(session, { type: "queued_message_cancelled" });
+      this.broadcaster.broadcast(session, { type: "queued_message_sent" });
       this.sendUserMessage(session.id, queued.content, {
         images: queued.images,
       });

@@ -200,4 +200,5 @@ export type ConsumerMessage =
       content: string;
       images?: { media_type: string; data: string }[];
     }
-  | { type: "queued_message_cancelled" };
+  | { type: "queued_message_cancelled" }
+  | { type: "queued_message_sent" };

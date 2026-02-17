@@ -358,9 +358,9 @@ describe("SessionBridge — message queue handlers", () => {
         sentToCli.some((m: any) => m.type === "user" && m.message.content === "auto-send me"),
       ).toBe(true);
 
-      // Should have broadcast queued_message_cancelled
-      const cancelled = findMessage(consumerSocket, "queued_message_cancelled");
-      expect(cancelled).toBeDefined();
+      // Should have broadcast queued_message_sent (not cancelled)
+      const sent = findMessage(consumerSocket, "queued_message_sent");
+      expect(sent).toBeDefined();
     });
 
     it("does not auto-send when status transitions to running", () => {
