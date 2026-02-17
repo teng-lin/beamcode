@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,12 +33,22 @@ function buildCsp(html: string): string {
   return `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; connect-src 'self' ws: wss:; img-src 'self' data:;`;
 }
 
+function resolveHtmlPath(): string {
+  // Production: dist/consumer/index.html (relative to compiled module)
+  const distPath = join(dirname(fileURLToPath(import.meta.url)), "..", "consumer", "index.html");
+  if (existsSync(distPath)) return distPath;
+
+  // Dev: web/dist/index.html (relative to repo root)
+  const devPath = join(process.cwd(), "web", "dist", "index.html");
+  if (existsSync(devPath)) return devPath;
+
+  throw new Error("Consumer HTML not found. Run 'pnpm build:web' to build the frontend.");
+}
+
 export function loadConsumerHtml(): string {
   if (cachedHtml) return cachedHtml;
 
-  // Resolves to dist/consumer/index.html (compiled) or src/consumer/index.html (dev via tsx)
-  const htmlPath = join(dirname(fileURLToPath(import.meta.url)), "..", "consumer", "index.html");
-  cachedHtml = readFileSync(htmlPath, "utf-8");
+  cachedHtml = readFileSync(resolveHtmlPath(), "utf-8");
   cachedGzip = gzipSync(cachedHtml);
   cachedCsp = buildCsp(cachedHtml);
 

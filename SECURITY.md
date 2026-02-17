@@ -266,7 +266,7 @@ The following limitations are documented and accepted for the current release:
 - **No mutual TLS**: The relay connection uses standard TLS provided by Cloudflare Tunnel, not mutual TLS with client certificates.
 - **No session file encryption at rest**: Session state files are stored as plaintext JSON on disk. They are protected by filesystem permissions only.
 - **No audit logging**: Security-relevant events (pairing attempts, permission decisions, revocations) are not written to a structured audit log.
-- **Consumer-side `CryptoClient` is a stub**: The consumer-side crypto client (`src/consumer/crypto-client.ts`) currently passes data through unencrypted. Full consumer-side encryption requires integration with the pairing flow in a browser environment.
+- **Consumer-side encryption not yet integrated**: The new React frontend (`web/`) does not yet implement client-side E2E encryption. Full consumer-side encryption requires integration with the pairing flow in a browser environment.
 
 ---
 
