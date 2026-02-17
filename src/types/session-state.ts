@@ -114,4 +114,5 @@ export interface PersistedSession {
   pendingMessages: string[];
   pendingPermissions: [string, PermissionRequest][];
   archived?: boolean;
+  schemaVersion?: number;
 }
