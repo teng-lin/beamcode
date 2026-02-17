@@ -48,7 +48,6 @@
   },
   "files": [
     "dist",
-    "dist/consumer",
     "README.md"
   ],
   "scripts": {
