@@ -5,10 +5,22 @@ import type { Logger } from "../interfaces/logger.js";
 import type { ProcessHandle, ProcessManager } from "../interfaces/process-manager.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
+/** Circuit breaker snapshot included in process:exited when breaker is not CLOSED. */
+export interface BreakerSnapshot {
+  state: string;
+  failureCount: number;
+  recoveryTimeRemainingMs: number;
+}
+
 /** Minimum event map that any ProcessSupervisor must support. */
 export interface SupervisorEventMap {
   "process:spawned": { sessionId: string; pid: number };
-  "process:exited": { sessionId: string; exitCode: number | null; uptimeMs: number };
+  "process:exited": {
+    sessionId: string;
+    exitCode: number | null;
+    uptimeMs: number;
+    circuitBreaker?: BreakerSnapshot;
+  };
   "process:stdout": { sessionId: string; data: string };
   "process:stderr": { sessionId: string; data: string };
   error: { source: string; error: Error; sessionId?: string };
@@ -248,7 +260,14 @@ export abstract class ProcessSupervisor<
       this.processes.delete(sessionId);
       this.onProcessExited(sessionId, exitCode, uptimeMs);
 
-      this.emit("process:exited", { sessionId, exitCode, uptimeMs });
+      // Include circuit breaker snapshot when breaker is not CLOSED
+      const breakerState = this.restartCircuitBreaker.getState();
+      const circuitBreaker =
+        breakerState !== "closed" && this.restartCircuitBreaker instanceof SlidingWindowBreaker
+          ? this.restartCircuitBreaker.getSnapshot()
+          : undefined;
+
+      this.emit("process:exited", { sessionId, exitCode, uptimeMs, circuitBreaker });
     });
   }
 }

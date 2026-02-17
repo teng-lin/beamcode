@@ -17,6 +17,12 @@ interface AttachedImage {
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_IMAGES = 10;
 
+function composerPlaceholder(isObserver: boolean, isRunning: boolean): string {
+  if (isObserver) return "Observer mode \u2014 read-only";
+  if (isRunning) return "Press Enter or Esc to interrupt...";
+  return "Message BeamCode...";
+}
+
 export function Composer({ sessionId }: ComposerProps) {
   const [value, setValue] = useState("");
   const [showSlash, setShowSlash] = useState(false);
@@ -251,13 +257,7 @@ export function Composer({ sessionId }: ComposerProps) {
               onChange={handleChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={
-                isObserver
-                  ? "Observer mode \u2014 read-only"
-                  : isRunning
-                    ? "Press Enter or Esc to interrupt..."
-                    : "Message BeamCode..."
-              }
+              placeholder={composerPlaceholder(isObserver, isRunning)}
               rows={3}
               disabled={isObserver}
               className="min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"

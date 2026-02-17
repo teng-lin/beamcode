@@ -16,6 +16,7 @@ import type {
 import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
+import { redactSecrets } from "../utils/redact-secrets.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
@@ -162,6 +163,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.started = false;
   }
 
+  /** Ring buffer for process output per session. */
+  private processLogBuffers = new Map<string, string[]>();
+  private static readonly MAX_LOG_LINES = 500;
+
   private wireEvents(): void {
     // When the backend reports its session_id, store it for --resume on relaunch
     this.bridge.on("backend:session_id", ({ sessionId, backendSessionId }) => {
@@ -171,6 +176,59 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     // When backend connects, mark it in the launcher
     this.bridge.on("backend:connected", ({ sessionId }) => {
       this.launcher.markConnected(sessionId);
+    });
+
+    // ── Resume failure → broadcast to consumers (Step 3) ──
+    this.launcher.on("process:resume_failed", ({ sessionId }) => {
+      this.bridge.broadcastResumeFailedToConsumers(sessionId);
+    });
+
+    // ── Process output forwarding with redaction (Step 11) ──
+    for (const stream of ["process:stdout", "process:stderr"] as const) {
+      this.launcher.on(stream, ({ sessionId, data }) => {
+        const redacted = redactSecrets(data);
+        // Ring buffer
+        const buffer = this.processLogBuffers.get(sessionId) ?? [];
+        const lines = redacted.split("\n").filter((l) => l.trim());
+        buffer.push(...lines);
+        if (buffer.length > SessionManager.MAX_LOG_LINES) {
+          buffer.splice(0, buffer.length - SessionManager.MAX_LOG_LINES);
+        }
+        this.processLogBuffers.set(sessionId, buffer);
+        // Forward to consumers (participant-only is enforced in bridge)
+        this.bridge.broadcastProcessOutput(
+          sessionId,
+          stream === "process:stdout" ? "stdout" : "stderr",
+          redacted,
+        );
+      });
+    }
+
+    // ── Circuit breaker state from process:exited (Step 9) ──
+    this.launcher.on("process:exited", ({ sessionId, circuitBreaker }) => {
+      if (circuitBreaker) {
+        this.bridge.broadcastCircuitBreakerState(sessionId, circuitBreaker);
+      }
+    });
+
+    // ── Session auto-naming on first turn (Step 4) ──
+    this.bridge.on("session:first_turn_completed", ({ sessionId, firstUserMessage }) => {
+      const session = this.launcher.getSession(sessionId);
+      if (session?.name) return; // Already named
+
+      // Derive name: first line, truncated, redacted
+      let name = firstUserMessage.split("\n")[0].trim();
+      name = redactSecrets(name);
+      if (name.length > 50) name = `${name.slice(0, 47)}...`;
+      if (!name) return;
+
+      this.bridge.broadcastNameUpdate(sessionId, name);
+      this.launcher.setSessionName(sessionId, name);
+    });
+
+    // Clean up process log buffer when a session is closed
+    this.bridge.on("session:closed", ({ sessionId }) => {
+      this.processLogBuffers.delete(sessionId);
     });
 
     // Auto-relaunch when a consumer connects but backend is dead (with dedup — A5)
@@ -290,19 +348,27 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     const starting = this.launcher.getStartingSessions();
     if (starting.length === 0) return;
 
+    const gracePeriodMs = this.config.reconnectGracePeriodMs;
     this.logger.info(
-      `Waiting ${this.config.reconnectGracePeriodMs / 1000}s for ${starting.length} CLI process(es) to reconnect...`,
+      `Waiting ${gracePeriodMs / 1000}s for ${starting.length} CLI process(es) to reconnect...`,
     );
+
+    // Broadcast watchdog:active to all sessions
+    for (const info of starting) {
+      this.bridge.broadcastWatchdogState(info.sessionId, { gracePeriodMs, startedAt: Date.now() });
+    }
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       const stale = this.launcher.getStartingSessions();
       for (const info of stale) {
+        // Clear watchdog state
+        this.bridge.broadcastWatchdogState(info.sessionId, null);
         if (info.archived) continue;
         this.logger.info(`CLI for session ${info.sessionId} did not reconnect, relaunching...`);
         await this.launcher.relaunch(info.sessionId);
       }
-    }, this.config.reconnectGracePeriodMs);
+    }, gracePeriodMs);
   }
 
   /** Periodically reap idle sessions (no CLI or consumer connections). */

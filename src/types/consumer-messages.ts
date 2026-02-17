@@ -180,4 +180,10 @@ export type ConsumerMessage =
       models: InitializeModel[];
       account: InitializeAccount | null;
       skills: string[];
+    }
+  | { type: "resume_failed"; sessionId: string }
+  | {
+      type: "process_output";
+      stream: "stdout" | "stderr";
+      data: string;
     };

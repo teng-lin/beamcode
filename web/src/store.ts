@@ -62,6 +62,15 @@ export interface SessionData {
   presence: Array<{ userId: string; displayName: string; role: ConsumerRole }>;
 }
 
+export interface Toast {
+  id: string;
+  message: string;
+  type: "info" | "error" | "success";
+  ttl: number;
+}
+
+const MAX_TOASTS = 5;
+
 export interface AppState {
   // Session data (grouped per session)
   sessionData: Record<string, SessionData>;
@@ -76,6 +85,9 @@ export interface AppState {
   inspectedAgentId: string | null;
   soundEnabled: boolean;
   alertsEnabled: boolean;
+  toasts: Toast[];
+  processLogs: Record<string, string[]>;
+  logDrawerOpen: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
@@ -87,6 +99,10 @@ export interface AppState {
   toggleAlerts: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
   setInspectedAgent: (id: string | null) => void;
+  addToast: (message: string, type?: "info" | "error" | "success", ttl?: number) => void;
+  removeToast: (id: string) => void;
+  appendProcessLog: (sessionId: string, line: string) => void;
+  setLogDrawerOpen: (open: boolean) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -218,6 +234,9 @@ export const useStore = create<AppState>()((set, get) => ({
   inspectedAgentId: null,
   soundEnabled: readBool("beamcode_sound", true),
   alertsEnabled: readBool("beamcode_alerts", false),
+  toasts: [],
+  processLogs: {},
+  logDrawerOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -248,6 +267,30 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
   setInspectedAgent: (id) => set({ inspectedAgentId: id }),
+
+  addToast: (message, type = "info", ttl) =>
+    set((s) => {
+      const defaultTtl = type === "error" ? 0 : 5000;
+      const toast: Toast = { id: crypto.randomUUID(), message, type, ttl: ttl ?? defaultTtl };
+      const toasts = [...s.toasts, toast];
+      return { toasts: toasts.length > MAX_TOASTS ? toasts.slice(-MAX_TOASTS) : toasts };
+    }),
+
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  appendProcessLog: (sessionId, line) =>
+    set((s) => {
+      const existing = s.processLogs[sessionId] ?? [];
+      const updated = [...existing, line];
+      return {
+        processLogs: {
+          ...s.processLogs,
+          [sessionId]: updated.length > 200 ? updated.slice(-200) : updated,
+        },
+      };
+    }),
+
+  setLogDrawerOpen: (open) => set({ logDrawerOpen: open }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
@@ -408,6 +451,7 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const { [id]: _, ...rest } = s.sessions;
       const { [id]: __, ...restData } = s.sessionData;
-      return { sessions: rest, sessionData: restData };
+      const { [id]: ___, ...restLogs } = s.processLogs;
+      return { sessions: rest, sessionData: restData, processLogs: restLogs };
     }),
 }));

@@ -61,15 +61,18 @@ describe("ChatView", () => {
     resetStore();
   });
 
-  it("renders EmptyState when no currentSessionId", () => {
+  it("renders inline empty state when no currentSessionId", () => {
     render(<ChatView />);
-    expect(screen.getByTestId("empty-state")).toBeInTheDocument();
+    // The no-session path renders the BeamCode logo + a disabled composer
+    expect(screen.getByText("BeamCode")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Create a session to start...")).toBeInTheDocument();
   });
 
-  it("renders EmptyState when no session data", () => {
+  it("renders inline empty state when no session data", () => {
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
-    expect(screen.getByTestId("empty-state")).toBeInTheDocument();
+    // sessionData[SESSION] is undefined → same inline empty state
+    expect(screen.getByText("BeamCode")).toBeInTheDocument();
   });
 
   it("renders EmptyState when session has no messages", () => {

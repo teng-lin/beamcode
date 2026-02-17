@@ -20,4 +20,5 @@ export type InboundMessage =
   | { type: "set_model"; model: string }
   | { type: "set_permission_mode"; mode: string }
   | { type: "presence_query" }
-  | { type: "slash_command"; command: string; request_id?: string };
+  | { type: "slash_command"; command: string; request_id?: string }
+  | { type: "set_adapter"; adapter: string };

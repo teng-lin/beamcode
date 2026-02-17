@@ -22,8 +22,17 @@ function MainChatContent({
   const { messages, cliConnected, connectionStatus } = sessionData;
   const hasPendingPermissions = Object.keys(sessionData.pendingPermissions).length > 0;
 
+  const identityRole = useStore((s) => s.sessionData[sessionId]?.identity?.role ?? null);
+  const isObserver = identityRole === "observer";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {isObserver && (
+        <div className="border-b border-bc-border bg-bc-text-muted/5 px-3 py-1.5 text-center text-xs text-bc-text-muted">
+          You are observing this session (read-only)
+        </div>
+      )}
+
       {!cliConnected && connectionStatus === "connected" && (
         <ConnectionBanner reconnectAttempt={sessionData.reconnectAttempt} />
       )}

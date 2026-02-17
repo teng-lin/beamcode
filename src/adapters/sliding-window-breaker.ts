@@ -109,4 +109,19 @@ export class SlidingWindowBreaker implements CircuitBreaker {
     const cutoff = Date.now() - this.windowMs;
     return this.failureTimestamps.filter((t) => t > cutoff).length;
   }
+
+  /**
+   * Get a snapshot of the breaker state for consumer reporting.
+   * Uses relative recoveryTimeRemainingMs to avoid leaking server clock.
+   */
+  getSnapshot(): { state: string; failureCount: number; recoveryTimeRemainingMs: number } {
+    const state = this.getState();
+    const failureCount = this.getFailureCount();
+    let recoveryTimeRemainingMs = 0;
+    if (state === "open" && this.lastFailureTime > 0) {
+      const elapsed = Date.now() - this.lastFailureTime;
+      recoveryTimeRemainingMs = Math.max(0, this.recoveryTimeMs - elapsed);
+    }
+    return { state, failureCount, recoveryTimeRemainingMs };
+  }
 }

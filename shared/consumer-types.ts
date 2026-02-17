@@ -170,6 +170,19 @@ export interface ConsumerSessionState {
   last_duration_ms?: number;
   last_duration_api_ms?: number;
   team?: ConsumerTeamState | null;
+  circuitBreaker?: {
+    state: string;
+    failureCount: number;
+    recoveryTimeRemainingMs: number;
+  } | null;
+  encryption?: {
+    isActive: boolean;
+    isPaired: boolean;
+  } | null;
+  watchdog?: {
+    gracePeriodMs: number;
+    startedAt: number;
+  } | null;
 }
 
 // ── Stream Events ──────────────────────────────────────────────────────────
@@ -234,6 +247,12 @@ export type ConsumerMessage =
       models: InitializeModel[];
       account: InitializeAccount | null;
       skills: string[];
+    }
+  | { type: "resume_failed"; sessionId: string }
+  | {
+      type: "process_output";
+      stream: "stdout" | "stderr";
+      data: string;
     };
 
 // ── Inbound Messages (consumer → bridge) ────────────────────────────────────
@@ -256,4 +275,5 @@ export type InboundMessage =
   | { type: "set_model"; model: string }
   | { type: "set_permission_mode"; mode: string }
   | { type: "presence_query" }
-  | { type: "slash_command"; command: string; request_id?: string };
+  | { type: "slash_command"; command: string; request_id?: string }
+  | { type: "set_adapter"; adapter: string };

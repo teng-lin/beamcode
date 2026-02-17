@@ -5,7 +5,7 @@ import type {
   ConsumerTeamMember,
   ConsumerTeamTask,
 } from "../../../shared/consumer-types";
-import { useStore } from "../store";
+import { currentData, useStore } from "../store";
 import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
 import { memberStatusDotClass, TASK_STATUS_ICONS } from "../utils/team-styles";
@@ -149,6 +149,53 @@ function McpServersSection({ servers }: { servers: { name: string; status: strin
   );
 }
 
+function HealthSection() {
+  const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
+  const cliConnected = useStore((s) => currentData(s)?.cliConnected ?? false);
+  const reconnectAttempt = useStore((s) => currentData(s)?.reconnectAttempt ?? 0);
+  const circuitBreaker = useStore((s) => currentData(s)?.state?.circuitBreaker ?? null);
+
+  let statusDot: string;
+  let statusLabel: string;
+  if (connectionStatus === "connected" && cliConnected) {
+    statusDot = "bg-bc-success";
+    statusLabel = "Healthy";
+  } else if (connectionStatus === "connected") {
+    statusDot = "bg-bc-warning";
+    statusLabel = "CLI disconnected";
+  } else if (connectionStatus === "connecting") {
+    statusDot = "bg-bc-warning animate-pulse";
+    statusLabel = "Connecting...";
+  } else {
+    statusDot = "bg-bc-text-muted";
+    statusLabel = "Disconnected";
+  }
+
+  return (
+    <div className="mb-5">
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+        Connection Health
+      </div>
+      <div className="rounded-lg border border-bc-border/40 bg-bc-surface-2/30 p-2.5 text-xs">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${statusDot}`} />
+          <span className="text-bc-text">{statusLabel}</span>
+        </div>
+        {reconnectAttempt > 0 && (
+          <div className="mt-1.5 text-bc-text-muted">
+            Reconnect attempts: <span className="tabular-nums">{reconnectAttempt}</span>
+          </div>
+        )}
+        {circuitBreaker && circuitBreaker.state !== "closed" && (
+          <div className="mt-1.5 text-bc-warning">
+            Circuit breaker: {circuitBreaker.state} ({circuitBreaker.failureCount} failures)
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function TaskPanel() {
@@ -229,6 +276,9 @@ export function TaskPanel() {
             <div className="mt-0.5 font-mono-code text-sm tabular-nums text-bc-text">{turns}</div>
           </div>
         </div>
+
+        {/* Connection health */}
+        <HealthSection />
 
         {/* Lines changed */}
         {(state?.total_lines_added != null || state?.total_lines_removed != null) && (
