@@ -42,7 +42,14 @@ export function ResultBanner({ data }: ResultBannerProps) {
       )}
       <span className="font-medium">{isError ? "Error" : "Done"}</span>
       <span className="text-bc-text-muted/50">—</span>
-      <span className="tabular-nums text-bc-text-muted">{formatDuration(data.duration_ms)}</span>
+      <span
+        className={`tabular-nums ${data.duration_ms > 5000 ? "text-bc-warning" : "text-bc-text-muted"}`}
+      >
+        {formatDuration(data.duration_ms)}
+        {data.duration_api_ms != null && data.duration_api_ms > 0 && (
+          <> (API {formatDuration(Math.min(data.duration_api_ms, data.duration_ms))})</>
+        )}
+      </span>
       <span className="text-bc-text-muted/30">·</span>
       <span className="tabular-nums text-bc-text-muted">{formatCost(data.total_cost_usd)}</span>
       <span className="text-bc-text-muted/30">·</span>

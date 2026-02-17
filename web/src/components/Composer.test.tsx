@@ -286,6 +286,49 @@ describe("Composer", () => {
     });
   });
 
+  // ── Observer mode ──────────────────────────────────────────────────
+
+  describe("observer mode", () => {
+    it("disables textarea when identity role is observer", () => {
+      store().ensureSessionData(SESSION);
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByLabelText("Message input")).toBeDisabled();
+    });
+
+    it("shows observer placeholder when identity role is observer", () => {
+      store().ensureSessionData(SESSION);
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByPlaceholderText(/Observer mode/)).toBeInTheDocument();
+    });
+
+    it("disables send button when observer", () => {
+      store().ensureSessionData(SESSION);
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByLabelText("Send message")).toBeDisabled();
+    });
+
+    it("keeps controls enabled when identity is null (backward compatibility)", () => {
+      store().ensureSessionData(SESSION);
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByLabelText("Message input")).not.toBeDisabled();
+    });
+
+    it("keeps controls enabled when role is participant", () => {
+      store().ensureSessionData(SESSION);
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Alice", role: "participant" });
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByLabelText("Message input")).not.toBeDisabled();
+    });
+  });
+
   // ── Argument hints ──────────────────────────────────────────────────
 
   describe("argument hints", () => {

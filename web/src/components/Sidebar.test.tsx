@@ -7,8 +7,10 @@ import { makeSessionInfo, resetStore } from "../test/factories";
 import { Sidebar } from "./Sidebar";
 
 vi.mock("../api", () => ({
+  archiveSession: vi.fn(),
   createSession: vi.fn(),
   deleteSession: vi.fn(),
+  unarchiveSession: vi.fn(),
 }));
 
 vi.mock("../ws", () => ({
@@ -17,7 +19,7 @@ vi.mock("../ws", () => ({
   disconnectSession: vi.fn(),
 }));
 
-import { createSession, deleteSession } from "../api";
+import { archiveSession, createSession, deleteSession, unarchiveSession } from "../api";
 import { connectToSession, disconnect, disconnectSession } from "../ws";
 
 function setupSessions(...sessions: SdkSessionInfo[]): void {
@@ -333,6 +335,33 @@ describe("Sidebar", () => {
       render(<Sidebar />);
       expect(screen.getByRole("img", { name: "Offline" })).toBeInTheDocument();
     });
+
+    it("shows exit code in tooltip when state is exited", () => {
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          cwd: "/tmp/proj",
+          createdAt: 1000,
+          state: "exited",
+          exitCode: 1,
+        }),
+      );
+      render(<Sidebar />);
+      expect(screen.getByRole("img", { name: "Exited (code 1)" })).toBeInTheDocument();
+    });
+
+    it("shows plain Exited label when no exit code", () => {
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          cwd: "/tmp/proj",
+          createdAt: 1000,
+          state: "exited",
+        }),
+      );
+      render(<Sidebar />);
+      expect(screen.getByRole("img", { name: "Exited" })).toBeInTheDocument();
+    });
   });
 
   // ── formatTime ─────────────────────────────────────────────────────────
@@ -514,6 +543,120 @@ describe("Sidebar", () => {
 
       expect(useStore.getState().currentSessionId).toBe("s1");
       expect(connectToSession).toHaveBeenCalledWith("s1");
+    });
+  });
+
+  // ── Archive management ────────────────────────────────────────────────
+
+  describe("archive management", () => {
+    it("separates active and archived sessions", () => {
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/active-proj", createdAt: 2000 }),
+        makeSessionInfo({
+          sessionId: "s2",
+          cwd: "/home/user/old-proj",
+          createdAt: 1000,
+          archived: true,
+        }),
+      );
+      render(<Sidebar />);
+
+      // Active session visible directly
+      expect(screen.getByText("active-proj")).toBeInTheDocument();
+      // Archived section header with count
+      expect(screen.getByText(/Archived \(1\)/)).toBeInTheDocument();
+    });
+
+    it("renders archived sessions with reduced opacity", () => {
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          cwd: "/home/user/old-proj",
+          createdAt: 1000,
+          archived: true,
+        }),
+      );
+      render(<Sidebar />);
+
+      const row = screen.getByText("old-proj").closest("[role=button]");
+      expect(row?.className).toContain("opacity-60");
+    });
+
+    it("archives a session via API and updates store", async () => {
+      const user = userEvent.setup();
+      vi.mocked(archiveSession).mockResolvedValueOnce(undefined);
+
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 2000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 1000 }),
+      );
+      useStore.setState({ currentSessionId: "s2" });
+      render(<Sidebar />);
+
+      const archiveBtn = screen.getByLabelText("Archive session alpha");
+      await user.click(archiveBtn);
+
+      await waitFor(() => {
+        expect(archiveSession).toHaveBeenCalledWith("s1");
+      });
+      expect(useStore.getState().sessions.s1.archived).toBe(true);
+    });
+
+    it("archiving active session switches to next active session", async () => {
+      const user = userEvent.setup();
+      vi.mocked(archiveSession).mockResolvedValueOnce(undefined);
+
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
+      );
+      useStore.setState({ currentSessionId: "s2" });
+      render(<Sidebar />);
+
+      const archiveBtn = screen.getByLabelText("Archive session beta");
+      await user.click(archiveBtn);
+
+      await waitFor(() => {
+        expect(archiveSession).toHaveBeenCalledWith("s2");
+      });
+      expect(useStore.getState().currentSessionId).toBe("s1");
+      expect(connectToSession).toHaveBeenCalledWith("s1");
+      expect(disconnectSession).toHaveBeenCalledWith("s2");
+    });
+
+    it("unarchives a session via API and updates store", async () => {
+      const user = userEvent.setup();
+      vi.mocked(unarchiveSession).mockResolvedValueOnce(undefined);
+
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 2000 }),
+        makeSessionInfo({
+          sessionId: "s2",
+          cwd: "/home/user/old-proj",
+          createdAt: 1000,
+          archived: true,
+        }),
+      );
+      render(<Sidebar />);
+
+      // Open the archived section
+      const archivedSummary = screen.getByText(/Archived/);
+      await user.click(archivedSummary);
+
+      const unarchiveBtn = screen.getByLabelText("Unarchive session old-proj");
+      await user.click(unarchiveBtn);
+
+      await waitFor(() => {
+        expect(unarchiveSession).toHaveBeenCalledWith("s2");
+      });
+      expect(useStore.getState().sessions.s2.archived).toBe(false);
+    });
+
+    it("does not show archived section when no archived sessions exist", () => {
+      setupSessions(makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }));
+      render(<Sidebar />);
+
+      expect(screen.queryByText(/Archived/)).not.toBeInTheDocument();
     });
   });
 });

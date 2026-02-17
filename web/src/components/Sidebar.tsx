@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { createSession, deleteSession } from "../api";
+import { archiveSession, createSession, deleteSession, unarchiveSession } from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
@@ -28,10 +28,16 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
 
 const STATUS_DEFAULT = { dot: "border border-bc-text-muted/50", label: "Offline" };
 
-function StatusDot({ status }: { status: string | null }) {
+function StatusDot({ status, exitCode }: { status: string | null; exitCode?: number | null }) {
   const { dot, label } = (status ? STATUS_STYLES[status] : null) ?? STATUS_DEFAULT;
+  const tooltip = status === "exited" && exitCode != null ? `${label} (code ${exitCode})` : label;
   return (
-    <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`} role="img" aria-label={label} />
+    <span
+      className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`}
+      role="img"
+      aria-label={tooltip}
+      title={tooltip}
+    />
   );
 }
 
@@ -55,10 +61,12 @@ const SessionItem = memo(function SessionItem({
   info,
   isActive,
   onSelect,
+  onArchiveToggle,
 }: {
   info: SdkSessionInfo;
   isActive: boolean;
   onSelect: () => void;
+  onArchiveToggle: () => void;
 }) {
   // Primitive return (string | null) — stable with Object.is, no derived objects.
   const sessionStatus = useStore((s) => s.sessionData[info.sessionId]?.sessionStatus ?? null);
@@ -112,7 +120,7 @@ const SessionItem = memo(function SessionItem({
         isActive
           ? "border-l-2 border-bc-accent bg-bc-active"
           : "border-l-2 border-transparent hover:bg-bc-hover"
-      }`}
+      } ${info.archived ? "opacity-60" : ""}`}
       aria-current={isActive ? "page" : undefined}
     >
       <span className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${adapterColor(info)}`} />
@@ -121,24 +129,53 @@ const SessionItem = memo(function SessionItem({
           className={`flex items-center gap-1 truncate text-sm ${isActive ? "font-medium text-bc-text" : "text-bc-text-muted group-hover:text-bc-text"}`}
         >
           <span className="truncate">{name}</span>
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="ml-auto flex-shrink-0 rounded p-0.5 text-bc-text-muted/0 transition-colors hover:text-bc-error group-hover:text-bc-text-muted/60"
-            aria-label={`Delete session ${name}`}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path
-                d="M3 3l6 6M9 3l-6 6"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <span className="ml-auto flex flex-shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchiveToggle();
+              }}
+              className="rounded p-0.5 text-bc-text-muted/0 transition-colors hover:text-bc-text-muted group-hover:text-bc-text-muted/60"
+              aria-label={`${info.archived ? "Unarchive" : "Archive"} session ${name}`}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <rect
+                  x="1"
+                  y="2"
+                  width="10"
+                  height="2"
+                  rx="0.5"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+                <path
+                  d="M2 4v5.5a1 1 0 001 1h6a1 1 0 001-1V4"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+                <path d="M5 7h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="rounded p-0.5 text-bc-text-muted/0 transition-colors hover:text-bc-error group-hover:text-bc-text-muted/60"
+              aria-label={`Delete session ${name}`}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path
+                  d="M3 3l6 6M9 3l-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </span>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-bc-text-muted/70">
-          <StatusDot status={status} />
+          <StatusDot status={status} exitCode={info.exitCode} />
           <span>{formatTime(info.createdAt)}</span>
         </div>
       </div>
@@ -178,6 +215,44 @@ export function Sidebar() {
   const filteredList = useMemo(
     () => filterSessionsByQuery(sessionList, search),
     [sessionList, search],
+  );
+
+  const { activeSessions, archivedSessions } = useMemo(() => {
+    const active: SdkSessionInfo[] = [];
+    const archived: SdkSessionInfo[] = [];
+    for (const s of filteredList) {
+      (s.archived ? archived : active).push(s);
+    }
+    return { activeSessions: active, archivedSessions: archived };
+  }, [filteredList]);
+
+  const handleArchiveToggle = useCallback(
+    async (sessionId: string, currentlyArchived: boolean) => {
+      try {
+        if (currentlyArchived) {
+          await unarchiveSession(sessionId);
+        } else {
+          await archiveSession(sessionId);
+          // If archiving the active session, switch to next active one
+          const { currentSessionId, setCurrentSession } = useStore.getState();
+          if (currentSessionId === sessionId) {
+            const next = activeSessions.find((s) => s.sessionId !== sessionId)?.sessionId ?? null;
+            if (next) {
+              setCurrentSession(next);
+              connectToSession(next);
+            } else {
+              useStore.setState({ currentSessionId: null });
+            }
+            updateSessionUrl(next);
+          }
+          disconnectSession(sessionId);
+        }
+        updateSession(sessionId, { archived: !currentlyArchived });
+      } catch (err) {
+        console.error("[sidebar] Failed to toggle archive:", err);
+      }
+    },
+    [activeSessions, updateSession],
   );
 
   return (
@@ -240,17 +315,39 @@ export function Sidebar() {
             {search ? "No matches" : "No sessions"}
           </div>
         ) : (
-          filteredList.map((info) => (
-            <SessionItem
-              key={info.sessionId}
-              info={info}
-              isActive={info.sessionId === currentSessionId}
-              onSelect={() => {
-                setCurrentSession(info.sessionId);
-                connectToSession(info.sessionId);
-              }}
-            />
-          ))
+          <>
+            {activeSessions.map((info) => (
+              <SessionItem
+                key={info.sessionId}
+                info={info}
+                isActive={info.sessionId === currentSessionId}
+                onSelect={() => {
+                  setCurrentSession(info.sessionId);
+                  connectToSession(info.sessionId);
+                }}
+                onArchiveToggle={() => handleArchiveToggle(info.sessionId, !!info.archived)}
+              />
+            ))}
+            {archivedSessions.length > 0 && (
+              <details className="mt-2 border-t border-bc-border/40 pt-1.5">
+                <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+                  Archived ({archivedSessions.length})
+                </summary>
+                {archivedSessions.map((info) => (
+                  <SessionItem
+                    key={info.sessionId}
+                    info={info}
+                    isActive={info.sessionId === currentSessionId}
+                    onSelect={() => {
+                      setCurrentSession(info.sessionId);
+                      connectToSession(info.sessionId);
+                    }}
+                    onArchiveToggle={() => handleArchiveToggle(info.sessionId, !!info.archived)}
+                  />
+                ))}
+              </details>
+            )}
+          </>
         )}
       </nav>
     </aside>

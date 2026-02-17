@@ -111,7 +111,7 @@ export function handleApiSessions(
   }
 
   // DELETE /api/sessions/:id — stop session
-  if (method === "DELETE") {
+  if (method === "DELETE" && segments.length === 3) {
     sessionManager.launcher
       .kill(sessionId)
       .then((killed) => {
@@ -124,6 +124,20 @@ export function handleApiSessions(
       .catch((err) => {
         json(res, 500, { error: err instanceof Error ? err.message : "Internal error" });
       });
+    return;
+  }
+
+  // PUT /api/sessions/:id/archive — archive a session
+  // PUT /api/sessions/:id/unarchive — unarchive a session
+  const action = segments[3];
+  if (method === "PUT" && (action === "archive" || action === "unarchive")) {
+    const session = sessionManager.launcher.getSession(sessionId);
+    if (!session) {
+      json(res, 404, { error: "Session not found" });
+      return;
+    }
+    sessionManager.launcher.setArchived(sessionId, action === "archive");
+    json(res, 200, { ...session, archived: action === "archive" });
     return;
   }
 

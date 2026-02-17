@@ -18,7 +18,10 @@ export function TopBar() {
   });
   const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
   const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);
+  const permissionMode = useStore((s) => currentData(s)?.state?.permissionMode ?? null);
+  const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
   const currentSessionId = useStore((s) => s.currentSessionId);
+  const isObserver = identityRole !== null && identityRole !== "participant";
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
@@ -105,10 +108,17 @@ export function TopBar() {
         <span className="text-[11px] capitalize text-bc-text-muted">{connectionStatus}</span>
       </div>
 
+      {/* Observer badge */}
+      {isObserver && (
+        <span className="rounded-md bg-bc-text-muted/10 px-2 py-0.5 text-[11px] text-bc-text-muted">
+          Observer
+        </span>
+      )}
+
       {/* Model badge / picker */}
       {model && (
         <div className="relative" ref={modelMenuRef}>
-          {models && models.length > 1 ? (
+          {models && models.length > 1 && !isObserver ? (
             <button
               type="button"
               onClick={() => setModelMenuOpen((o) => !o)}
@@ -122,7 +132,7 @@ export function TopBar() {
               {model}
             </span>
           )}
-          {modelMenuOpen && models && models.length > 1 && (
+          {modelMenuOpen && models && models.length > 1 && !isObserver && (
             <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
               {models.map((m) => (
                 <button
@@ -139,6 +149,25 @@ export function TopBar() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Permission mode badge */}
+      {permissionMode && permissionMode !== "default" && (
+        <span
+          className={`rounded-md px-2 py-0.5 text-[11px] ${
+            permissionMode === "bypassPermissions"
+              ? "bg-bc-success/15 text-bc-success"
+              : permissionMode === "plan"
+                ? "bg-bc-accent/15 text-bc-accent"
+                : "bg-bc-surface-2 text-bc-text-muted"
+          }`}
+        >
+          {permissionMode === "bypassPermissions"
+            ? "Auto-Allow"
+            : permissionMode === "plan"
+              ? "Plan"
+              : permissionMode}
+        </span>
       )}
 
       {gitBranch && (

@@ -5,6 +5,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolBlock } from "./ToolBlock";
 import { ToolGroupBlock } from "./ToolGroupBlock";
+import { ToolResultBlock } from "./ToolResultBlock";
 
 interface AssistantMessageProps {
   message: AssistantContent;
@@ -76,7 +77,15 @@ function groupContentBlocks(blocks: ConsumerContentBlock[]): ContentGroup[] {
 }
 
 export function AssistantMessage({ message, sessionId }: AssistantMessageProps) {
-  const groups = useMemo(() => groupContentBlocks(message.content), [message.content]);
+  const { groups, toolNameByUseId } = useMemo(() => {
+    const nameMap = new Map<string, string>();
+    for (const block of message.content) {
+      if (block.type === "tool_use") {
+        nameMap.set(block.id, block.name);
+      }
+    }
+    return { groups: groupContentBlocks(message.content), toolNameByUseId: nameMap };
+  }, [message.content]);
 
   return (
     <div className="animate-fadeSlideIn flex flex-col gap-1.5 text-sm">
@@ -122,37 +131,13 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
           case "tool_result": {
             const block = group.blocks[0];
             if (block.type !== "tool_result") return null;
-            const content =
-              typeof block.content === "string"
-                ? block.content
-                : JSON.stringify(block.content, null, 2);
             return (
-              <details key={group.key} className="rounded-lg border border-bc-border/40">
-                <summary
-                  className={`flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-xs transition-colors hover:bg-bc-hover ${
-                    block.is_error ? "text-bc-error" : "text-bc-text-muted"
-                  }`}
-                >
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 10 10"
-                    className="flex-shrink-0 opacity-50"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3.5 2L7 5 3.5 8"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                    />
-                  </svg>
-                  Tool result {block.is_error ? "(error)" : ""}
-                </summary>
-                <pre className="max-h-40 overflow-auto border-t border-bc-border/30 bg-bc-code-bg p-3 font-mono-code text-xs text-bc-text-muted leading-relaxed">
-                  {content}
-                </pre>
-              </details>
+              <ToolResultBlock
+                key={group.key}
+                toolName={toolNameByUseId.get(block.tool_use_id) ?? null}
+                content={block.content}
+                isError={block.is_error}
+              />
             );
           }
 

@@ -3,6 +3,7 @@ import type {
   ConsumerContentBlock,
   ConsumerMessage,
   ConsumerPermissionRequest,
+  ConsumerRole,
   ConsumerSessionState,
   InitializeCommand,
   InitializeModel,
@@ -23,6 +24,12 @@ export interface SdkSessionInfo {
   archived?: boolean;
   name?: string;
   adapterType?: string;
+}
+
+export interface SessionIdentity {
+  userId: string;
+  displayName: string;
+  role: ConsumerRole;
 }
 
 export interface SessionData {
@@ -51,6 +58,8 @@ export interface SessionData {
     }
   >;
   reconnectAttempt: number;
+  identity: SessionIdentity | null;
+  presence: Array<{ userId: string; displayName: string; role: ConsumerRole }>;
 }
 
 export interface AppState {
@@ -93,6 +102,7 @@ export interface AppState {
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | null) => void;
   addPermission: (sessionId: string, request: ConsumerPermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
+  clearPendingPermissions: (sessionId: string) => void;
   setSessionState: (sessionId: string, state: ConsumerSessionState | null) => void;
   setCapabilities: (
     sessionId: string,
@@ -105,6 +115,11 @@ export interface AppState {
     elapsedSeconds: number,
   ) => void;
   setReconnectAttempt: (sessionId: string, attempt: number) => void;
+  setIdentity: (sessionId: string, identity: SessionIdentity | null) => void;
+  setPresence: (
+    sessionId: string,
+    consumers: Array<{ userId: string; displayName: string; role: ConsumerRole }>,
+  ) => void;
   initAgentStreaming: (sessionId: string, agentId: string) => void;
   appendAgentStreaming: (sessionId: string, agentId: string, delta: string) => void;
   setAgentStreamingOutputTokens: (sessionId: string, agentId: string, count: number) => void;
@@ -141,6 +156,8 @@ function emptySessionData(): SessionData {
     toolProgress: {},
     agentStreaming: {},
     reconnectAttempt: 0,
+    identity: null,
+    presence: [],
   };
 }
 
@@ -289,6 +306,9 @@ export const useStore = create<AppState>()((set, get) => ({
       return patchSession(s, sessionId, { pendingPermissions: rest });
     }),
 
+  clearPendingPermissions: (sessionId) =>
+    set((s) => patchSession(s, sessionId, { pendingPermissions: {} })),
+
   setSessionState: (sessionId, state) => set((s) => patchSession(s, sessionId, { state })),
 
   setCapabilities: (sessionId, caps) =>
@@ -307,6 +327,11 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setReconnectAttempt: (sessionId, attempt) =>
     set((s) => patchSession(s, sessionId, { reconnectAttempt: attempt })),
+
+  setIdentity: (sessionId, identity) => set((s) => patchSession(s, sessionId, { identity })),
+
+  setPresence: (sessionId, consumers) =>
+    set((s) => patchSession(s, sessionId, { presence: consumers })),
 
   initAgentStreaming: (sessionId, agentId) =>
     set((s) => {
