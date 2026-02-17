@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
-import type { WebSocketLike } from "../interfaces/transport.js";
-import { createMockSession, createTestSocket } from "../testing/cli-message-factories.js";
+import type { Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
+import {
+  authContext,
+  createMockSession,
+  createTestSocket,
+} from "../testing/cli-message-factories.js";
 import { resolveConfig } from "../types/config.js";
 import { ConsumerGatekeeper, PARTICIPANT_ONLY_TYPES } from "./consumer-gatekeeper.js";
 
@@ -14,14 +17,8 @@ function createGatekeeper(authenticator?: Authenticator | null) {
   return new ConsumerGatekeeper(authenticator ?? null, defaultConfig);
 }
 
-function makeIdentity(
-  role: "participant" | "observer" | "admin" = "participant",
-): ConsumerIdentity {
-  return { userId: "u1", displayName: "Alice", role: role as any };
-}
-
-function makeAuthContext(sessionId = "sess-1"): AuthContext {
-  return { sessionId, transport: {} };
+function makeIdentity(role: "participant" | "observer" = "participant"): ConsumerIdentity {
+  return { userId: "u1", displayName: "Alice", role };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -33,7 +30,7 @@ describe("ConsumerGatekeeper", () => {
     it("throws when no authenticator is configured", () => {
       const gk = createGatekeeper(null);
       const ws = createTestSocket();
-      expect(() => gk.authenticateAsync(ws, makeAuthContext())).toThrow(
+      expect(() => gk.authenticateAsync(ws, authContext("sess-1"))).toThrow(
         "authenticateAsync requires an authenticator",
       );
     });
@@ -46,7 +43,7 @@ describe("ConsumerGatekeeper", () => {
       const gk = createGatekeeper(authenticator);
       const ws = createTestSocket();
 
-      const result = await gk.authenticateAsync(ws, makeAuthContext());
+      const result = await gk.authenticateAsync(ws, authContext("sess-1"));
 
       expect(result).toEqual(id);
     });
@@ -58,7 +55,7 @@ describe("ConsumerGatekeeper", () => {
       const gk = createGatekeeper(authenticator);
       const ws = createTestSocket();
 
-      await expect(gk.authenticateAsync(ws, makeAuthContext())).rejects.toThrow("denied");
+      await expect(gk.authenticateAsync(ws, authContext("sess-1"))).rejects.toThrow("denied");
     });
 
     it("rejects with timeout when auth takes too long", async () => {
@@ -70,7 +67,7 @@ describe("ConsumerGatekeeper", () => {
         const gk = createGatekeeper(authenticator);
         const ws = createTestSocket();
 
-        const promise = gk.authenticateAsync(ws, makeAuthContext());
+        const promise = gk.authenticateAsync(ws, authContext("sess-1"));
         vi.advanceTimersByTime(defaultConfig.authTimeoutMs + 1);
 
         await expect(promise).rejects.toThrow("Authentication timed out");
@@ -90,7 +87,7 @@ describe("ConsumerGatekeeper", () => {
       const gk = createGatekeeper(authenticator);
       const ws = createTestSocket();
 
-      const promise = gk.authenticateAsync(ws, makeAuthContext());
+      const promise = gk.authenticateAsync(ws, authContext("sess-1"));
       // Simulate socket close by cancelling pending auth
       gk.cancelPendingAuth(ws);
       // Now resolve the authenticator
@@ -113,7 +110,7 @@ describe("ConsumerGatekeeper", () => {
         const gk = new ConsumerGatekeeper(authenticator, shortConfig);
         const ws = createTestSocket();
 
-        const promise = gk.authenticateAsync(ws, makeAuthContext());
+        const promise = gk.authenticateAsync(ws, authContext("sess-1"));
         vi.advanceTimersByTime(51);
 
         await expect(promise).rejects.toThrow("Authentication timed out");

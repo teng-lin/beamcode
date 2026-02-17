@@ -29,12 +29,15 @@ export function createTestSocket(opts?: { bufferedAmount?: number }): WebSocketL
   close: ReturnType<typeof vi.fn>;
 } {
   const sentMessages: string[] = [];
-  return {
+  const socket: ReturnType<typeof createTestSocket> = {
     send: vi.fn((data: string) => sentMessages.push(data)),
     close: vi.fn(),
     sentMessages,
-    ...(opts?.bufferedAmount !== undefined ? { bufferedAmount: opts.bufferedAmount } : {}),
   };
+  if (opts?.bufferedAmount !== undefined) {
+    socket.bufferedAmount = opts.bufferedAmount;
+  }
+  return socket;
 }
 
 export const noopLogger = {
@@ -182,6 +185,7 @@ export function makeStreamEventMsg(overrides: Record<string, unknown> = {}) {
 }
 
 export function makeControlRequestMsg(overrides: Record<string, unknown> = {}) {
+  const { request: requestOverrides, ...topLevelOverrides } = overrides;
   return JSON.stringify({
     type: "control_request",
     request_id: "perm-req-1",
@@ -190,9 +194,9 @@ export function makeControlRequestMsg(overrides: Record<string, unknown> = {}) {
       tool_name: "Bash",
       input: { command: "ls" },
       tool_use_id: "tu-1",
-      ...((overrides.request as Record<string, unknown>) ?? {}),
+      ...((requestOverrides as Record<string, unknown>) ?? {}),
     },
-    ...Object.fromEntries(Object.entries(overrides).filter(([k]) => k !== "request")),
+    ...topLevelOverrides,
   });
 }
 

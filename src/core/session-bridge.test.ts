@@ -3183,15 +3183,15 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "user_message", content: "hello" }),
       );
 
-      // The message should be queued since no CLI is connected
-      // Verify by connecting CLI and checking the flushed messages
+      // Verify message was queued by connecting CLI and checking flush
       const cliSocket = createMockSocket();
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleCLIMessage("sess-1", makeInitMsg());
 
-      // After CLI connects, queued messages should have been flushed
-      // (the init triggers flush)
-      // At minimum, the bridge should not have crashed
+      // After CLI connects, queued messages should flush.
+      // The consumer "user_message" is transformed to NDJSON { type: "user", ... }
+      const flushed = cliSocket.sentMessages.some((m: string) => m.includes('"type":"user"'));
+      expect(flushed).toBe(true);
     });
 
     it("consumer open with unknown session → session auto-created", () => {

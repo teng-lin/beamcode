@@ -1,65 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
+import type { ProcessHandle, SpawnOptions } from "../interfaces/process-manager.js";
+import { noopLogger } from "../testing/cli-message-factories.js";
+import { MockProcessManager } from "../testing/mock-process-manager.js";
 import type { SupervisorEventMap } from "./process-supervisor.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
-
-// ---------------------------------------------------------------------------
-// Mock ProcessManager
-// ---------------------------------------------------------------------------
-
-interface MockProcessHandle extends ProcessHandle {
-  resolveExit: (code: number | null) => void;
-  killCalls: string[];
-}
-
-class MockProcessManager implements ProcessManager {
-  readonly spawnCalls: SpawnOptions[] = [];
-  readonly spawnedProcesses: MockProcessHandle[] = [];
-  private nextPid = 10000;
-  private _shouldFailSpawn = false;
-
-  spawn(options: SpawnOptions): ProcessHandle {
-    this.spawnCalls.push(options);
-    if (this._shouldFailSpawn) {
-      throw new Error("Mock spawn failure");
-    }
-    const pid = this.nextPid++;
-    let resolveExit: (code: number | null) => void;
-    const exited = new Promise<number | null>((resolve) => {
-      resolveExit = resolve;
-    });
-    const killCalls: string[] = [];
-    const handle: MockProcessHandle = {
-      pid,
-      exited,
-      kill(signal: "SIGTERM" | "SIGKILL" | "SIGINT" = "SIGTERM") {
-        killCalls.push(signal);
-      },
-      stdout: null,
-      stderr: null,
-      resolveExit: (code: number | null) => resolveExit!(code),
-      killCalls,
-    };
-    this.spawnedProcesses.push(handle);
-    return handle;
-  }
-
-  isAlive(_pid: number): boolean {
-    return false;
-  }
-
-  failNextSpawn(): void {
-    this._shouldFailSpawn = true;
-  }
-
-  resetSpawnFailure(): void {
-    this._shouldFailSpawn = false;
-  }
-
-  get lastProcess(): MockProcessHandle | undefined {
-    return this.spawnedProcesses[this.spawnedProcesses.length - 1];
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Concrete test subclass
@@ -97,8 +41,6 @@ class TestSupervisor extends ProcessSupervisor<SupervisorEventMap> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-const noopLogger = { info() {}, warn() {}, error() {} };
 
 let supervisor: TestSupervisor;
 let pm: MockProcessManager;

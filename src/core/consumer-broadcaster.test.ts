@@ -344,7 +344,7 @@ describe("ConsumerBroadcaster", () => {
   // ─── Error path extensions ────────────────────────────────────────────
 
   describe("error paths", () => {
-    it("onBroadcast callback throws → does not prevent delivery", () => {
+    it("onBroadcast callback throws → delivery succeeds but error propagates to caller", () => {
       const throwingCallback: BroadcastCallback = () => {
         throw new Error("callback boom");
       };
@@ -352,12 +352,11 @@ describe("ConsumerBroadcaster", () => {
       const ws = createTestSocket();
       const session = sessionWithConsumers({ ws, id: identity() });
 
-      // Message is sent before onBroadcast is called, so delivery should succeed
-      // but the throw should not propagate to the caller
+      // Message is sent before onBroadcast, so delivery succeeds.
+      // The throw propagates because onBroadcast has no try-catch wrapper.
       expect(() => {
         b.broadcast(session, { type: "status_change", status: "idle" });
       }).toThrow("callback boom");
-      // The message was still sent before the callback threw
       expect(ws.send).toHaveBeenCalled();
     });
 

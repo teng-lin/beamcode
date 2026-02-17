@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "../testing/cli-message-factories.js";
 import { PtyCommandRunner } from "./pty-command-runner.js";
 
 // ─── Mock factory ───────────────────────────────────────────────────────────
@@ -50,9 +51,6 @@ function defaultOptions() {
   };
 }
 
-/** Flush the microtask queue so async operations can complete. */
-const flushMicrotasks = () => new Promise<void>((resolve) => queueMicrotask(resolve));
-
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("PtyCommandRunner", () => {
@@ -84,7 +82,7 @@ describe("PtyCommandRunner", () => {
       const promise = runner.execute("cli-1", "/help", defaultOptions());
 
       // Flush so loadNodePty resolves and callbacks are set
-      await flushMicrotasks();
+      await flushPromises();
 
       mock.emitData("Is this a project you created or one you trust? [Yes/No]");
       vi.advanceTimersByTime(600);
@@ -100,7 +98,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       mock.emitData("Enter to confirm: Bypass Permissions for this project");
       vi.advanceTimersByTime(600);
@@ -117,7 +115,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       mock.emitData("Loading...");
       // Advance past TUI_READY_SILENCE_MS (3000ms)
@@ -141,7 +139,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       // Skip to command-sent phase
       mock.emitData("startup");
@@ -160,7 +158,7 @@ describe("PtyCommandRunner", () => {
         ...defaultOptions(),
         timeoutMs: 1000,
       });
-      await flushMicrotasks();
+      await flushPromises();
 
       vi.advanceTimersByTime(1100);
 
@@ -173,7 +171,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       // Skip to command-sent phase
       mock.emitData("startup");
@@ -190,7 +188,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       mock.emitData("startup");
       vi.advanceTimersByTime(3500);
@@ -212,7 +210,7 @@ describe("PtyCommandRunner", () => {
       const mock = createMockPty();
       const runner = createRunner(mock);
       const promise = runner.execute("cli-1", "/help", defaultOptions());
-      await flushMicrotasks();
+      await flushPromises();
 
       mock.emitExit(0);
       await promise;
