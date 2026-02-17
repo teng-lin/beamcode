@@ -452,12 +452,12 @@ describe("FileStorage", () => {
   // -----------------------------------------------------------------------
 
   describe("schema migration on load", () => {
-    it("migrates unversioned sessions on load", () => {
-      // Write a v0 session directly (no schemaVersion field)
-      const v0 = JSON.stringify({
-        id: VALID_UUID,
+    /** Create a v0 session JSON string (no schemaVersion field). */
+    function makeV0Session(id: string): string {
+      return JSON.stringify({
+        id,
         state: {
-          session_id: VALID_UUID,
+          session_id: id,
           model: "test",
           cwd: "/test",
           tools: [],
@@ -481,7 +481,10 @@ describe("FileStorage", () => {
         },
         messageHistory: [],
       });
-      writeFileSync(join(dir, `${VALID_UUID}.json`), v0);
+    }
+
+    it("migrates unversioned sessions on load", () => {
+      writeFileSync(join(dir, `${VALID_UUID}.json`), makeV0Session(VALID_UUID));
 
       const loaded = storage.load(VALID_UUID);
       expect(loaded).not.toBeNull();
@@ -500,37 +503,8 @@ describe("FileStorage", () => {
     });
 
     it("migrates unversioned sessions in loadAll", () => {
-      // Write v0 sessions directly
-      const makeV0 = (id: string) =>
-        JSON.stringify({
-          id,
-          state: {
-            session_id: id,
-            model: "test",
-            cwd: "/test",
-            tools: [],
-            permissionMode: "default",
-            claude_code_version: "1.0",
-            mcp_servers: [],
-            agents: [],
-            slash_commands: [],
-            skills: [],
-            total_cost_usd: 0,
-            num_turns: 0,
-            context_used_percent: 0,
-            is_compacting: false,
-            git_branch: "",
-            is_worktree: false,
-            repo_root: "",
-            git_ahead: 0,
-            git_behind: 0,
-            total_lines_added: 0,
-            total_lines_removed: 0,
-          },
-          messageHistory: [],
-        });
-      writeFileSync(join(dir, `${VALID_UUID}.json`), makeV0(VALID_UUID));
-      writeFileSync(join(dir, `${VALID_UUID_2}.json`), makeV0(VALID_UUID_2));
+      writeFileSync(join(dir, `${VALID_UUID}.json`), makeV0Session(VALID_UUID));
+      writeFileSync(join(dir, `${VALID_UUID_2}.json`), makeV0Session(VALID_UUID_2));
 
       const all = storage.loadAll();
       expect(all).toHaveLength(2);

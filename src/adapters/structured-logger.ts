@@ -60,6 +60,7 @@ export class StructuredLogger implements Logger {
 
     if (ctx) {
       for (const [key, value] of Object.entries(ctx)) {
+        if (key === "time" || key === "level" || key === "msg" || key === "component") continue;
         if (value instanceof Error) {
           entry[key] = value.message;
           entry[`${key}Stack`] = value.stack;

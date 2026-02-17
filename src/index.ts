@@ -13,10 +13,8 @@ export { NoopLogger } from "./adapters/noop-logger.js";
 export { PtyCommandRunner } from "./adapters/pty-command-runner.js";
 export type { SdkUrlLauncherOptions } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
-// State migration
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
-// Structured logging
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";
 export { CLILauncher } from "./core/cli-launcher.js";
 export type {

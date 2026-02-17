@@ -64,6 +64,22 @@ describe("StructuredLogger", () => {
     expect(parsed.errorStack).toContain("Error: boom");
   });
 
+  it("does not allow ctx to overwrite reserved fields", () => {
+    const lines: string[] = [];
+    const logger = new StructuredLogger({
+      writer: (line) => lines.push(line),
+      component: "test",
+    });
+
+    logger.info("spoofed", { level: "debug", time: "fake", msg: "injected", component: "evil" });
+
+    const parsed = JSON.parse(lines[0]);
+    expect(parsed.level).toBe("info");
+    expect(parsed.msg).toBe("spoofed");
+    expect(parsed.component).toBe("test");
+    expect(parsed.time).not.toBe("fake");
+  });
+
   it("survives circular references in ctx", () => {
     const lines: string[] = [];
     const logger = new StructuredLogger({ writer: (line) => lines.push(line) });

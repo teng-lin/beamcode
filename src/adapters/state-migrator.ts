@@ -36,7 +36,7 @@ export function migrateSession(raw: unknown): PersistedSession | null {
   if (version > CURRENT_SCHEMA_VERSION) return null;
 
   // Already current
-  if (version === CURRENT_SCHEMA_VERSION) return raw as PersistedSession;
+  if (version === CURRENT_SCHEMA_VERSION) return raw as unknown as PersistedSession;
 
   // Run migration chain
   let current = session;
@@ -47,5 +47,5 @@ export function migrateSession(raw: unknown): PersistedSession | null {
     version++;
   }
 
-  return current as PersistedSession;
+  return current as unknown as PersistedSession;
 }
