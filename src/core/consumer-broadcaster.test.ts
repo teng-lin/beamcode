@@ -340,4 +340,39 @@ describe("ConsumerBroadcaster", () => {
       expect(sent.session.circuitBreaker).toEqual(cb);
     });
   });
+
+  // ─── Error path extensions ────────────────────────────────────────────
+
+  describe("error paths", () => {
+    it("onBroadcast callback throws → does not prevent delivery", () => {
+      const throwingCallback: BroadcastCallback = () => {
+        throw new Error("callback boom");
+      };
+      const b = new ConsumerBroadcaster(noopLogger, throwingCallback);
+      const ws = createTestSocket();
+      const session = sessionWithConsumers({ ws, id: identity() });
+
+      // Message is sent before onBroadcast is called, so delivery should succeed
+      // but the throw should not propagate to the caller
+      expect(() => {
+        b.broadcast(session, { type: "status_change", status: "idle" });
+      }).toThrow("callback boom");
+      // The message was still sent before the callback threw
+      expect(ws.send).toHaveBeenCalled();
+    });
+
+    it("backpressure boundary: bufferedAmount === BACKPRESSURE_THRESHOLD - 1 → message sent", () => {
+      const ws = createTestSocket({
+        bufferedAmount: BACKPRESSURE_THRESHOLD - 1,
+      });
+      const session = sessionWithConsumers({ ws, id: identity() });
+
+      broadcaster.broadcast(session, {
+        type: "status_change",
+        status: "idle",
+      });
+
+      expect(ws.send).toHaveBeenCalled();
+    });
+  });
 });

@@ -436,6 +436,135 @@ describe("stdout/stderr piping", () => {
   });
 });
 
+describe("error path coverage", () => {
+  it("monitorExit with null exit code (signal-killed process)", async () => {
+    supervisor.testSpawn("sess-1", { command: "test", args: [], cwd: "/" });
+    const proc = pm.lastProcess!;
+    const events: any[] = [];
+    supervisor.on("process:exited", (e) => events.push(e));
+
+    proc.resolveExit(null);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].exitCode).toBeNull();
+    expect(supervisor.exitedSessions[0].exitCode).toBeNull();
+  });
+
+  it("pipeStream with empty stream (immediate close)", async () => {
+    const streamPm = new StreamMockProcessManager();
+    streamPm.stdout = createMockStream([]);
+    const sv = createStreamSupervisor(streamPm);
+
+    const stdoutEvents: any[] = [];
+    sv.on("process:stdout", (e) => stdoutEvents.push(e));
+    sv.testSpawn("sess-empty", { command: "test", args: [], cwd: "/" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(stdoutEvents).toHaveLength(0);
+  });
+
+  it("pipeStream with stream that errors mid-read", async () => {
+    const streamPm = new StreamMockProcessManager();
+    let chunksSent = 0;
+    streamPm.stdout = new ReadableStream({
+      pull(controller) {
+        if (chunksSent === 0) {
+          controller.enqueue(new TextEncoder().encode("first chunk\n"));
+          chunksSent++;
+        } else {
+          controller.error(new Error("mid-stream error"));
+        }
+      },
+    });
+    const sv = createStreamSupervisor(streamPm);
+
+    sv.testSpawn("sess-mid-err", { command: "test", args: [], cwd: "/" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should not crash
+    expect(sv.hasProcess("sess-mid-err")).toBe(true);
+  });
+
+  it("spawnProcess when buildSpawnArgs throws → error emitted, null returned", () => {
+    class ThrowingSupervisor extends ProcessSupervisor<SupervisorEventMap> {
+      protected buildSpawnArgs(): never {
+        throw new Error("buildSpawnArgs boom");
+      }
+
+      testSpawn(sessionId: string): ProcessHandle | null {
+        return this.spawnProcess(sessionId, {});
+      }
+    }
+
+    const throwingSv = new ThrowingSupervisor({
+      processManager: pm,
+      logger: noopLogger,
+    });
+    const errors: any[] = [];
+    throwingSv.on("error", (e) => errors.push(e));
+
+    const result = throwingSv.testSpawn("sess-1");
+    expect(result).toBeNull();
+    expect(errors).toHaveLength(1);
+    expect(errors[0].source).toBe("supervisor:buildSpawnArgs");
+  });
+
+  it("emitError records failure in circuit breaker", () => {
+    const errors: any[] = [];
+    supervisor.on("error", (e) => errors.push(e));
+
+    // Emit many errors to trip the circuit breaker
+    for (let i = 0; i < 6; i++) {
+      (supervisor as any).emitError(`sess-${i}`, "test", new Error("boom"));
+    }
+
+    expect(supervisor.canRestart()).toBe(false);
+  });
+
+  it("killAllProcesses with mixed responsive/unresponsive processes", async () => {
+    supervisor.testSpawn("responsive", { command: "test", args: [], cwd: "/" });
+    supervisor.testSpawn("unresponsive", { command: "test", args: [], cwd: "/" });
+
+    const responsive = pm.spawnedProcesses[0];
+    const unresponsive = pm.spawnedProcesses[1];
+
+    // Responsive exits immediately, unresponsive needs SIGKILL
+    const killAllPromise = supervisor.killAllProcesses();
+    responsive.resolveExit(0);
+    // Let the grace period pass for unresponsive
+    await new Promise((r) => setTimeout(r, 100));
+    unresponsive.resolveExit(null);
+    await killAllPromise;
+
+    expect(supervisor.hasProcess("responsive")).toBe(false);
+    expect(supervisor.hasProcess("unresponsive")).toBe(false);
+    expect(unresponsive.killCalls).toContain("SIGKILL");
+  });
+
+  it("circuit breaker snapshot included in process:exited when breaker is not closed", async () => {
+    // Trip the circuit breaker with rapid failures
+    for (let i = 0; i < 6; i++) {
+      supervisor.testSpawn(`sess-${i}`, { command: "test", args: [], cwd: "/" });
+      pm.lastProcess!.resolveExit(1);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Spawn one more and watch for the event
+    supervisor.testSpawn("final", { command: "test", args: [], cwd: "/" });
+    const events: any[] = [];
+    supervisor.on("process:exited", (e) => events.push(e));
+    pm.lastProcess!.resolveExit(1);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const event = events.find((e) => e.sessionId === "final");
+    expect(event).toBeDefined();
+    expect(event.circuitBreaker).toBeDefined();
+    expect(event.circuitBreaker.state).toBeDefined();
+    expect(typeof event.circuitBreaker.failureCount).toBe("number");
+  });
+});
+
 describe("error source prefix", () => {
   it("uses custom error source prefix", () => {
     pm.failNextSpawn();
