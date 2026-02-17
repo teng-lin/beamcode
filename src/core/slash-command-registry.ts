@@ -137,7 +137,11 @@ export class SlashCommandRegistry {
     for (const skill of skills) {
       const name = skill.startsWith("/") ? skill : `/${skill}`;
       const key = name.toLowerCase();
-      if (!this.commands.has(key)) {
+      const existing = this.commands.get(key);
+      if (existing) {
+        // Upgrade source to "skill" so isSkillCommand recognizes it
+        existing.source = "skill";
+      } else {
         this.commands.set(key, {
           name,
           description: `Run ${skill} skill`,

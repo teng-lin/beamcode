@@ -187,6 +187,16 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         teamCorrelationBuffer: new TeamToolCorrelationBuffer(),
         registry: new SlashCommandRegistry(),
       };
+      // Populate registry from persisted state so slash commands work
+      // before the CLI reconnects and sends a fresh system.init
+      if (p.state.slash_commands?.length > 0) {
+        session.registry.registerFromCLI(
+          p.state.slash_commands.map((name: string) => ({ name, description: "" })),
+        );
+      }
+      if (p.state.skills?.length > 0) {
+        session.registry.registerSkills(p.state.skills);
+      }
       this.sessions.set(p.id, session);
       count++;
     }

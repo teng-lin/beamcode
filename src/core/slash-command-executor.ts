@@ -26,10 +26,10 @@ function commandName(command: string): string {
 function getBackendCommands(state: SessionState): Set<string> {
   const capCmds = state.capabilities?.commands;
   if (capCmds && capCmds.length > 0) {
-    return new Set(capCmds.map((c) => c.name));
+    return new Set(capCmds.map((c) => (c.name.startsWith("/") ? c.name : `/${c.name}`)));
   }
   if (state.slash_commands.length > 0) {
-    return new Set(state.slash_commands);
+    return new Set(state.slash_commands.map((n) => (n.startsWith("/") ? n : `/${n}`)));
   }
   return new Set();
 }
