@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 
+const EMPTY_LOGS: string[] = [];
+
 export function LogDrawer() {
   const logDrawerOpen = useStore((s) => s.logDrawerOpen);
   const setLogDrawerOpen = useStore((s) => s.setLogDrawerOpen);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const logs = useStore((s) =>
-    s.currentSessionId ? (s.processLogs[s.currentSessionId] ?? []) : [],
+    s.currentSessionId ? (s.processLogs[s.currentSessionId] ?? EMPTY_LOGS) : EMPTY_LOGS,
   );
   const bottomRef = useRef<HTMLDivElement>(null);
 
