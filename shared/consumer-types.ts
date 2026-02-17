@@ -253,7 +253,22 @@ export type ConsumerMessage =
       type: "process_output";
       stream: "stdout" | "stderr";
       data: string;
-    };
+    }
+  | {
+      type: "message_queued";
+      consumer_id: string;
+      display_name: string;
+      content: string;
+      images?: { media_type: string; data: string }[];
+      queued_at: number;
+    }
+  | {
+      type: "queued_message_updated";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | { type: "queued_message_cancelled" }
+  | { type: "queued_message_sent" };
 
 // ── Inbound Messages (consumer → bridge) ────────────────────────────────────
 
@@ -276,4 +291,15 @@ export type InboundMessage =
   | { type: "set_permission_mode"; mode: string }
   | { type: "presence_query" }
   | { type: "slash_command"; command: string; request_id?: string }
-  | { type: "set_adapter"; adapter: string };
+  | { type: "set_adapter"; adapter: string }
+  | {
+      type: "queue_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | {
+      type: "update_queued_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | { type: "cancel_queued_message" };

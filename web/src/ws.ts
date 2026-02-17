@@ -80,6 +80,52 @@ function handleMessage(sessionId: string, data: string): void {
       store.addMessage(sessionId, msg);
       break;
 
+    case "message_queued":
+      store.setQueuedMessage(sessionId, {
+        consumerId: msg.consumer_id,
+        displayName: msg.display_name,
+        content: msg.content,
+        images: msg.images,
+        queuedAt: msg.queued_at,
+      });
+      break;
+
+    case "queued_message_updated": {
+      const prev = store.sessionData[sessionId]?.queuedMessage;
+      if (prev) {
+        store.setQueuedMessage(sessionId, {
+          ...prev,
+          content: msg.content,
+          images: msg.images,
+        });
+      }
+      break;
+    }
+
+    case "queued_message_cancelled":
+      store.setQueuedMessage(sessionId, null);
+      store.setEditingQueue(sessionId, false);
+      break;
+
+    case "queued_message_sent": {
+      // Capture position of the queued message element for FLIP animation
+      const queuedEl = document.querySelector("[data-queued-message]");
+      if (queuedEl) {
+        const rect = queuedEl.getBoundingClientRect();
+        store.setFlipOrigin(sessionId, { top: rect.top, left: rect.left, width: rect.width });
+        // Safety: clear flipOrigin if the echo user_message never arrives
+        setTimeout(() => {
+          const currentStore = useStore.getState();
+          if (currentStore.sessionData[sessionId]?.flipOrigin) {
+            currentStore.setFlipOrigin(sessionId, null);
+          }
+        }, 2000);
+      }
+      store.setQueuedMessage(sessionId, null);
+      store.setEditingQueue(sessionId, false);
+      break;
+    }
+
     case "stream_event": {
       const { event, parent_tool_use_id } = msg;
       const agentId = parent_tool_use_id; // null = main session

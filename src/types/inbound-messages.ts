@@ -21,4 +21,15 @@ export type InboundMessage =
   | { type: "set_permission_mode"; mode: string }
   | { type: "presence_query" }
   | { type: "slash_command"; command: string; request_id?: string }
-  | { type: "set_adapter"; adapter: string };
+  | { type: "set_adapter"; adapter: string }
+  | {
+      type: "queue_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | {
+      type: "update_queued_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | { type: "cancel_queued_message" };

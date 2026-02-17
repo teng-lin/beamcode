@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { ConsumerMessage } from "../../../shared/consumer-types";
 import { AssistantMessage } from "./AssistantMessage";
+import { UserMessageBubble } from "./UserMessageBubble";
 
 interface MessageBubbleProps {
   message: ConsumerMessage;
@@ -13,11 +14,7 @@ export const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   switch (message.type) {
     case "user_message":
-      return (
-        <div className="animate-fadeSlideIn self-start rounded-2xl bg-bc-user-bg px-4 py-2.5 text-sm max-w-[85%] border border-bc-border/30">
-          {message.content}
-        </div>
-      );
+      return <UserMessageBubble content={message.content} sessionId={sessionId} />;
 
     case "assistant":
       return <AssistantMessage message={message.message} sessionId={sessionId} />;

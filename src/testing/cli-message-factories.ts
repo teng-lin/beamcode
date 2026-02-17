@@ -69,6 +69,8 @@ export function createMockSession(overrides?: Partial<Session>): Session {
     pendingPermissions: new Map<string, PermissionRequest>(),
     messageHistory: [] as ConsumerMessage[],
     pendingMessages: [],
+    queuedMessage: null,
+    lastStatus: null,
     lastActivity: Date.now(),
     pendingInitialize: null,
     teamCorrelationBuffer: {

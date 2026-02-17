@@ -19,6 +19,14 @@ import type { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 
 // ─── Session type (internal to the bridge + store) ───────────────────────────
 
+export interface QueuedMessage {
+  consumerId: string;
+  displayName: string;
+  content: string;
+  images?: { media_type: string; data: string }[];
+  queuedAt: number;
+}
+
 export interface Session {
   id: string;
   cliSocket: WebSocketLike | null;
@@ -34,6 +42,10 @@ export interface Session {
   pendingPermissions: Map<string, PermissionRequest>;
   messageHistory: ConsumerMessage[];
   pendingMessages: string[];
+  /** Single-slot queue: a user message waiting to be sent when the session becomes idle. */
+  queuedMessage: QueuedMessage | null;
+  /** Last known CLI status (idle, running, compacting, or null if unknown). */
+  lastStatus: "compacting" | "idle" | "running" | null;
   lastActivity: number;
   pendingInitialize: {
     requestId: string;
@@ -175,6 +187,8 @@ export class SessionStore {
       pendingPermissions: overrides?.pendingPermissions ?? new Map(),
       messageHistory: overrides?.messageHistory ?? [],
       pendingMessages: overrides?.pendingMessages ?? [],
+      queuedMessage: null,
+      lastStatus: null,
       lastActivity: Date.now(),
       pendingInitialize: null,
       teamCorrelationBuffer: this.factories.createCorrelationBuffer(),

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ConsumerMessage } from "../../../shared/consumer-types";
+import { useStore } from "../store";
 import { MessageBubble } from "./MessageBubble";
+import { QueuedMessage } from "./QueuedMessage";
 import { ResultBanner } from "./ResultBanner";
 
 interface MessageFeedProps {
@@ -48,6 +50,9 @@ function groupMessages(messages: ConsumerMessage[]): MessageGroup[] {
 export function MessageFeed({ messages, sessionId }: MessageFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const queuedMessage = useStore((s) => s.sessionData[sessionId]?.queuedMessage ?? null);
+  const isEditingQueue = useStore((s) => s.sessionData[sessionId]?.isEditingQueue ?? false);
+  const ownUserId = useStore((s) => s.sessionData[sessionId]?.identity?.userId ?? null);
 
   const groups = useMemo(() => groupMessages(messages), [messages]);
 
@@ -132,6 +137,14 @@ export function MessageFeed({ messages, sessionId }: MessageFeedProps) {
 
           return <MessageBubble key={group.key} message={msg} sessionId={sessionId} />;
         })}
+        {queuedMessage && (
+          <QueuedMessage
+            content={queuedMessage.content}
+            displayName={queuedMessage.displayName}
+            isEditing={isEditingQueue}
+            isOwn={queuedMessage.consumerId === ownUserId}
+          />
+        )}
         <div ref={bottomRef} />
       </div>
     </div>

@@ -186,4 +186,19 @@ export type ConsumerMessage =
       type: "process_output";
       stream: "stdout" | "stderr";
       data: string;
-    };
+    }
+  | {
+      type: "message_queued";
+      consumer_id: string;
+      display_name: string;
+      content: string;
+      images?: { media_type: string; data: string }[];
+      queued_at: number;
+    }
+  | {
+      type: "queued_message_updated";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    }
+  | { type: "queued_message_cancelled" }
+  | { type: "queued_message_sent" };

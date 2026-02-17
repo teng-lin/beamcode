@@ -149,8 +149,8 @@ describe("ConsumerGatekeeper", () => {
       expect(gk.authorize(observer, "ping")).toBe(true);
     });
 
-    it("PARTICIPANT_ONLY_TYPES contains exactly 7 types", () => {
-      expect(PARTICIPANT_ONLY_TYPES.size).toBe(7);
+    it("PARTICIPANT_ONLY_TYPES contains exactly 10 types", () => {
+      expect(PARTICIPANT_ONLY_TYPES.size).toBe(10);
       expect(PARTICIPANT_ONLY_TYPES).toContain("user_message");
       expect(PARTICIPANT_ONLY_TYPES).toContain("permission_response");
       expect(PARTICIPANT_ONLY_TYPES).toContain("interrupt");
@@ -158,6 +158,9 @@ describe("ConsumerGatekeeper", () => {
       expect(PARTICIPANT_ONLY_TYPES).toContain("set_permission_mode");
       expect(PARTICIPANT_ONLY_TYPES).toContain("slash_command");
       expect(PARTICIPANT_ONLY_TYPES).toContain("set_adapter");
+      expect(PARTICIPANT_ONLY_TYPES).toContain("queue_message");
+      expect(PARTICIPANT_ONLY_TYPES).toContain("update_queued_message");
+      expect(PARTICIPANT_ONLY_TYPES).toContain("cancel_queued_message");
     });
   });
 

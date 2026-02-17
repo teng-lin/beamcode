@@ -60,6 +60,16 @@ export interface SessionData {
   reconnectAttempt: number;
   identity: SessionIdentity | null;
   presence: Array<{ userId: string; displayName: string; role: ConsumerRole }>;
+  queuedMessage: {
+    consumerId: string;
+    displayName: string;
+    content: string;
+    images?: { media_type: string; data: string }[];
+    queuedAt: number;
+  } | null;
+  isEditingQueue: boolean;
+  /** FLIP animation origin: captured bounding rect of the queued message before it's removed. */
+  flipOrigin: { top: number; left: number; width: number } | null;
 }
 
 export interface Toast {
@@ -144,6 +154,9 @@ export interface AppState {
   appendAgentStreaming: (sessionId: string, agentId: string, delta: string) => void;
   setAgentStreamingOutputTokens: (sessionId: string, agentId: string, count: number) => void;
   clearAgentStreaming: (sessionId: string, agentId: string) => void;
+  setQueuedMessage: (sessionId: string, msg: SessionData["queuedMessage"]) => void;
+  setEditingQueue: (sessionId: string, editing: boolean) => void;
+  setFlipOrigin: (sessionId: string, origin: SessionData["flipOrigin"]) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -178,6 +191,9 @@ function emptySessionData(): SessionData {
     reconnectAttempt: 0,
     identity: null,
     presence: [],
+    queuedMessage: null,
+    isEditingQueue: false,
+    flipOrigin: null,
   };
 }
 
@@ -441,6 +457,15 @@ export const useStore = create<AppState>()((set, get) => ({
       const { [agentId]: _, ...rest } = data.agentStreaming;
       return patchSession(s, sessionId, { agentStreaming: rest });
     }),
+
+  setQueuedMessage: (sessionId, msg) =>
+    set((s) => patchSession(s, sessionId, { queuedMessage: msg })),
+
+  setEditingQueue: (sessionId, editing) =>
+    set((s) => patchSession(s, sessionId, { isEditingQueue: editing })),
+
+  setFlipOrigin: (sessionId, origin) =>
+    set((s) => patchSession(s, sessionId, { flipOrigin: origin })),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>
