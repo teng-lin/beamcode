@@ -40,3 +40,19 @@ export async function getSession(id: string): Promise<SdkSessionInfo> {
   if (!res.ok) throw new Error(`Failed to get session: ${res.status}`);
   return res.json();
 }
+
+export async function archiveSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${id}/archive`, {
+    method: "PUT",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to archive session: ${res.status}`);
+}
+
+export async function unarchiveSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${id}/unarchive`, {
+    method: "PUT",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to unarchive session: ${res.status}`);
+}
