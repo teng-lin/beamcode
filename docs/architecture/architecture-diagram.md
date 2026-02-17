@@ -1,7 +1,8 @@
 # Architecture Diagram: Relay-First MVP
 
 **Based on**: `docs/architecture/decisions.md` v2.1 (Relay-First MVP, post-review revision)
-**Date**: 2026-02-15
+**Date**: 2026-02-17
+**Status**: Phase 0–1 complete, Phase 2 in progress
 
 ---
 
@@ -27,149 +28,131 @@
 
 ---
 
-## Target Architecture (v2.1)
+## Current Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                        RELAY-FIRST MVP ARCHITECTURE (v2.1)                          │
 │                                                                                     │
-│  ╔════════════════╗  ╔═══════════╗                                                  │
-│  ║ Minimal Web    ║  ║  Desktop  ║  Consumers                                       │
-│  ║ Consumer       ║  ║  Browser  ║  (any WebSocket client)                          │
-│  ║ (500-1000 LOC) ║  ╚═════╤═════╝                                                  │
-│  ║ E2E decrypt,   ║        │                                                        │
-│  ║ render, input  ║        │  ws://localhost                                        │
-│  ╚═══════╤════════╝        │  (direct, no tunnel)                                   │
-│          │                 │                                                        │
-│          │  HTTPS          │                                                        │
-│          │                 │                                                        │
-│  ┌───────▼─────────┐       │                                                        │
-│  │  Cloudflare     │       │                                                        │
-│  │  Tunnel Edge    │       │  LOCAL PATH                                            │
-│  │  (SLA 99.99%)   │       │                                                        │
-│  └───────┬─────────┘       │                                                        │
-│          │                 │                                                        │
-│  ┌───────▼─────────┐       │                                                        │
-│  │  cloudflared    │       │  ◄── sidecar process (Go binary)                       │
-│  │  reverse proxy  │       │      proxies HTTPS → localhost:PORT                    │
-│  └───────┬─────────┘       │                                                        │
-│          │ localhost:PORT  │                                                        │
-│          │                 │                                                        │
-│  ┌───────▼─────────────────▼─────────────────────────────────────────┐              │
-│  │                        DAEMON (localhost)                         │              │
-│  │                                                                   │              │
-│  │  ┌───────────┐ ┌───────────┐ ┌──────────┐ ┌────────────────────┐  │              │
-│  │  │ Lock File │ │ State     │ │ Health   │ │ Local Control API  │  │              │
-│  │  │ O_CREAT|  │ │ File      │ │ Check    │ │ HTTP 127.0.0.1:0   │  │              │
-│  │  │ O_EXCL    │ │ PID, port │ │ 60s loop │ │                    │  │              │
-│  │  │           │ │ heartbeat │ │          │ │ • list sessions    │  │              │
-│  │  │           │ │ version   │ │          │ │ • create session   │  │              │
-│  │  │           │ │           │ │          │ │ • stop session     │  │              │
-│  │  │           │ │           │ │          │ │ • revoke-device    │  │              │
-│  │  └───────────┘ └───────────┘ └──────────┘ │ • rate-limit cfg   │  │              │
-│  │                                           └────────────────────┘  │              │
-│  │  ┌────────────────────────────────────────────────────────────┐   │              │
-│  │  │         Child-Process Supervisor (~50% reusable)           │   │              │
-│  │  │                                                            │   │              │
-│  │  │  Reusable:  CLILauncher (548 LOC) — lifecycle, PID, crash  │   │              │
-│  │  │             SessionManager (340 LOC) — relaunch, reconnect │   │              │
-│  │  │             FileStorage (213 LOC) — atomic writes, WAL     │   │              │
-│  │  │             ProcessManager — spawn, kill, isAlive          │   │              │
-│  │  │                                                            │   │              │
-│  │  │  NEW:       Lock file, state file, HTTP control API        │   │              │
-│  │  │             Signal handling, graceful shutdown             │   │              │
-│  │  │                                                            │   │              │
-│  │  │  CLI processes are child processes (die with daemon).      │   │              │
-│  │  │  Session STATE persists via FileStorage (restored on       │   │              │
-│  │  │  restart). No tmux — no runtime dep, no port problem.      │   │              │
-│  │  └───────────────────┬────────────────────────────────────────┘   │              │
-│  │                      │ manages child processes                    │              │
-│  └──────────────────────┼────────────────────────────────────────────┘              │
-│                         │                                                           │
-│                         ▼                                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐               │
-│  │                   E2E ENCRYPTION LAYER                           │               │
-│  │                                                                  │               │
-│  │  ┌────────────────┐ ┌────────────────┐ ┌──────────────────────┐  │               │
-│  │  │ libsodium      │ │ Pairing Link   │ │ HMAC-SHA256          │  │               │
-│  │  │ Sealed Boxes   │ │ Key Exchange   │ │ Permission Signing   │  │               │
-│  │  │ XSalsa20-      │ │ (URL with      │ │ + nonce              │  │               │
-│  │  │ Poly1305       │ │  public key +  │ │ + timestamp (30s)    │  │               │
-│  │  │                │ │  tunnel addr)  │ │ + request_id binding │  │               │
-│  │  └────────────────┘ └────────────────┘ └──────────────────────┘  │               │
-│  │                                                                  │               │
-│  │  ┌────────────────────┐  ┌──────────────────────────────────┐    │               │
-│  │  │ Session Revocation │  │ EncryptedEnvelope (wire format)  │    │               │
-│  │  │ • revoke-device    │  │ {                                │    │               │
-│  │  │ • new keypair      │  │   v:   1,       // protocol ver  │    │               │
-│  │  │ • force re-pair    │  │   sid: "abc",   // routing       │    │               │
-│  │  └────────────────────┘  │   ct:  "...",   // ciphertext    │    │               │
-│  │                          │   len: 1234     // plaintext len │    │               │
-│  │  TUNNEL-BLIND: relay cannot decrypt message contents.       │    │               │
-│  │  Bridge CAN see plaintext (needed for CLIMsg→ConsumerMsg).  │    │               │
-│  │  Protects against: tunnel/Cloudflare compromise.            │    │               │
-│  │  Does NOT protect against: local bridge compromise.         │    │               │
-│  └──────────────────────────────────────────────────────────────────┘               │
-│                         │                                                           │
-│                         ▼                                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐               │
-│  │                     server/ (WebSocket)                          │               │
-│  │                                                                  │               │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐  │               │
-│  │  │ Origin       │  │ Auth Token   │  │ Reconnection Handler   │  │               │
-│  │  │ Validation   │  │ Gate         │  │                        │  │               │
-│  │  │ (Phase 0)    │  │ (Phase 0)    │  │  Stable consumer IDs   │  │               │
-│  │  └──────────────┘  └──────────────┘  │  (survive reconnect)   │  │               │
-│  │                                      │                        │  │               │
-│  │  ┌──────────────┐  ┌──────────────┐  │  SequencedMessage<T>   │  │               │
-│  │  │ Consumer     │  │ Backpressure │  │  seq tracking          │  │               │
-│  │  │ Rate Limit   │  │ Per-consumer │  │  Message replay        │  │               │
-│  │  │ 10 msg/s     │  │ send queues  │  │  History pagination    │  │               │
-│  │  │ 100 KB/s     │  │ + high-water │  │  (last 20, scroll)     │  │               │
-│  │  └──────────────┘  └──────────────┘  └────────────────────────┘  │               │
-│  └───────────────────────────┬──────────────────────────────────────┘               │
-│                              │                                                      │
-│             ConsumerMessage (with message_id, seq, timestamp)                       │
-│                              │                                                      │
-│                              ▼                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐               │
-│  │                  core/SessionBridge                              │               │
-│  │                                                                  │               │
-│  │  ╔════════════════════════════════════════════════════════════╗  │               │
-│  │  ║                    UnifiedMessage                          ║  │               │
-│  │  ║  Designed for SdkUrl (streaming), ACP (request/resp),      ║  │               │
-│  │  ║  AND Codex (Thread/Turn/Item JSON-RPC)                     ║  │               │
-│  │  ║  + metadata escape hatch for adapter-specific data         ║  │               │
-│  │  ║  + message_id + seq from day one                           ║  │               │
-│  │  ║  Abort: > 2 changes during Phase 3 → redesign              ║  │               │
-│  │  ╚════════════════════════════════════════════════════════════╝  │               │
-│  │                                                                  │               │
-│  │  ┌────────────────┐  ┌───────────────┐  ┌──────────────────┐     │               │
-│  │  │ CoreSession    │  │ Authenticator │  │ SessionStorage   │     │               │
-│  │  │ State          │  │ (E2E keypair  │  │ (FileStorage)    │     │               │
-│  │  │ (serializable) │  │  for MVP)     │  │ (encrypt at rest │     │               │
-│  │  └────────────────┘  └───────────────┘  │  DEFERRED)       │     │               │
-│  │                                         └──────────────────┘     │               │
-│  │  ┌──────────────────────────────────────────────────────────┐    │               │
-│  │  │          BackendAdapter interface (CORE)                 │    │               │
-│  │  │  connect(): BackendSession                               │    │               │
-│  │  │  capabilities: BackendCapabilities {                     │    │               │
-│  │  │    availability: "local" | "remote" | "both"             │    │               │
-│  │  │  }                                                       │    │               │
-│  │  ├──────────────────────────────────────────────────────────┤    │               │
-│  │  │          BackendSession interface (CORE)                 │    │               │
-│  │  │  send(msg): void                                         │    │               │
-│  │  │  messages: AsyncIterable<UnifiedMessage>                 │    │               │
-│  │  │  close(): void                                           │    │               │
-│  │  ├──────────────────────────────────────────────────────────┤    │               │
-│  │  │          COMPOSED EXTENSIONS (additive, not baked in)    │    │               │
-│  │  │  Interruptible:     interrupt(): void                    │    │               │
-│  │  │  Configurable:      setModel(), setPermissionMode()      │    │               │
-│  │  │  PermissionHandler: request/response bridging            │    │               │
-│  │  │  Reconnectable:     onDisconnect(), replay()    ← relay  │    │               │
-│  │  │  Encryptable:       encrypt(), decrypt()        ← relay  │    │               │
-│  │  └─────────────────────┬────────────────────────────────────┘    │               │
-│  └────────────────────────┼─────────────────────────────────────────┘               │
+│  ╔══════════════════════╗  ╔═══════════╗                                            │
+│  ║ React Consumer       ║  ║  Desktop  ║  Consumers                                 │
+│  ║ (web/)               ║  ║  Browser  ║  (any WebSocket client)                    │
+│  ║ React 19 + Zustand   ║  ╚═════╤═════╝                                            │
+│  ║ + Tailwind v4 + Vite ║        │                                                  │
+│  ║ ChatView, Sidebar,   ║        │  ws://localhost                                  │
+│  ║ StatusBar, AgentPane ║        │  (direct, no tunnel)                             │
+│  ╚═══════╤══════════════╝        │                                                  │
+│          │                       │                                                  │
+│          │  HTTPS                │                                                  │
+│          │                       │                                                  │
+│  ┌───────▼─────────┐             │                                                  │
+│  │  Cloudflare     │             │                                                  │
+│  │  Tunnel Edge    │             │  LOCAL PATH                                      │
+│  │  (SLA 99.99%)   │             │                                                  │
+│  └───────┬─────────┘             │                                                  │
+│          │                       │                                                  │
+│  ┌───────▼─────────┐             │                                                  │
+│  │  cloudflared    │             │  ◄── sidecar process (Go binary)                 │
+│  │  reverse proxy  │             │      proxies HTTPS → localhost:PORT              │
+│  └───────┬─────────┘             │                                                  │
+│          │ localhost:PORT        │                                                  │
+│          │                       │                                                  │
+│  ┌───────▼───────────────────────▼───────────────────────────────────────┐          │
+│  │                     HTTP + WS SERVER (localhost:3456)                  │          │
+│  │                                                                       │          │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │          │
+│  │  │  http/ — HTTP Request Router                                    │  │          │
+│  │  │  ┌──────────────┐ ┌──────────────┐ ┌─────────────────────────┐ │  │          │
+│  │  │  │ api-sessions │ │ consumer-    │ │ health                  │ │  │          │
+│  │  │  │ REST CRUD    │ │ html (serves │ │ GET /health             │ │  │          │
+│  │  │  │ /api/sessions│ │ React app)   │ │                         │ │  │          │
+│  │  │  └──────────────┘ └──────────────┘ └─────────────────────────┘ │  │          │
+│  │  └─────────────────────────────────────────────────────────────────┘  │          │
+│  │                                                                       │          │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │          │
+│  │  │  server/ — WebSocket Layer                                      │  │          │
+│  │  │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────────┐  │  │          │
+│  │  │  │ Origin       │ │ Auth Token   │ │ Reconnection Handler   │  │  │          │
+│  │  │  │ Validation   │ │ Gate         │ │  Stable consumer IDs   │  │  │          │
+│  │  │  └──────────────┘ └──────────────┘ │  Message replay        │  │  │          │
+│  │  │                                    └────────────────────────┘  │  │          │
+│  │  │  ┌──────────────┐ ┌──────────────┐                             │  │          │
+│  │  │  │ Consumer     │ │ Consumer     │                             │  │          │
+│  │  │  │ Channel      │ │ Rate Limit   │                             │  │          │
+│  │  │  │ (per-client  │ │ 10 msg/s     │                             │  │          │
+│  │  │  │  send queue) │ │ 100 KB/s     │                             │  │          │
+│  │  │  └──────────────┘ └──────────────┘                             │  │          │
+│  │  └─────────────────────────────────────────────────────────────────┘  │          │
+│  └───────────────────────────────┬───────────────────────────────────────┘          │
+│                                  │                                                  │
+│          ConsumerMessage (30+ subtypes, typed union)                                │
+│          InboundMessage  (user_message, permission_response, interrupt, ...)        │
+│                                  │                                                  │
+│                                  ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐           │
+│  │              core/ — SessionBridge + Extracted Modules               │           │
+│  │                                                                      │           │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │           │
+│  │  │  SessionBridge (orchestrator, TypedEventEmitter)             │    │           │
+│  │  │  Delegates to:                                               │    │           │
+│  │  │  ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐  │    │           │
+│  │  │  │ SessionStore    │ │ Consumer        │ │ Consumer      │  │    │           │
+│  │  │  │ • session CRUD  │ │ Broadcaster     │ │ Gatekeeper    │  │    │           │
+│  │  │  │ • persistence   │ │ • WS fan-out    │ │ • auth/RBAC   │  │    │           │
+│  │  │  │ • restore from  │ │ • backpressure  │ │ • rate limit  │  │    │           │
+│  │  │  │   storage       │ │ • role filter   │ │ • observer    │  │    │           │
+│  │  │  └─────────────────┘ └─────────────────┘ │   mode        │  │    │           │
+│  │  │  ┌─────────────────┐ ┌─────────────────┐ └───────────────┘  │    │           │
+│  │  │  │ SlashCommand    │ │ TeamEvent       │                     │    │           │
+│  │  │  │ Registry +      │ │ Differ          │                     │    │           │
+│  │  │  │ Executor        │ │ • pure state    │                     │    │           │
+│  │  │  │ • per-session   │ │   diff logic    │                     │    │           │
+│  │  │  │   commands      │ │ • team state    │                     │    │           │
+│  │  │  └─────────────────┘ │   management    │                     │    │           │
+│  │  │                      └─────────────────┘                     │    │           │
+│  │  └──────────────────────────────────────────────────────────────┘    │           │
+│  │                                                                      │           │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │           │
+│  │  │  SessionManager (orchestrates SessionBridge + SdkUrlLauncher)│    │           │
+│  │  └──────────────────────────────────────────────────────────────┘    │           │
+│  │                                                                      │           │
+│  │  ╔════════════════════════════════════════════════════════════╗      │           │
+│  │  ║                    UnifiedMessage (Phase 0.1)              ║      │           │
+│  │  ║  id, timestamp, type, role, content[], metadata            ║      │           │
+│  │  ║  Supports: streaming (SdkUrl), request/response (ACP),    ║      │           │
+│  │  ║  JSON-RPC (Codex), and query-based (AgentSdk)             ║      │           │
+│  │  ║  + metadata escape hatch for adapter-specific data         ║      │           │
+│  │  ║  + parentId for threading support                          ║      │           │
+│  │  ╚════════════════════════════════════════════════════════════╝      │           │
+│  │                                                                      │           │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │           │
+│  │  │  State Hierarchy                                             │    │           │
+│  │  │  CoreSessionState → DevToolSessionState → SessionState       │    │           │
+│  │  │  (adapter-agnostic)  (git branch, repo)   (model, tools,     │    │           │
+│  │  │                                            team, circuit      │    │           │
+│  │  │                                            breaker, ...)      │    │           │
+│  │  └──────────────────────────────────────────────────────────────┘    │           │
+│  │                                                                      │           │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │           │
+│  │  │  BackendAdapter interface (CORE)                             │    │           │
+│  │  │  name: string                                                │    │           │
+│  │  │  capabilities: BackendCapabilities                           │    │           │
+│  │  │  connect(options): Promise<BackendSession>                   │    │           │
+│  │  ├──────────────────────────────────────────────────────────────┤    │           │
+│  │  │  BackendSession interface (CORE)                             │    │           │
+│  │  │  sessionId: string                                           │    │           │
+│  │  │  send(msg: UnifiedMessage): void                             │    │           │
+│  │  │  messages: AsyncIterable<UnifiedMessage>                     │    │           │
+│  │  │  close(): Promise<void>                                      │    │           │
+│  │  ├──────────────────────────────────────────────────────────────┤    │           │
+│  │  │  COMPOSED EXTENSIONS (additive, not baked in)                │    │           │
+│  │  │  Interruptible:     interrupt(): void                        │    │           │
+│  │  │  Configurable:      setModel(), setPermissionMode()          │    │           │
+│  │  │  PermissionHandler: request/response bridging                │    │           │
+│  │  │  Reconnectable:     onDisconnect(), replay()    ← relay      │    │           │
+│  │  │  Encryptable:       encrypt(), decrypt()        ← relay      │    │           │
+│  │  └─────────────────────┬────────────────────────────────────────┘    │           │
+│  └────────────────────────┼─────────────────────────────────────────────┘           │
 │                           │                                                         │
 │        ┌──────────────────┼──────────────────┬──────────────────┐                   │
 │        │                  │                  │                  │                   │
@@ -177,25 +160,234 @@
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐               │
 │  │ SdkUrl      │  │ ACP         │  │ Codex        │  │ AgentSdk     │               │
 │  │ Adapter     │  │ Adapter     │  │ Adapter      │  │ Adapter      │               │
-│  │             │  │             │  │              │  │              │               │
-│  │ Phase 1     │  │ Phase 3     │  │ Phase 3      │  │ Phase 4      │               │
-│  │ (extract)   │  │ (validate)  │  │ (validate)   │  │ (STRETCH)    │               │
-│  │             │  │ must be by  │  │              │  │              │               │
-│  │ NDJSON/WS   │  │ DIFFERENT   │  │ JSON-RPC/WS  │  │ Anthropic    │               │
-│  │ --sdk-url   │  │ developer   │  │ app-server   │  │ Official SDK │               │
-│  │             │  │       ┌─────┤  │              │  │              │               │
-│  │             │  │       │ PTY │  │ Thread/Turn/ │  │              │               │
-│  │             │  │       │side-│  │ Item model   │  │              │               │
-│  │             │  │       │car  │  │ ~600-800 LOC │  │              │               │
-│  └──────┬──────┘  └───┬───┴──┬──┘  └──────┬───────┘  └───────┬──────┘               │
-│         │             │      │              │                │                      │
-│         ▼             ▼      ▼              ▼                ▼                      │
-│  ╔═══════════╗  ╔══════════╗    ╔═══════════════╗  ╔═══════════════╗                │
-│  ║ Claude    ║  ║  Goose   ║    ║  Codex CLI    ║  ║   Anthropic   ║                │
-│  ║ Code CLI  ║  ║  Kiro    ║    ║  (OpenAI)     ║  ║   API         ║                │
-│  ║ (child)   ║  ║  Gemini  ║    ║               ║  ║               ║                │
-│  ╚═══════════╝  ╚══════════╝    ╚═══════════════╝  ╚═══════════════╝                │
+│  │ ✅ BUILT    │  │ ✅ BUILT    │  │ ✅ BUILT     │  │ ✅ BUILT     │               │
+│  │ NDJSON/WS   │  │ JSON-RPC/   │  │ JSON-RPC/WS  │  │ JS query fn  │               │
+│  │ --sdk-url   │  │ stdio       │  │ app-server   │  │ Anthropic    │               │
+│  │ streaming,  │  │             │  │              │  │ Official SDK │               │
+│  │ permissions,│  │             │  │ Thread/Turn/ │  │ teams        │               │
+│  │ teams       │  │             │  │ Item model   │  │              │               │
+│  └──────┬──────┘  └───────┬─────┘  └──────┬───────┘  └───────┬──────┘               │
+│         │                 │                │                  │                      │
+│         ▼                 ▼                ▼                  ▼                      │
+│  ╔═══════════╗  ╔════════════════╗  ╔═══════════════╗  ╔═══════════════╗             │
+│  ║ Claude    ║  ║ Goose / Kiro / ║  ║  Codex CLI    ║  ║   Anthropic   ║             │
+│  ║ Code CLI  ║  ║ Gemini (ACP)   ║  ║  (OpenAI)     ║  ║   API         ║             │
+│  ║ (child)   ║  ╚════════════════╝  ╚═══════════════╝  ╚═══════════════╝             │
+│  ╚═══════════╝                                                                       │
+│                                                                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐           │
+│  │  CROSS-CUTTING INFRASTRUCTURE                                        │           │
+│  │                                                                       │           │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌────────────────────────┐  │           │
+│  │  │ errors.ts       │ │ state-migrator  │ │ structured-logger      │  │           │
+│  │  │ BeamCodeError   │ │ Schema version  │ │ JSON-line logging      │  │           │
+│  │  │ StorageError    │ │ + migration     │ │ component context      │  │           │
+│  │  │ ProcessError    │ │ chain (v0→v1+)  │ │ level filtering        │  │           │
+│  │  └─────────────────┘ └─────────────────┘ └────────────────────────┘  │           │
+│  │                                                                       │           │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌────────────────────────┐  │           │
+│  │  │ FileStorage     │ │ CircuitBreaker  │ │ ProcessManager         │  │           │
+│  │  │ debounced write │ │ SlidingWindow   │ │ spawn, kill, isAlive   │  │           │
+│  │  │ + schema vers.  │ │ + snapshot API  │ │ signal handling        │  │           │
+│  │  └─────────────────┘ └─────────────────┘ └────────────────────────┘  │           │
+│  └───────────────────────────────────────────────────────────────────────┘           │
+│                                                                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐           │
+│  │  DAEMON (Phase 2 — planned)                                           │           │
+│  │  ┌───────────┐ ┌───────────┐ ┌──────────┐ ┌────────────────────┐     │           │
+│  │  │ Lock File │ │ State     │ │ Health   │ │ Local Control API  │     │           │
+│  │  │ O_CREAT|  │ │ File      │ │ Check    │ │ HTTP 127.0.0.1:0   │     │           │
+│  │  │ O_EXCL    │ │ PID, port │ │ 60s loop │ │                    │     │           │
+│  │  │           │ │ heartbeat │ │          │ │ • list sessions    │     │           │
+│  │  │           │ │ version   │ │          │ │ • create session   │     │           │
+│  │  │           │ │           │ │          │ │ • stop session     │     │           │
+│  │  │           │ │           │ │          │ │ • revoke-device    │     │           │
+│  │  └───────────┘ └───────────┘ └──────────┘ └────────────────────┘     │           │
+│  └───────────────────────────────────────────────────────────────────────┘           │
+│                                                                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐           │
+│  │  E2E ENCRYPTION LAYER (Phase 2 — planned)                             │           │
+│  │                                                                       │           │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌──────────────────────┐      │           │
+│  │  │ libsodium      │ │ Pairing Link   │ │ HMAC-SHA256          │      │           │
+│  │  │ Sealed Boxes   │ │ Key Exchange   │ │ Permission Signing   │      │           │
+│  │  │ XSalsa20-      │ │ (URL with      │ │ + nonce              │      │           │
+│  │  │ Poly1305       │ │  public key +  │ │ + timestamp (30s)    │      │           │
+│  │  └────────────────┘ │  tunnel addr)  │ │ + request_id binding │      │           │
+│  │                     └────────────────┘ └──────────────────────┘      │           │
+│  │                                                                       │           │
+│  │  ┌────────────────────┐  ┌──────────────────────────────────┐        │           │
+│  │  │ Session Revocation │  │ EncryptedEnvelope (wire format)  │        │           │
+│  │  │ • revoke-device    │  │ { v:1, sid, ct, len }            │        │           │
+│  │  │ • new keypair      │  └──────────────────────────────────┘        │           │
+│  │  │ • force re-pair    │                                               │           │
+│  │  └────────────────────┘  TUNNEL-BLIND: relay cannot decrypt.         │           │
+│  └───────────────────────────────────────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## React Consumer Architecture (web/)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     REACT CONSUMER (web/)                            │
+│                     React 19 + Zustand + Tailwind v4 + Vite         │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  App.tsx (ErrorBoundary + Bootstrap)                           │ │
+│  │                                                                │ │
+│  │  ┌──────────────────────────────────────────────────────────┐  │ │
+│  │  │  Layout                                                  │  │ │
+│  │  │  ┌────────┐ ┌────────────────────────────┐ ┌──────────┐ │  │ │
+│  │  │  │Sidebar │ │  Main Area                 │ │AgentPane │ │  │ │
+│  │  │  │        │ │  ┌───────────────────────┐  │ │          │ │  │ │
+│  │  │  │Sessions│ │  │ TopBar                │  │ │Agent grid│ │  │ │
+│  │  │  │by date │ │  │ model, context gauge, │  │ │Team tasks│ │  │ │
+│  │  │  │        │ │  │ connection status      │  │ │Members   │ │  │ │
+│  │  │  │Archive │ │  └───────────────────────┘  │ │          │ │  │ │
+│  │  │  │mgmt    │ │  ┌───────────────────────┐  │ └──────────┘ │  │ │
+│  │  │  │        │ │  │ ChatView              │  │              │  │ │
+│  │  │  │Settings│ │  │ AssistantMessage      │  │              │  │ │
+│  │  │  │footer  │ │  │ ToolBlock             │  │              │  │ │
+│  │  │  │        │ │  │ ToolResultBlock       │  │              │  │ │
+│  │  │  │Sound / │ │  │ PermissionBanner      │  │              │  │ │
+│  │  │  │Notifs  │ │  └───────────────────────┘  │              │  │ │
+│  │  │  │Dark    │ │  ┌───────────────────────┐  │              │  │ │
+│  │  │  │mode    │ │  │ Composer              │  │              │  │ │
+│  │  │  └────────┘ │  │ /slash commands       │  │              │  │ │
+│  │  │             │  └───────────────────────┘  │              │  │ │
+│  │  │             │  ┌───────────────────────┐  │              │  │ │
+│  │  │             │  │ StatusBar             │  │              │  │ │
+│  │  │             │  │ adapter, git, model,  │  │              │  │ │
+│  │  │             │  │ permissions, worktree │  │              │  │ │
+│  │  │             │  └───────────────────────┘  │              │  │ │
+│  │  └──────────────────────────────────────────────────────────┘  │ │
+│  │                                                                │ │
+│  │  ┌─────────── Overlays ───────────┐                            │ │
+│  │  │ ToastContainer (FIFO, max 5)   │                            │ │
+│  │  │ LogDrawer (process output)     │                            │ │
+│  │  │ ConnectionBanner (circuit brk) │                            │ │
+│  │  │ TaskPanel (team tasks)         │                            │ │
+│  │  └────────────────────────────────┘                            │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  store.ts — Zustand State                                     │ │
+│  │  sessionData:  per-session messages, streaming state           │ │
+│  │  sessions:     session list from API                           │ │
+│  │  toasts:       notification queue                              │ │
+│  │  processLogs:  per-session output ring buffer                  │ │
+│  │  darkMode, sidebarOpen, taskPanelOpen, ...                    │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  ws.ts — WebSocket Connection                                 │ │
+│  │  • Auto-reconnect with exponential backoff                    │ │
+│  │  • Session handoff between tabs                               │ │
+│  │  • Presence synchronization                                    │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  api.ts — HTTP Client                                         │ │
+│  │  GET  /api/sessions         → list sessions                   │ │
+│  │  GET  /api/sessions/:id     → session details                 │ │
+│  │  POST /api/sessions/:id/msg → send message                    │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Core Module Decomposition (PR #28)
+
+```
+                        ┌──────────────────────────────┐
+                        │      SessionManager          │
+                        │  (orchestrates bridge +      │
+                        │   SdkUrlLauncher)            │
+                        └──────────────┬───────────────┘
+                                       │
+                        ┌──────────────▼───────────────┐
+                        │      SessionBridge           │
+                        │  (TypedEventEmitter)         │
+                        │                              │
+                        │  Unified message routing:    │
+                        │  CLI → translateCLI()        │
+                        │      → routeUnifiedMessage() │
+                        │  Consumer → handleInbound()  │
+                        └──┬────┬────┬────┬────┬───────┘
+                           │    │    │    │    │
+           ┌───────────────┘    │    │    │    └───────────────┐
+           ▼                    ▼    │    ▼                    ▼
+  ┌─────────────────┐ ┌──────────┐  │  ┌──────────────┐ ┌──────────────┐
+  │  SessionStore   │ │ Consumer │  │  │ Consumer     │ │ SlashCommand │
+  │                 │ │ Broad-   │  │  │ Gatekeeper   │ │ Registry +   │
+  │  Map<Session>   │ │ caster   │  │  │              │ │ Executor     │
+  │  CRUD ops       │ │          │  │  │ Pluggable    │ │              │
+  │  Persistence    │ │ WS       │  │  │ Authenticator│ │ Per-session  │
+  │  restore from   │ │ fan-out  │  │  │ RBAC (role-  │ │ command      │
+  │  storage        │ │ Back-    │  │  │  based       │ │ dispatch     │
+  │                 │ │ pressure │  │  │  visibility) │ │              │
+  └─────────────────┘ │ Role     │  │  │ Observer     │ └──────────────┘
+                      │ filter   │  │  │  mode        │
+                      └──────────┘  │  └──────────────┘
+                                    │
+                        ┌───────────▼──────────┐
+                        │  TeamEventDiffer     │
+                        │                      │
+                        │  Pure state diff     │
+                        │  functions for team  │
+                        │  members, tasks,     │
+                        │  messages            │
+                        └──────────────────────┘
+
+  Before PR #28:  SessionBridge = 2,031 lines (god class)
+  After PR #28:   SessionBridge = 1,458 lines + 4 extracted modules
+                  18 characterization tests verify behavioral equivalence
+```
+
+---
+
+## Data Flow: Local Session
+
+```
+Consumer (React)                                     BeamCode Server
+     │                                                     │
+     │  ws://localhost:3456/ws/consumer/:sessionId         │
+     ├────────────────────────────────────────────────────►│
+     │                                                     │
+     │  InboundMessage (JSON)                              │
+     │  { type: "user_message",                            │
+     │    text: "fix the login bug" }                      │
+     │         │                                           │
+     │         ▼                                           │
+     │  ConsumerGatekeeper.authenticate()                  │
+     │         │                                           │
+     │         ▼                                           │
+     │  SessionBridge.handleConsumerMessage()               │
+     │         │                                           │
+     │         ▼                                           │
+     │  BackendAdapter.send(UnifiedMessage)                 │
+     │         │                                           │
+     │         ▼                                           │
+     │  SdkUrlAdapter → serializeNDJSON → Claude Code CLI  │
+     │                                           │         │
+     │                                     CLI response    │
+     │                                           │         │
+     │  CLIMessage → translateCLI() → UnifiedMessage       │
+     │         │                                           │
+     │         ▼                                           │
+     │  routeUnifiedMessage()                              │
+     │         │                                           │
+     │         ▼                                           │
+     │  ConsumerBroadcaster.broadcast(ConsumerMessage)     │
+     │         │                                           │
+     │ ◄───────┘                                           │
+     │  ConsumerMessage (JSON)                             │
+     │  { type: "assistant",                               │
+     │    message: { ... } }                               │
 ```
 
 ---
@@ -355,7 +547,7 @@ Web Consumer                                   Daemon
 
 ---
 
-## Implementation Phases (v2.1)
+## Implementation Progress
 
 ```
 Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
@@ -367,34 +559,34 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
       │     │           │                                │  (4-6 weeks)    │
       ├─────┤───────────┤────────────────────────────────┤─────────────────┤
       │     │           │                                │                 │
-      │Uni- │routeCLIMsg│ Daemon (2wk):                  │ Extract lib     │
-      │fied │decompose  │  Child-process (~50% reuse)    │ from relay code │
-      │Msg  │CLILaunch→ │  Lock+State+HTTP API           │ (1-2wk)         │
-      │     │SdkUrlLnch │  Signal handling               │                 │
-      │Back │           │                                │ ACP adapter     │
-      │end  │SessionStat│ Relay (1.5-2wk):               │  JSON-RPC/stdio │
-      │Adpt │generalize │  cloudflared sidecar           │  PTY sidecar    │
-      │     │           │  Reverse proxy model           │  (by diff dev!) │
-      │Comp │Event map  │  Session routing (as-is)       │  (2-3wk)        │
-      │osed │generalize │                                │                 │
-      │Intfc│           │ E2E Crypto (2-2.5wk):          │ Codex adapter   │
-      │     │           │  libsodium sealed boxes        │  JSON-RPC/WS    │
-      │Orig │           │  Pairing link (not QR)         │  Thread/Turn/   │
-      │+Tok │           │  EncryptedEnvelope format      │  Item model     │
-      │     │           │  Permission signing + replay   │  (3-5 days)     │
+      │ ✅  │ ✅        │ Daemon (2wk):                  │ Extract lib     │
+      │Uni- │routeCLIMsg│  Child-process (~50% reuse)    │ from relay code │
+      │fied │decompose  │  Lock+State+HTTP API           │ (1-2wk)         │
+      │Msg  │CLILaunch→ │  Signal handling               │                 │
+      │     │SdkUrlLnch │                                │ ACP adapter ✅   │
+      │Back │           │ Relay (1.5-2wk):               │  JSON-RPC/stdio │
+      │end  │SessionStat│  cloudflared sidecar           │  (built early)  │
+      │Adpt │generalize │  Reverse proxy model           │                 │
+      │     │           │  Session routing (as-is)       │ Codex adapter ✅ │
+      │Comp │Event map  │                                │  JSON-RPC/WS    │
+      │osed │generalize │ E2E Crypto (2-2.5wk):          │  Thread/Turn/   │
+      │Intfc│           │  libsodium sealed boxes        │  Item model     │
+      │     │ ✅ Bridge │  Pairing link (not QR)         │                 │
+      │Orig │ refactor  │  EncryptedEnvelope format      │ AgentSdk ✅      │
+      │+Tok │ (PR #28)  │  Permission signing + replay   │  (built early)  │
       │     │           │  Session revocation            │                 │
-      │     │           │  Rate limiting                 │ Contract tests  │
-      │     │           │                                │ (1wk rework     │
-      │     │           │ Reconnection (1-1.5wk):        │  buffer)        │
-      │     │           │  Stable consumer IDs           │                 │
-      │     │           │  SequencedMessage<T>           │                 │
+      │ ✅  │ ✅ Error  │  Rate limiting                 │ Contract tests  │
+      │     │ types,    │                                │ (1wk rework     │
+      │     │ versioning│ Reconnection (1-1.5wk):        │  buffer)        │
+      │     │ logging   │  Stable consumer IDs           │                 │
+      │     │ (PR #27)  │  SequencedMessage<T>           │                 │
       │     │           │  Replay from last_seen_seq     │                 │
-      │     │           │  Per-consumer backpressure     │                 │
-      │     │           │                                │                 │
-      │     │           │ Web Consumer (1-1.5wk):        │                 │
-      │     │           │  500-1000 LOC HTML/JS          │                 │
-      │     │           │  E2E decrypt + render          │                 │
-      │     │           │  Permission handling           │                 │
+      │     │ ✅ React  │  Per-consumer backpressure     │                 │
+      │     │ consumer  │                                │                 │
+      │     │ (PRs      │ Web Consumer:                  │                 │
+      │     │  #25, #26)│  Already built (React app)     │                 │
+      │     │           │  E2E decrypt integration       │                 │
+      │     │           │  Permission handling ✅         │                 │
       │     │           │                                │                 │
       │     │           │ ┌── Phase 2.5 (overlap) ──┐    │                 │
       │     │           │ │ ACP Research (3-5 days) │    │                 │
@@ -405,6 +597,22 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
       │  Test Infrastructure (parallel throughout)                         │
       │  Contract tests → Integration → Relay E2E → ACP + Codex validation │
       └────────────────────────────────────────────────────────────────────┘
+
+      PHASE 0 + 1 STATUS: ✅ COMPLETE
+      • UnifiedMessage, BackendAdapter, BackendSession interfaces defined
+      • SdkUrl adapter extracted with message translation + state reduction
+      • SessionBridge decomposed into cohesive modules (PR #28)
+      • Error types, state versioning, structured logging (PR #27)
+      • React consumer with companion-style UI (PRs #25, #26)
+      • All 4 adapters built (SdkUrl, ACP, Codex, AgentSdk)
+      • Team coordination (members, tasks, events)
+
+      PHASE 2 STATUS: IN PROGRESS
+      • Daemon scaffolding exists (daemon.ts, health-check.ts, state-file.ts)
+      • CloudflaredManager exists (dev + production modes)
+      • Encryption layer scaffolded (encryption-layer.ts)
+      • Tunnel relay adapter scaffolded (tunnel-relay-adapter.ts)
+      • Remaining: full E2E crypto, pairing flow, reconnection, integration
 
       ABORT TRIGGERS:
       #1: Phase 1 > 3 weeks → abstraction is wrong
@@ -476,10 +684,13 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14
 ┌──────────────────────────────────────────────────────────────────┐
 │                     SECURITY LAYERS                              │
 │                                                                  │
-│  LAYER 1: Transport (Phase 0)                                    │
+│  LAYER 1: Transport (Phase 0) ✅                                 │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ • WebSocket origin validation (reject untrusted origins)   │  │
 │  │ • CLI auth tokens (?token=SECRET per session)              │  │
+│  │ • ConsumerGatekeeper: pluggable Authenticator interface    │  │
+│  │ • RBAC: PARTICIPANT vs OBSERVER role-based message filter  │  │
+│  │ • Per-consumer rate limiting: 10 msg/s, 100 KB/s           │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  LAYER 2: E2E Encryption (Phase 2)                               │
@@ -502,9 +713,16 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14
 │  LAYER 4: Device Management (Phase 2)                            │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ • Session revocation: revoke-device → new keypair → re-pair│  │
-│  │ • Per-consumer rate limiting: 10 msg/s, 100 KB/s           │  │
 │  │ • Pairing link expires in 60 seconds                       │  │
 │  │ • Single device per pairing cycle                          │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  LAYER 5: Resilience (Phase 0) ✅                                │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ • SlidingWindowBreaker: circuit breaker with snapshot API  │  │
+│  │ • Structured error types (BeamCodeError hierarchy)         │  │
+│  │ • Secret redaction in process output forwarding            │  │
+│  │ • Watchdog timers for reconnect grace periods              │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  DEFERRED (post-MVP):                                            │
@@ -526,47 +744,150 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14
 
 ---
 
-## Package Structure (v2.1)
+## Package Structure (Current)
 
 ```
-beamcode/                     ◄── Single npm package
+beamcode/                     ◄── Single npm package (v0.1.0)
 ├── src/
-│   ├── core/                           ◄── SessionBridge, BackendAdapter
-│   │   ├── types/                      ◄── UnifiedMessage, Capabilities
-│   │   │   └── unified-message.ts      ◄── Designed for streaming AND request/response
-│   │   └── interfaces/                 ◄── Authenticator, Transport, Storage
-│   │       ├── backend-adapter.ts      ◄── Core: connect, capabilities
-│   │       ├── backend-session.ts      ◄── Core: send, messages, close
-│   │       ├── reconnectable.ts        ◄── Extension: onDisconnect, replay (relay)
-│   │       └── encryptable.ts          ◄── Extension: encrypt, decrypt (relay)
+│   ├── bin/
+│   │   └── beamcode.ts               ◄── CLI entry point, wires StructuredLogger
+│   │
+│   ├── errors.ts                      ◄── BeamCodeError, StorageError, ProcessError
+│   │
+│   ├── core/                          ◄── SessionBridge + extracted modules
+│   │   ├── session-bridge.ts          ◄── Orchestrator (1,458 LOC, TypedEventEmitter)
+│   │   ├── session-store.ts           ◄── Session CRUD + persistence (226 LOC)
+│   │   ├── session-manager.ts         ◄── Orchestrates bridge + SdkUrlLauncher
+│   │   ├── consumer-broadcaster.ts    ◄── WS fan-out, backpressure, role filter (137 LOC)
+│   │   ├── consumer-gatekeeper.ts     ◄── Auth, RBAC, rate limiting (122 LOC)
+│   │   ├── team-event-differ.ts       ◄── Pure team state diff (101 LOC)
+│   │   ├── slash-command-registry.ts  ◄── Per-session command dispatch
+│   │   ├── slash-command-executor.ts  ◄── Command execution
+│   │   ├── team-*.ts                  ◄── Team coordination (members, tasks, state)
+│   │   ├── process-supervisor.ts      ◄── Process lifecycle management
+│   │   ├── types/
+│   │   │   ├── unified-message.ts     ◄── Phase 0.1 canonical message envelope
+│   │   │   ├── core-session-state.ts  ◄── Minimal adapter-agnostic state
+│   │   │   ├── backend-adapter.ts     ◄── BackendAdapter + BackendSession interfaces
+│   │   │   └── team-types.ts          ◄── TeamMember, TeamTask, TeamState, TeamEvent
+│   │   └── interfaces/
+│   │       └── backend-adapter*.ts    ◄── Interface specs + compliance tests
+│   │
 │   ├── adapters/
-│   │   ├── sdk-url/                    ◄── Phase 1: extract from monolith
-│   │   ├── acp/                        ◄── Phase 3: validate abstractions
-│   │   ├── codex/                      ◄── Phase 3: validate (JSON-RPC/WS)
-│   │   └── agent-sdk/                  ◄── Phase 4: stretch goal
-│   ├── daemon/                         ◄── Phase 2: ~50% reusable from current code
-│   │   ├── child-process-supervisor    ◄── manage CLI children via ProcessManager
-│   │   ├── lock                        ◄── O_EXCL lock file (NEW)
-│   │   ├── state                       ◄── daemon.state.json (NEW)
-│   │   └── control-api                 ◄── HTTP on 127.0.0.1:0 (NEW)
-│   ├── relay/                          ◄── Phase 2: tunnel integration
-│   │   ├── TunnelRelayAdapter          ◄── cloudflared sidecar management
-│   │   ├── reconnection                ◄── seq tracking, replay, pagination
-│   │   └── encrypted-envelope          ◄── { v, sid, ct, len } wire format
-│   ├── consumer/                       ◄── Phase 2: minimal web client (NEW)
-│   │   └── index.html                  ◄── 500-1000 LOC, E2E decrypt + render
+│   │   ├── sdk-url/                   ◄── Claude Code CLI (NDJSON/WS, streaming, teams)
+│   │   │   ├── sdk-url-adapter.ts
+│   │   │   ├── sdk-url-launcher.ts
+│   │   │   ├── message-translator.ts
+│   │   │   ├── inbound-translator.ts
+│   │   │   └── state-reducer.ts
+│   │   ├── acp/                       ◄── Agent Client Protocol (JSON-RPC/stdio)
+│   │   │   ├── acp-adapter.ts
+│   │   │   ├── acp-session.ts
+│   │   │   ├── json-rpc.ts
+│   │   │   ├── outbound-translator.ts
+│   │   │   └── inbound-translator.ts
+│   │   ├── codex/                     ◄── Codex (JSON-RPC/WS, Thread/Turn/Item)
+│   │   │   ├── codex-adapter.ts
+│   │   │   ├── codex-session.ts
+│   │   │   ├── codex-message-translator.ts
+│   │   │   └── codex-launcher.ts
+│   │   ├── agent-sdk/                 ◄── Anthropic Agent SDK (JS query fn, teams)
+│   │   │   ├── agent-sdk-adapter.ts
+│   │   │   ├── agent-sdk-session.ts
+│   │   │   └── sdk-message-translator.ts
+│   │   ├── file-storage.ts           ◄── SessionStorage impl (debounced + migrator)
+│   │   ├── state-migrator.ts          ◄── Schema versioning, migration chain (v0→v1+)
+│   │   ├── structured-logger.ts       ◄── JSON-line logging with component context
+│   │   └── sliding-window-breaker.ts  ◄── Circuit breaker with snapshot API
+│   │
+│   ├── daemon/                        ◄── Process supervisor + health checks
+│   │   ├── daemon.ts                  ◄── Lock file, state file, signal handling
+│   │   ├── health-check.ts
+│   │   └── state-file.ts
+│   │
+│   ├── relay/                         ◄── Encryption + tunnel management
+│   │   ├── cloudflared-manager.ts     ◄── Sidecar: dev (free tunnel) / prod (token)
+│   │   ├── encryption-layer.ts        ◄── libsodium key derivation, encrypt/decrypt
+│   │   ├── tunnel-relay-adapter.ts
+│   │   └── session-router.ts
+│   │
+│   ├── http/                          ◄── HTTP request routing
+│   │   ├── server.ts                  ◄── HTTP router
+│   │   ├── api-sessions.ts            ◄── REST /api/sessions endpoints
+│   │   ├── consumer-html.ts           ◄── Serves embedded React consumer
+│   │   └── health.ts
+│   │
+│   ├── server/                        ◄── WebSocket layer
+│   │   ├── auth-token.ts
+│   │   ├── consumer-channel.ts        ◄── Per-consumer queue + backpressure
+│   │   ├── origin-validator.ts
+│   │   └── reconnection-handler.ts
+│   │
+│   ├── consumer/                      ◄── Legacy consumer (being replaced by web/)
+│   │   ├── index.html
+│   │   ├── renderer.ts
+│   │   └── permission-ui.ts
+│   │
+│   ├── types/                         ◄── Shared type definitions
+│   │   ├── session-state.ts           ◄── SessionState (extends DevToolSessionState)
+│   │   ├── consumer-messages.ts       ◄── ConsumerMessage union (30+ subtypes)
+│   │   ├── cli-messages.ts            ◄── CLI protocol types
+│   │   ├── inbound-messages.ts        ◄── Consumer→Bridge messages
+│   │   ├── events.ts                  ◄── Bridge event types
+│   │   ├── config.ts
+│   │   └── auth.ts                    ◄── ConsumerRole, ConsumerIdentity, Authenticator
+│   │
+│   ├── interfaces/                    ◄── Runtime contracts
+│   │   ├── auth.ts                    ◄── Authenticator interface
+│   │   ├── storage.ts                 ◄── SessionStorage, LauncherStateStorage
+│   │   ├── logger.ts
+│   │   ├── process-manager.ts
+│   │   └── transport.ts              ◄── WebSocketLike interface
+│   │
 │   ├── utils/
-│   │   ├── pty-bridge/                 ◄── 80% exists (composable utility)
-│   │   ├── ndjson/                     ◄── EXISTS
-│   │   ├── rate-limiter/               ◄── EXISTS
-│   │   └── crypto/                     ◄── NEW: sealed boxes, HMAC, pairing
-│   │       ├── sealed-box.ts           ◄── sodium_malloc, encrypt/decrypt
-│   │       ├── hmac-signing.ts         ◄── HMAC-SHA256 + nonce + timestamp
-│   │       ├── pairing.ts             ◄── Pairing link generation/consumption
-│   │       └── key-storage.ts         ◄── OS keychain (keytar) + fallback
-│   └── server/                         ◄── WsServer + consumer mgmt
-│       ├── consumer-channel.ts         ◄── Per-consumer queue + backpressure
-│       └── rate-limiter.ts            ◄── 10 msg/s, 100 KB/s per consumer
+│   │   ├── ndjson.ts                  ◄── Parse/serialize newline-delimited JSON
+│   │   ├── ansi-strip.ts
+│   │   ├── redact-secrets.ts          ◄── Secret redaction for process output
+│   │   └── claude-detection.ts
+│   │
+│   ├── testing/                       ◄── Test fixtures + mocks
+│   └── e2e/                           ◄── End-to-end test suites
+│
+├── web/                               ◄── React 19 consumer (separate Vite build)
+│   ├── src/
+│   │   ├── App.tsx                    ◄── ErrorBoundary + bootstrap
+│   │   ├── store.ts                   ◄── Zustand state (sessions, toasts, logs, ...)
+│   │   ├── ws.ts                      ◄── WebSocket with auto-reconnect
+│   │   ├── api.ts                     ◄── HTTP client for /api/sessions
+│   │   ├── components/                ◄── 50+ React components
+│   │   │   ├── ChatView.tsx           ◄── Message stream + streaming indicator
+│   │   │   ├── Composer.tsx           ◄── Input + /slash commands
+│   │   │   ├── AssistantMessage.tsx   ◄── Rich rendering (text, tool, thinking)
+│   │   │   ├── ToolBlock.tsx          ◄── Tool execution visualization
+│   │   │   ├── PermissionBanner.tsx   ◄── Permission request UI
+│   │   │   ├── Sidebar.tsx            ◄── Sessions by date, archive, settings
+│   │   │   ├── TopBar.tsx             ◄── Model, context gauge, connection
+│   │   │   ├── StatusBar.tsx          ◄── Adapter, git, model, permissions
+│   │   │   ├── AgentPane.tsx          ◄── Multi-agent inspection
+│   │   │   ├── ToastContainer.tsx     ◄── Notifications (FIFO, max 5)
+│   │   │   ├── LogDrawer.tsx          ◄── Process output viewer
+│   │   │   ├── ConnectionBanner.tsx   ◄── Circuit breaker + watchdog UI
+│   │   │   └── TaskPanel.tsx          ◄── Team task management
+│   │   ├── hooks/
+│   │   │   ├── useKeyboardShortcuts.ts
+│   │   │   ├── useAgentGrid.ts
+│   │   │   └── useDropdown.ts         ◄── Shared dropdown behavior
+│   │   └── utils/
+│   │       ├── format.ts              ◄── Number/token formatting
+│   │       ├── ansi-strip.ts
+│   │       ├── audio.ts              ◄── Web Audio completion sound + notifications
+│   │       └── export.ts
+│   └── vite.config.ts
+│
+├── shared/
+│   └── consumer-types.ts              ◄── Flattened types for frontend (NO core/ imports)
+│
+└── package.json                       ◄── Exports adapters as subpaths
 │
 │  Future split:
 │  @beamcode/core
@@ -579,26 +900,67 @@ beamcode/                     ◄── Single npm package
 
 ---
 
+## Key Interfaces
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  RUNTIME CONTRACTS                                                    │
+│                                                                      │
+│  BackendAdapter         → connect(options): Promise<BackendSession>  │
+│  BackendSession         → send(), messages (AsyncIterable), close()  │
+│  SessionStorage         → save(), load(), loadAll(), remove()        │
+│  Authenticator          → authenticate(context)                      │
+│  Logger                 → debug(), info(), warn(), error()           │
+│  ProcessManager         → spawn(), kill(), isAlive()                 │
+│  CommandRunner          → run(command, args, options)                │
+│  RateLimiter            → check()                                    │
+│  CircuitBreaker         → attempt(), recordSuccess/Failure()         │
+│  MetricsCollector       → recordTurn(), recordToolUse()              │
+│  WebSocketServerLike    → listen(), close()                          │
+│  WebSocketLike          → send(), close(), on()                      │
+│  GitInfoResolver        → resolveGitInfo(cwd)                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## What Ships at ~19 Weeks (1 Engineer)
 
 ```
   ┌────────────────────────────────────────────────────┐
-  │                    DELIVERED                       │
+  │                    DELIVERED ✅                     │
   │                                                    │
-  │  ✅ Mobile browser → CF Tunnel → Daemon → Claude   │
-  │  ✅ Minimal web consumer (E2E decrypt + render)    │
-  │  ✅ E2E encryption with pairing link               │
-  │  ✅ Reconnection with message replay               │
-  │  ✅ Session revocation (revoke-device)             │
-  │  ✅ BackendAdapter with SdkUrl + ACP + Codex       │
+  │  ✅ UnifiedMessage + BackendAdapter interfaces     │
+  │  ✅ SdkUrl adapter (NDJSON/WS, streaming, teams)   │
+  │  ✅ ACP adapter (JSON-RPC/stdio)                   │
+  │  ✅ Codex adapter (JSON-RPC/WS)                    │
+  │  ✅ AgentSdk adapter (query fn, teams)             │
+  │  ✅ SessionBridge decomposition (PR #28)           │
+  │  ✅ Structured error types (PR #27)                │
+  │  ✅ State schema versioning + migration (PR #27)   │
+  │  ✅ Structured logging (PR #27)                    │
+  │  ✅ React consumer with companion-style UI         │
   │  ✅ Backpressure (per-consumer send queues)        │
   │  ✅ Per-consumer rate limiting                     │
-  │  ✅ npm package v0.2.0                             │
+  │  ✅ Team coordination (members, tasks, events)     │
+  │  ✅ Circuit breaker with UI visibility             │
+  │  ✅ Toast notifications + process log viewer       │
   │                                                    │
   ├────────────────────────────────────────────────────┤
-  │                    STRETCH                         │
+  │                    IN PROGRESS                     │
   │                                                    │
-  │  ⏳ AgentSdk adapter (50% success probability)     │
+  │  🔧 Daemon (scaffolded: lock, state, health)      │
+  │  🔧 Relay (scaffolded: cloudflared, encryption)    │
+  │  🔧 E2E encryption integration                    │
+  │  🔧 Reconnection with message replay              │
+  │                                                    │
+  ├────────────────────────────────────────────────────┤
+  │                    REMAINING                       │
+  │                                                    │
+  │  ⏳ Full E2E crypto (pairing, EncryptedEnvelope)   │
+  │  ⏳ Session revocation (revoke-device)             │
+  │  ⏳ Mobile browser → CF Tunnel → Daemon → CLI      │
+  │  ⏳ npm package v0.2.0                             │
   │                                                    │
   ├────────────────────────────────────────────────────┤
   │                    DEFERRED                        │
@@ -611,7 +973,6 @@ beamcode/                     ◄── Single npm package
   │  📋 Multi-device sync                              │
   │  📋 Custom relay server (upgrade from tunnel)      │
   │  📋 Mobile native app                              │
-  │  📋 Agent teams coordination                       │
   │  📋 Message size padding (privacy)                 │
   │  📋 Mutual TLS / expanded RBAC / audit logging     │
   │                                                    │
@@ -651,6 +1012,7 @@ beamcode/                     ◄── Single npm package
       Mitigation: hard timebox 7wk, cut E2E to transport-only if needed
    2. Extraction gamble (MED prob, MED-HIGH impact)
       Mitigation: ACP + Codex adapters validate universality; < 500 LOC signal
+      Status: MITIGATED — all 4 adapters built, UnifiedMessage stable
    3. Codex WS mode experimental (MED prob, MED impact)
       Mitigation: stdio JSONL fallback; adapter supports both transports
 ```

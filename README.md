@@ -1,10 +1,64 @@
 # beamcode
 
-Universal adapter library that bridges any coding agent CLI to any frontend — code anywhere, from any device.
+Code from anywhere. Collaborate on any agent session. Drive Claude, Codex, Goose, or any CLI agent from your phone, tablet, or laptop — and let teammates watch, join, and catch up in real time.
+
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │   Your desktop                    You (phone on the couch)          │
+  │   ┌─────────────┐                ┌──────────┐                       │
+  │   │ Claude Code │                │ Mobile   │                       │
+  │   │ (running)   │                │ Browser  │◄── E2E encrypted      │
+  │   └──────┬──────┘                └────┬─────┘    via CF Tunnel      │
+  │          │                            │                             │
+  │          │   ┌────────────────────────┤                             │
+  │          │   │                        │                             │
+  │          ▼   ▼                        │                             │
+  │   ┌──────────────┐                    │  Teammate        Observer   │
+  │   │SessionBridge │◄───────────────────┤  ┌──────────┐  ┌─────────┐  │
+  │   │fan-out,      │                    └──│ Laptop   │  │ Audit   │  │
+  │   │RBAC, replay  │◄──────────────────────│ (collab) │  │ (watch) │  │
+  │   └──────────────┘                       └──────────┘  └─────────┘  │
+  │                                                                     │
+  │   N consumers ↔ 1 agent session (not 1:1 like everything else)      │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+## Why this matters
+
+There are 30+ projects in this space — Companion, Happy, ClaudeCodeUI, Opcode, CUI, and others. They all share two limitations:
+
+1. **1:1 sessions** — one frontend, one CLI backend. No collaboration.
+2. **SSH/tmux/Tailscale plumbing** — remote access is a DIY stack, not a product.
+
+BeamCode solves both.
+
+**Code from anywhere** — Cloudflare Tunnel + E2E encryption turns your desktop agent into something you can drive from any device. No open ports, no VPN, no SSH. Open a link on your phone and you're in.
+
+**Collaborate on the same session** — BeamCode's session-bridge is N:1, not 1:1:
+
+- **N consumers per session** — `Map<WebSocket, ConsumerIdentity>`, not a single slot
+- **Role gating** — participants drive, observers watch (PARTICIPANT_ONLY message types)
+- **Fan-out broadcasts** — every consumer gets every message, filtered by role
+- **Presence** — everyone sees who joins and leaves in real time
+- **History replay** — late joiners catch up from message history
+- **Protocol-agnostic** — same multi-consumer model whether the backend is Claude, Goose, Codex, or Agent SDK
+
+This unlocks scenarios no existing tool supports:
+
+| Scenario | How it works |
+|----------|-------------|
+| **Code from the couch** | Start Claude on your desktop, drive it from your phone via encrypted tunnel |
+| **Pair programming with AI** | One person drives Claude, others observe and learn |
+| **Real-time code review** | Reviewer watches the agent work, sees permission requests live |
+| **Teaching / onboarding** | Instructor drives, students observe the full agent workflow |
+| **Audit trail** | Security observer watches agent actions without ability to interfere |
+
+## How it works
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                       FRONTENDS                          │
+│                       CONSUMERS                          │
 │  Mobile Browser │ Web UI │ Telegram │ Discord │ Terminal │
 └────────┬────────────┬──────────┬─────────┬───────────────┘
          └────────────┴────┬─────┴─────────┘
@@ -13,8 +67,16 @@ Universal adapter library that bridges any coding agent CLI to any frontend — 
                            │
            ┌───────────────┴────────────────┐
            │         SessionBridge          │
-           │  (state, RBAC, presence,       │
-           │   history, replay, E2E)        │
+           │  ┌───────────┐ ┌────────────┐  │
+           │  │ Session   │ │ Consumer   │  │
+           │  │ Store     │ │ Broadcaster│  │
+           │  ├───────────┤ ├────────────┤  │
+           │  │ Consumer  │ │ SlashCmd   │  │
+           │  │ Gatekeeper│ │ Registry   │  │
+           │  ├───────────┤ ├────────────┤  │
+           │  │ TeamEvent │ │ Structured │  │
+           │  │ Differ    │ │ Logger     │  │
+           │  └───────────┘ └────────────┘  │
            └───────────────┬────────────────┘
                            │
                  BackendAdapter interface
@@ -31,28 +93,20 @@ Universal adapter library that bridges any coding agent CLI to any frontend — 
            25+ agents
 ```
 
-## Problem
-
-The coding agent landscape is fragmenting. Claude Code, Codex CLI, Gemini CLI, Goose, Kiro, and others each have different protocols, capabilities, and remote access stories. Users cobble together SSH + tmux + Tailscale to run agents on a desktop and monitor from a phone. There are 30+ bespoke projects that each solve a narrow slice. No reusable library abstracts the CLI-to-frontend boundary.
-
-## Solution
-
-beamcode sits between any coding agent CLI and any frontend. One `BackendAdapter` interface, four protocol implementations, structured message relay with E2E encryption, and a daemon that keeps sessions alive while you're away.
-
 ## Features
 
+- **Multi-consumer sessions**: N frontends per session with fan-out, RBAC, presence, and history replay
 - **Multi-agent support**: Adapters for Claude Code (`--sdk-url`), ACP (25+ agents), Codex CLI (JSON-RPC), and Claude Agent SDK
+- **Web consumer**: React 19 + Zustand + Tailwind v4 app with companion-style UI (sidebar, status bar, agent pane, toast notifications, process logs)
+- **Team coordination**: Agent team members, tasks, and events with real-time UI
 - **E2E encryption**: libsodium sealed boxes (XSalsa20-Poly1305) with pairing link key exchange
 - **Daemon**: Process supervisor with lock file, state persistence, health checks, and signal handling
 - **Relay**: Cloudflare Tunnel integration for remote access without open ports
 - **Reconnection**: Sequenced messages with replay from `last_seen_seq` on reconnect
-- **RBAC**: `participant` (read-write) and `observer` (read-only) roles with per-message enforcement
-- **Presence**: Real-time consumer presence updates on connect/disconnect
 - **Pluggable auth**: Transport-agnostic `Authenticator` interface (JWT, API keys, cookies, mTLS)
 - **Permission signing**: HMAC-SHA256 with nonce + timestamp to prevent replay attacks
-- **Session persistence**: Atomic JSON file storage with debounced writes
-- **Production hardened**: Rate limiting, circuit breaker, backpressure, idle timeout, graceful drain
-- **Dual CJS/ESM**: Works with `require()` or `import`
+- **Session persistence**: Atomic JSON file storage with debounced writes and schema versioning
+- **Production hardened**: Rate limiting, circuit breaker, backpressure, structured error types, structured logging
 
 ## Requirements
 
@@ -210,6 +264,21 @@ interface Encryptable { encrypt(msg: UnifiedMessage): EncryptedEnvelope }
 | Codex | JSON-RPC/NDJSON | Codex CLI | Yes | Yes | Yes |
 | AgentSdk | In-process TS | Claude Code (via SDK) | Yes | Yes (callback bridge) | Yes |
 
+### SessionBridge
+
+The core message router, decomposed into focused modules:
+
+```ts
+SessionBridge (orchestrator, TypedEventEmitter)
+├── SessionStore          // Session CRUD + persistence
+├── ConsumerBroadcaster   // WebSocket fan-out with backpressure + role filtering
+├── ConsumerGatekeeper    // Pluggable auth, RBAC, rate limiting
+├── SlashCommandExecutor  // Per-session command dispatch
+└── TeamEventDiffer       // Pure team state diff functions
+```
+
+Message routing: CLI messages → `translateCLI()` → `routeUnifiedMessage()` → `ConsumerBroadcaster.broadcast()` → N consumers.
+
 ### UnifiedMessage
 
 All adapters translate to/from `UnifiedMessage` — a normalized envelope aligned with the Claude Agent SDK's `SDKMessage` types:
@@ -295,13 +364,14 @@ import type { SequencedMessage } from "beamcode";
 
 A React 19 + Zustand + Tailwind v4 app in `web/` that builds to a single HTML file (~300 KB, ~94 KB gzip):
 
-- **3-panel responsive layout**: collapsible sidebar, chat view, task panel
+- **Companion-style layout**: collapsible sidebar with session grouping, status bar, agent pane
 - **Multi-adapter visibility**: adapter badges per session (Claude Code, Codex, Gemini CLI, etc.)
 - **Rich message rendering**: 3-level grouping (content-block, message, subagent), markdown via `marked` + DOMPurify
 - **Streaming UX**: blinking cursor, elapsed time, token count
 - **Slash command menu**: categorized typeahead with keyboard navigation
 - **Permission UI**: tool-specific previews (Bash commands, Edit diffs, file paths)
-- **Context gauge**: color-coded token usage bar (green/yellow/red)
+- **Observability**: context gauge, circuit breaker status, toast notifications, process log viewer
+- **Team coordination**: task panel, agent grid, member presence
 - **Reconnection**: WebSocket connect-on-switch pattern with message replay
 
 #### Development
@@ -324,32 +394,6 @@ Open `http://localhost:5174` for live development with hot module replacement.
 pnpm build:web                # Builds web/ → single HTML file in web/dist/
 pnpm build                    # Builds library + web consumer, copies to dist/consumer/
 ```
-
-#### Testing the frontend
-
-1. Verify the build produces a single HTML file under 300 KB:
-   ```sh
-   cd web && npx vite build && ls -lh dist/index.html
-   ```
-
-2. Run the full build pipeline:
-   ```sh
-   pnpm build
-   ```
-
-3. Test with a live session:
-   ```sh
-   pnpm start                  # Start server on :3456
-   # Open http://localhost:3456 in a browser
-   # Send a message, verify streamed response appears
-   ```
-
-4. Test dev workflow with HMR:
-   ```sh
-   pnpm start &                # Background the server
-   pnpm dev:web                # Start Vite dev server
-   # Open http://localhost:5174
-   # Edit web/src/ files and verify HMR updates
 
 ## Configuration
 
@@ -472,6 +516,7 @@ pm.lastProcess.resolveExit(0);
 - **Session IDs**: Must be lowercase UUIDs; path traversal prevented via `safeJoin`
 - **Rate limiting**: Token bucket per consumer (configurable)
 - **Circuit breaker**: Sliding window prevents CLI restart cascades
+- **Structured errors**: `BeamCodeError` hierarchy with error codes and cause chains
 
 See [SECURITY.md](./SECURITY.md) for the full threat model and cryptographic details.
 
