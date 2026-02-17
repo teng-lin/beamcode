@@ -23,6 +23,105 @@ function AdapterBadge({ type }: { type: string }) {
   return <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${color}`}>{label}</span>;
 }
 
+// ── Permission Mode Picker ───────────────────────────────────────────────────
+
+const PERMISSION_MODES = [
+  { value: "default", label: "Default", description: "Ask before risky actions" },
+  { value: "plan", label: "Plan", description: "Require plan approval first" },
+  { value: "bypassPermissions", label: "YOLO", description: "Auto-allow everything" },
+];
+
+const PERMISSION_STYLES: Record<string, string> = {
+  default: "text-bc-text-muted",
+  plan: "text-bc-accent",
+  bypassPermissions: "text-bc-success",
+};
+
+function PermissionModePicker() {
+  const permissionMode = useStore((s) => currentData(s)?.state?.permissionMode ?? null);
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
+  const isObserver = identityRole !== null && identityRole !== "participant";
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset
+  useEffect(() => {
+    setOpen(false);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const handleSelect = useCallback(
+    (mode: string) => {
+      send({ type: "set_permission_mode", mode }, currentSessionId ?? undefined);
+      setOpen(false);
+    },
+    [currentSessionId],
+  );
+
+  if (!permissionMode || !currentSessionId) return null;
+
+  const current = PERMISSION_MODES.find((m) => m.value === permissionMode) ?? PERMISSION_MODES[0];
+  const colorClass = PERMISSION_STYLES[permissionMode] ?? "text-bc-text-muted";
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => !isObserver && setOpen((o) => !o)}
+        disabled={isObserver}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${colorClass} ${
+          !isObserver ? "cursor-pointer hover:bg-bc-hover" : "cursor-default"
+        }`}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+          <path d="M5 1L8.5 3v3c0 2-1.5 3-3.5 3S1.5 8 1.5 6V3L5 1z" opacity="0.7" />
+        </svg>
+        {current.label}
+        {!isObserver && (
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
+            <path d="M2 3l2 2.5L6 3" />
+          </svg>
+        )}
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[200px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
+          {PERMISSION_MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => handleSelect(m.value)}
+              className={`flex w-full flex-col items-start px-3 py-1.5 text-left transition-colors hover:bg-bc-hover ${
+                m.value === permissionMode ? "font-semibold text-bc-text" : "text-bc-text-muted"
+              }`}
+            >
+              <span className="text-[12px]">{m.label}</span>
+              <span className="text-[10px] text-bc-text-muted/60">{m.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Model Picker ─────────────────────────────────────────────────────────────
+
 function ModelPicker() {
   const model = useStore((s) => currentData(s)?.state?.model ?? "");
   const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
@@ -34,13 +133,11 @@ function ModelPicker() {
 
   const canSwitch = models && models.length > 1 && !isObserver;
 
-  // Close on session change
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset
   useEffect(() => {
     setOpen(false);
   }, [currentSessionId]);
 
-  // Close on outside click / esc
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
@@ -67,12 +164,10 @@ function ModelPicker() {
 
   if (!model) return null;
 
-  // Extract short display name (e.g. "claude-opus-4-6" → "Opus")
   const shortName = (() => {
-    const m = models?.find((m) => m.value === model);
-    if (m) {
-      // Use displayName, try to shorten common patterns
-      const dn = m.displayName;
+    const found = models?.find((m) => m.value === model);
+    if (found) {
+      const dn = found.displayName;
       if (/opus/i.test(dn)) return "Opus";
       if (/sonnet/i.test(dn)) return "Sonnet";
       if (/haiku/i.test(dn)) return "Haiku";
@@ -105,7 +200,7 @@ function ModelPicker() {
         )}
       </button>
       {open && models && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[180px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
+        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[180px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
           {models.map((m) => (
             <button
               key={m.value}
@@ -124,6 +219,8 @@ function ModelPicker() {
   );
 }
 
+// ── Status Bar ───────────────────────────────────────────────────────────────
+
 export function StatusBar() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const adapterType = useStore((s) =>
@@ -131,6 +228,9 @@ export function StatusBar() {
   );
   const cwd = useStore((s) => currentData(s)?.state?.cwd ?? null);
   const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);
+  const gitAhead = useStore((s) => currentData(s)?.state?.git_ahead ?? 0);
+  const gitBehind = useStore((s) => currentData(s)?.state?.git_behind ?? 0);
+  const isWorktree = useStore((s) => currentData(s)?.state?.is_worktree ?? false);
 
   return (
     <footer className="flex items-center gap-1 border-t border-bc-border/40 bg-bc-surface px-3 py-1">
@@ -153,8 +253,9 @@ export function StatusBar() {
         {cwd ? cwdBasename(cwd) : "\u2014"}
       </span>
 
-      {/* Git branch */}
       <Divider />
+
+      {/* Git branch + ahead/behind */}
       <span className="flex items-center gap-1 rounded-md px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted">
         <svg
           width="10"
@@ -170,9 +271,51 @@ export function StatusBar() {
           <path d="M5 3.2V6.8" />
         </svg>
         {gitBranch ?? "\u2014"}
+        {(gitAhead > 0 || gitBehind > 0) && (
+          <span className="ml-0.5 flex items-center gap-0.5 text-[10px]">
+            {gitAhead > 0 && (
+              <span className="text-bc-success">
+                {"\u2191"}
+                {gitAhead}
+              </span>
+            )}
+            {gitBehind > 0 && (
+              <span className="text-bc-warning">
+                {"\u2193"}
+                {gitBehind}
+              </span>
+            )}
+          </span>
+        )}
       </span>
 
+      {/* Worktree badge */}
+      {isWorktree && (
+        <>
+          <Divider />
+          <span className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-bc-accent/80">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              aria-hidden="true"
+            >
+              <path d="M5 1v4M5 5L2.5 8M5 5L7.5 8" strokeLinecap="round" />
+            </svg>
+            Worktree
+          </span>
+        </>
+      )}
+
       <div className="flex-1" />
+
+      {/* Permission mode picker */}
+      <PermissionModePicker />
+
+      <Divider />
 
       {/* Model picker */}
       <ModelPicker />

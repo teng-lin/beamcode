@@ -17,8 +17,6 @@ export function TopBar() {
     return perms ? Object.keys(perms).length : 0;
   });
   const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
-  const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);
-  const permissionMode = useStore((s) => currentData(s)?.state?.permissionMode ?? null);
   const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const isObserver = identityRole !== null && identityRole !== "participant";
@@ -149,47 +147,6 @@ export function TopBar() {
             </div>
           )}
         </div>
-      )}
-
-      {/* Permission mode badge */}
-      {permissionMode && permissionMode !== "default" && (
-        <span
-          className={`rounded-md px-2 py-0.5 text-[11px] ${
-            permissionMode === "bypassPermissions"
-              ? "bg-bc-success/15 text-bc-success"
-              : permissionMode === "plan"
-                ? "bg-bc-accent/15 text-bc-accent"
-                : "bg-bc-surface-2 text-bc-text-muted"
-          }`}
-        >
-          {permissionMode === "bypassPermissions"
-            ? "Auto-Allow"
-            : permissionMode === "plan"
-              ? "Plan"
-              : permissionMode}
-        </span>
-      )}
-
-      {gitBranch && (
-        <output
-          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted"
-          aria-label="Git branch"
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            aria-hidden="true"
-          >
-            <circle cx="5" cy="2" r="1.2" />
-            <circle cx="5" cy="8" r="1.2" />
-            <path d="M5 3.2V6.8" />
-          </svg>
-          {gitBranch}
-        </output>
       )}
 
       {teamName && (

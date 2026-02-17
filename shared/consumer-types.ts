@@ -147,6 +147,10 @@ export interface ConsumerSessionState {
   is_compacting: boolean;
   // Optional fields from deeper state
   git_branch?: string;
+  git_ahead?: number;
+  git_behind?: number;
+  is_worktree?: boolean;
+  repo_root?: string;
   total_lines_added?: number;
   total_lines_removed?: number;
   tools?: string[];
