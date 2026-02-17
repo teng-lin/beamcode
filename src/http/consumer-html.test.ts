@@ -13,7 +13,6 @@ const FAKE_HTML = `<!DOCTYPE html>
 </html>`;
 
 vi.mock("node:fs", () => ({
-  existsSync: vi.fn(() => true),
   readFileSync: vi.fn(() => FAKE_HTML),
 }));
 
@@ -55,7 +54,6 @@ describe("consumer-html", () => {
     vi.resetModules();
     // Re-register the mock after resetModules clears it
     vi.mock("node:fs", () => ({
-      existsSync: vi.fn(() => true),
       readFileSync: vi.fn(() => FAKE_HTML),
     }));
   });
@@ -82,27 +80,16 @@ describe("consumer-html", () => {
       expect(readFileSync).toHaveBeenCalledTimes(1);
     });
 
-    it("throws when no HTML file is found", async () => {
-      const { existsSync } = await import("node:fs");
-      vi.mocked(existsSync).mockReturnValue(false);
-
+    it("resolves path relative to module at web/dist/index.html", async () => {
+      const { readFileSync } = await import("node:fs");
       const { loadConsumerHtml } = await import("./consumer-html.js");
-      expect(() => loadConsumerHtml()).toThrow("Consumer HTML not found");
-    });
 
-    it("falls back to web/dist when dist path does not exist", async () => {
-      const { existsSync } = await import("node:fs");
-      // First call (dist path) returns false, second call (web/dist) returns true
-      vi.mocked(existsSync).mockReturnValueOnce(false).mockReturnValueOnce(true);
-
-      const { loadConsumerHtml } = await import("./consumer-html.js");
       loadConsumerHtml();
 
-      // Should have checked dist path first, then web/dist
-      expect(existsSync).toHaveBeenCalledTimes(2);
-      const calls = vi.mocked(existsSync).mock.calls;
-      expect(calls[0][0] as string).toContain("consumer");
-      expect(calls[1][0] as string).toContain("web");
+      const calledPath = vi.mocked(readFileSync).mock.calls[0][0] as string;
+      expect(calledPath).toContain("web");
+      expect(calledPath).toContain("dist");
+      expect(calledPath).toContain("index.html");
     });
   });
 
