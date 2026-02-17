@@ -12,7 +12,7 @@
 import { vi } from "vitest";
 import type { Session } from "../core/session-store.js";
 import { makeDefaultState } from "../core/session-store.js";
-import type { AuthContext, ConsumerIdentity } from "../interfaces/auth.js";
+import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { PermissionRequest } from "../types/cli-messages.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
@@ -35,7 +35,7 @@ export function createTestSocket(opts?: { bufferedAmount?: number }): WebSocketL
     sentMessages,
   };
   if (opts?.bufferedAmount !== undefined) {
-    socket.bufferedAmount = opts.bufferedAmount;
+    Object.defineProperty(socket, "bufferedAmount", { value: opts.bufferedAmount });
   }
   return socket;
 }
