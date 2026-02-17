@@ -1322,6 +1322,16 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.sendInitializeRequest(session);
   }
 
+  private autoSendQueuedMessage(session: Session): void {
+    if (!session.queuedMessage) return;
+    const queued = session.queuedMessage;
+    session.queuedMessage = null;
+    this.broadcaster.broadcast(session, { type: "queued_message_sent" });
+    this.sendUserMessage(session.id, queued.content, {
+      images: queued.images,
+    });
+  }
+
   private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
@@ -1331,13 +1341,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
 
     // Auto-send queued message when transitioning to idle
-    if (status === "idle" && session.queuedMessage) {
-      const queued = session.queuedMessage;
-      session.queuedMessage = null;
-      this.broadcaster.broadcast(session, { type: "queued_message_sent" });
-      this.sendUserMessage(session.id, queued.content, {
-        images: queued.images,
-      });
+    if (status === "idle") {
+      this.autoSendQueuedMessage(session);
     }
   }
 
@@ -1449,16 +1454,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // Mark session idle — the CLI only sends status_change for "compacting" | null,
     // so the bridge must infer "idle" from result messages (mirrors frontend logic).
     session.lastStatus = "idle";
-
-    // Auto-send queued message now that the turn is complete
-    if (session.queuedMessage) {
-      const queued = session.queuedMessage;
-      session.queuedMessage = null;
-      this.broadcaster.broadcast(session, { type: "queued_message_sent" });
-      this.sendUserMessage(session.id, queued.content, {
-        images: queued.images,
-      });
-    }
+    this.autoSendQueuedMessage(session);
 
     // Trigger auto-naming after first turn
     const numTurns = (m.num_turns as number) ?? 0;
