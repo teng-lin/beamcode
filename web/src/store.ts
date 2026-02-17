@@ -68,6 +68,8 @@ export interface SessionData {
     queuedAt: number;
   } | null;
   isEditingQueue: boolean;
+  /** FLIP animation origin: captured bounding rect of the queued message before it's removed. */
+  flipOrigin: { top: number; left: number; width: number } | null;
 }
 
 export interface Toast {
@@ -154,6 +156,7 @@ export interface AppState {
   clearAgentStreaming: (sessionId: string, agentId: string) => void;
   setQueuedMessage: (sessionId: string, msg: SessionData["queuedMessage"]) => void;
   setEditingQueue: (sessionId: string, editing: boolean) => void;
+  setFlipOrigin: (sessionId: string, origin: SessionData["flipOrigin"]) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -190,6 +193,7 @@ function emptySessionData(): SessionData {
     presence: [],
     queuedMessage: null,
     isEditingQueue: false,
+    flipOrigin: null,
   };
 }
 
@@ -459,6 +463,9 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setEditingQueue: (sessionId, editing) =>
     set((s) => patchSession(s, sessionId, { isEditingQueue: editing })),
+
+  setFlipOrigin: (sessionId, origin) =>
+    set((s) => patchSession(s, sessionId, { flipOrigin: origin })),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>
