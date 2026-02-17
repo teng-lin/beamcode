@@ -3,26 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
-import type { WebSocketLike } from "../interfaces/transport.js";
+import type { Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
+import {
+  authContext,
+  createTestSocket as createMockSocket,
+  makeAssistantMsg,
+  makeAuthStatusMsg,
+  makeControlRequestMsg,
+  makeInitMsg,
+  makeKeepAliveMsg,
+  makeResultMsg,
+  makeStatusMsg,
+  makeStreamEventMsg,
+  makeToolProgressMsg,
+  makeToolUseSummaryMsg,
+  noopLogger,
+  flushPromises as tick,
+} from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createMockSocket(): WebSocketLike & {
-  sentMessages: string[];
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-} {
-  const sentMessages: string[] = [];
-  return {
-    send: vi.fn((data: string) => sentMessages.push(data)),
-    close: vi.fn(),
-    sentMessages,
-  };
-}
-
-const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
 function createBridge(options?: {
   storage?: MemoryStorage;
@@ -44,157 +44,6 @@ function createBridge(options?: {
     }),
     storage,
   };
-}
-
-function authContext(sessionId: string, transport: Record<string, unknown> = {}): AuthContext {
-  return { sessionId, transport };
-}
-
-/** Flush microtask queue deterministically (no wall-clock dependency). */
-const tick = () => new Promise<void>((r) => setTimeout(r, 10));
-
-function makeInitMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "system",
-    subtype: "init",
-    session_id: "cli-123",
-    model: "claude-sonnet-4-5-20250929",
-    cwd: "/test",
-    tools: ["Bash", "Read"],
-    permissionMode: "default",
-    claude_code_version: "1.0",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    output_style: "normal",
-    uuid: "uuid-1",
-    apiKeySource: "env",
-    ...overrides,
-  });
-}
-
-function makeStatusMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "system",
-    subtype: "status",
-    status: null,
-    uuid: "uuid-status",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeAssistantMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "assistant",
-    message: {
-      id: "msg-1",
-      type: "message",
-      role: "assistant",
-      model: "claude-sonnet-4-5-20250929",
-      content: [{ type: "text", text: "Hello world" }],
-      stop_reason: "end_turn",
-      usage: {
-        input_tokens: 10,
-        output_tokens: 20,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    },
-    parent_tool_use_id: null,
-    uuid: "uuid-2",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeResultMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "result",
-    subtype: "success",
-    is_error: false,
-    result: "Done",
-    duration_ms: 1000,
-    duration_api_ms: 800,
-    num_turns: 1,
-    total_cost_usd: 0.01,
-    stop_reason: "end_turn",
-    usage: {
-      input_tokens: 100,
-      output_tokens: 200,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
-    uuid: "uuid-3",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeStreamEventMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "stream_event",
-    event: { type: "content_block_delta", delta: { type: "text_delta", text: "hi" } },
-    parent_tool_use_id: null,
-    uuid: "uuid-4",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeControlRequestMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "control_request",
-    request_id: "perm-req-1",
-    request: {
-      subtype: "can_use_tool",
-      tool_name: "Bash",
-      input: { command: "ls" },
-      tool_use_id: "tu-1",
-      ...((overrides.request as Record<string, unknown>) ?? {}),
-    },
-    ...Object.fromEntries(Object.entries(overrides).filter(([k]) => k !== "request")),
-  });
-}
-
-function makeToolProgressMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "tool_progress",
-    tool_use_id: "tu-1",
-    tool_name: "Bash",
-    parent_tool_use_id: null,
-    elapsed_time_seconds: 5,
-    uuid: "uuid-5",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeToolUseSummaryMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "tool_use_summary",
-    summary: "Ran bash command",
-    preceding_tool_use_ids: ["tu-1", "tu-2"],
-    uuid: "uuid-6",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeAuthStatusMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "auth_status",
-    isAuthenticating: true,
-    output: ["Authenticating..."],
-    uuid: "uuid-7",
-    session_id: "cli-123",
-    ...overrides,
-  });
-}
-
-function makeKeepAliveMsg() {
-  return JSON.stringify({ type: "keep_alive" });
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
