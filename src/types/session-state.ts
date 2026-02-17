@@ -48,6 +48,19 @@ export interface SessionState extends DevToolSessionState {
   last_duration_ms?: number;
   last_duration_api_ms?: number;
   capabilities?: InitializeCapabilities;
+  circuitBreaker?: {
+    state: string;
+    failureCount: number;
+    recoveryTimeRemainingMs: number;
+  } | null;
+  encryption?: {
+    isActive: boolean;
+    isPaired: boolean;
+  } | null;
+  watchdog?: {
+    gracePeriodMs: number;
+    startedAt: number;
+  } | null;
 }
 
 /** Explicit alias for the SdkUrl-specific full session state. */

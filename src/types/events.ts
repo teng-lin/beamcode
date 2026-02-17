@@ -102,6 +102,11 @@ export interface LauncherEventMap {
     sessionId: string;
     exitCode: number | null;
     uptimeMs: number;
+    circuitBreaker?: {
+      state: string;
+      failureCount: number;
+      recoveryTimeRemainingMs: number;
+    };
   };
   "process:connected": { sessionId: string };
   "process:resume_failed": { sessionId: string };

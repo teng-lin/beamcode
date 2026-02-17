@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { useShallow } from "zustand/shallow";
+import { useDropdown } from "../hooks/useDropdown";
 import { currentData, useStore } from "../store";
 import { send } from "../ws";
 
@@ -29,43 +30,22 @@ export function TopBar() {
       memberCount: currentData(s)?.state?.team?.members.length ?? 0,
     })),
   );
+  const encryption = useStore(useShallow((s) => currentData(s)?.state?.encryption ?? null));
 
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-
-  // Close model dropdown when switching sessions
-  // biome-ignore lint/correctness/useExhaustiveDependencies: currentSessionId is an intentional trigger
-  useEffect(() => {
-    setModelMenuOpen(false);
-  }, [currentSessionId]);
-  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const {
+    open: modelMenuOpen,
+    toggle: toggleModelMenu,
+    close: closeModelMenu,
+    ref: modelMenuRef,
+  } = useDropdown(currentSessionId);
 
   const handleSelectModel = useCallback(
     (value: string) => {
       send({ type: "set_model", model: value }, currentSessionId ?? undefined);
-      setModelMenuOpen(false);
+      closeModelMenu();
     },
-    [currentSessionId],
+    [currentSessionId, closeModelMenu],
   );
-
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    function onMouseDown(e: MouseEvent) {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setModelMenuOpen(false);
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setModelMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [modelMenuOpen]);
 
   return (
     <header className="flex h-11 items-center gap-3 border-b border-bc-border bg-bc-surface px-3">
@@ -113,13 +93,39 @@ export function TopBar() {
         </span>
       )}
 
+      {/* Encryption status */}
+      {encryption?.isActive && (
+        <span
+          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 text-[11px] text-bc-text-muted"
+          title={encryption.isPaired ? "E2E encrypted" : "Encryption active — not yet paired"}
+        >
+          {encryption.isPaired ? (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="2.5" y="5" width="7" height="5.5" rx="1" />
+              <path
+                d="M4 5V3.5a2 2 0 014 0V5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="2.5" y="5" width="7" height="5.5" rx="1" />
+              <path d="M4 5V3.5a2 2 0 014 0" fill="none" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          )}
+          <span>{encryption.isPaired ? "Encrypted" : "Pairing..."}</span>
+        </span>
+      )}
+
       {/* Model badge / picker */}
       {model && (
         <div className="relative" ref={modelMenuRef}>
           {models && models.length > 1 && !isObserver ? (
             <button
               type="button"
-              onClick={() => setModelMenuOpen((o) => !o)}
+              onClick={toggleModelMenu}
               className="rounded-md bg-bc-surface-2 px-2 py-0.5 font-mono-code text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
               aria-label="Change model"
             >

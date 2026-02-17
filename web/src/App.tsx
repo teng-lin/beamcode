@@ -1,10 +1,12 @@
 import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
+import { LogDrawer } from "./components/LogDrawer";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
+import { ToastContainer } from "./components/ToastContainer";
 import { TopBar } from "./components/TopBar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useStore } from "./store";
@@ -60,6 +62,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 // ── Bootstrap: read ?session= from URL, load sessions, connect WS ──────────
 
 function useBootstrap() {
+  // Request notification permission if alerts are enabled
+  useEffect(() => {
+    if (
+      useStore.getState().alertsEnabled &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session");
@@ -89,6 +102,7 @@ export default function App() {
 
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
+  const logDrawerOpen = useStore((s) => s.logDrawerOpen);
   const darkMode = useStore((s) => s.darkMode);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const toggleTaskPanel = useStore((s) => s.toggleTaskPanel);
@@ -161,10 +175,17 @@ export default function App() {
         {taskPanelOpen && <TaskPanel />}
       </ErrorBoundary>
 
+      {/* Process logs drawer */}
+      <ErrorBoundary fallback={<div className="p-4 text-bc-error">Logs error</div>}>
+        {logDrawerOpen && <LogDrawer />}
+      </ErrorBoundary>
+
       <ShortcutsModal />
 
       {/* Quick session switcher (Cmd+K / Ctrl+K) */}
       {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
+
+      <ToastContainer />
     </div>
   );
 }

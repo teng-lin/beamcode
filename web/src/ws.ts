@@ -4,6 +4,8 @@ import type {
   InboundMessage,
 } from "../../shared/consumer-types";
 import { useStore } from "./store";
+import { stripAnsi } from "./utils/ansi-strip";
+import { playCompletionSound } from "./utils/audio";
 
 // ── Module-level state (not a hook) ────────────────────────────────────────
 
@@ -56,6 +58,19 @@ function handleMessage(sessionId: string, data: string): void {
     case "result":
       store.setSessionStatus(sessionId, "idle");
       store.addMessage(sessionId, msg);
+      // Sound + browser notification when tab is hidden
+      if (document.hidden) {
+        if (store.soundEnabled) playCompletionSound();
+        if (
+          store.alertsEnabled &&
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          new Notification("Task complete", {
+            body: msg.data.is_error ? "Completed with errors" : "Completed successfully",
+          });
+        }
+      }
       break;
 
     case "user_message":
@@ -206,6 +221,14 @@ function handleMessage(sessionId: string, data: string): void {
 
     case "presence_update":
       store.setPresence(sessionId, msg.consumers);
+      break;
+
+    case "resume_failed":
+      store.addToast("Could not resume previous session — starting fresh", "error");
+      break;
+
+    case "process_output":
+      store.appendProcessLog(sessionId, stripAnsi(msg.data));
       break;
   }
 }

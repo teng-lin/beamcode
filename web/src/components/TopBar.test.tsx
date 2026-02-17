@@ -219,7 +219,8 @@ describe("TopBar", () => {
     expect(screen.queryByText("Claude Opus 4")).not.toBeInTheDocument();
   });
 
-  it("renders git branch when available", () => {
+  // git branch is rendered in StatusBar, not TopBar — verify absence here
+  it("does not render git branch (shown in StatusBar)", () => {
     setupSession({ model: "claude-sonnet-4-20250514" });
     store().setSessionState(SESSION, {
       session_id: SESSION,
@@ -232,13 +233,7 @@ describe("TopBar", () => {
       git_branch: "feat/cool-feature",
     });
     render(<TopBar />);
-    expect(screen.getByText("feat/cool-feature")).toBeInTheDocument();
-  });
-
-  it("does not render git branch when not available", () => {
-    setupSession({ model: "claude-sonnet-4-20250514" });
-    render(<TopBar />);
-    expect(screen.queryByLabelText("Git branch")).not.toBeInTheDocument();
+    expect(screen.queryByText("feat/cool-feature")).not.toBeInTheDocument();
   });
 
   it("renders team badge when team is present", () => {
@@ -311,10 +306,10 @@ describe("TopBar", () => {
     });
   });
 
-  // ── Permission mode badge ──────────────────────────────────────────
-
-  describe("permission mode badge", () => {
-    it("shows Auto-Allow badge for bypassPermissions mode", () => {
+  // Permission mode badge is rendered in StatusBar, not TopBar.
+  // Verify TopBar does NOT render permission mode content.
+  describe("permission mode badge (rendered in StatusBar)", () => {
+    it("does not render permission mode in TopBar", () => {
       setupSession({ model: "claude-sonnet-4-20250514" });
       store().setSessionState(SESSION, {
         session_id: SESSION,
@@ -327,46 +322,9 @@ describe("TopBar", () => {
         permissionMode: "bypassPermissions",
       });
       render(<TopBar />);
-      expect(screen.getByText("Auto-Allow")).toBeInTheDocument();
-    });
-
-    it("shows Plan badge for plan mode", () => {
-      setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setSessionState(SESSION, {
-        session_id: SESSION,
-        model: "claude-sonnet-4-20250514",
-        cwd: "/tmp",
-        total_cost_usd: 0,
-        num_turns: 0,
-        context_used_percent: 0,
-        is_compacting: false,
-        permissionMode: "plan",
-      });
-      render(<TopBar />);
-      expect(screen.getByText("Plan")).toBeInTheDocument();
-    });
-
-    it("hides badge for default mode", () => {
-      setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setSessionState(SESSION, {
-        session_id: SESSION,
-        model: "claude-sonnet-4-20250514",
-        cwd: "/tmp",
-        total_cost_usd: 0,
-        num_turns: 0,
-        context_used_percent: 0,
-        is_compacting: false,
-        permissionMode: "default",
-      });
-      render(<TopBar />);
-      expect(screen.queryByText("Auto-Allow")).not.toBeInTheDocument();
+      expect(screen.queryByText("Auto-Approve")).not.toBeInTheDocument();
       expect(screen.queryByText("Plan")).not.toBeInTheDocument();
-    });
-
-    it("hides badge when permissionMode is undefined", () => {
-      setupSession({ model: "claude-sonnet-4-20250514" });
-      render(<TopBar />);
-      expect(screen.queryByText("Auto-Allow")).not.toBeInTheDocument();
+      expect(screen.queryByText("Default")).not.toBeInTheDocument();
     });
   });
 });

@@ -510,4 +510,13 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
       this.persistState();
     }
   }
+
+  /** Set the display name for a session. */
+  setSessionName(sessionId: string, name: string): void {
+    const info = this.sessions.get(sessionId);
+    if (info) {
+      info.name = name;
+      this.persistState();
+    }
+  }
 }

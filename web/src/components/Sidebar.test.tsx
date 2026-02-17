@@ -64,8 +64,9 @@ describe("Sidebar", () => {
     );
     render(<Sidebar />);
 
-    expect(screen.getByText("project-alpha")).toBeInTheDocument();
-    expect(screen.getByText("project-beta")).toBeInTheDocument();
+    // Text may appear in both group header and session item when grouping is active
+    expect(screen.getAllByText("project-alpha").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("project-beta").length).toBeGreaterThanOrEqual(1);
   });
 
   it("highlights active session with aria-current", () => {
@@ -76,10 +77,18 @@ describe("Sidebar", () => {
     useStore.setState({ currentSessionId: "s1" });
     render(<Sidebar />);
 
-    const activeItem = screen.getByText("alpha").closest("[role=button]");
+    // With grouping, text appears in both group header and session item.
+    // Find the one inside a [role=button] (the session item, not the group summary).
+    const activeItem = screen
+      .getAllByText("alpha")
+      .map((el) => el.closest("[role=button]"))
+      .find((el) => el !== null);
     expect(activeItem).toHaveAttribute("aria-current", "page");
 
-    const inactiveItem = screen.getByText("beta").closest("[role=button]");
+    const inactiveItem = screen
+      .getAllByText("beta")
+      .map((el) => el.closest("[role=button]"))
+      .find((el) => el !== null);
     expect(inactiveItem).not.toHaveAttribute("aria-current");
   });
 
@@ -490,8 +499,9 @@ describe("Sidebar", () => {
       expect(screen.queryByText("beta")).not.toBeInTheDocument();
 
       await user.clear(input);
-      expect(screen.getByText("alpha")).toBeInTheDocument();
-      expect(screen.getByText("beta")).toBeInTheDocument();
+      // With grouping, text may appear in both header and session item
+      expect(screen.getAllByText("alpha").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("beta").length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows "No matches" when filter has no results', async () => {
@@ -521,7 +531,10 @@ describe("Sidebar", () => {
       );
       render(<Sidebar />);
 
-      const item = screen.getByText("alpha").closest("[role=button]") as HTMLElement;
+      const item = screen
+        .getAllByText("alpha")
+        .map((el) => el.closest("[role=button]"))
+        .find((el) => el !== null) as HTMLElement;
       item.focus();
       await user.keyboard("{Enter}");
 
@@ -537,7 +550,10 @@ describe("Sidebar", () => {
       );
       render(<Sidebar />);
 
-      const item = screen.getByText("alpha").closest("[role=button]") as HTMLElement;
+      const item = screen
+        .getAllByText("alpha")
+        .map((el) => el.closest("[role=button]"))
+        .find((el) => el !== null) as HTMLElement;
       item.focus();
       await user.keyboard(" ");
 

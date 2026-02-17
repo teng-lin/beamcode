@@ -120,6 +120,7 @@ const PARTICIPANT_ONLY_TYPES = new Set([
   "set_model",
   "set_permission_mode",
   "slash_command",
+  "set_adapter",
 ]);
 
 // ─── SessionBridge ───────────────────────────────────────────────────────────
@@ -1348,6 +1349,50 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.broadcastToConsumers(session, {
       type: "session_name_update",
       name,
+    });
+  }
+
+  /** Broadcast resume_failed to all consumers for a session. */
+  broadcastResumeFailedToConsumers(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.broadcastToConsumers(session, { type: "resume_failed", sessionId });
+  }
+
+  /** Broadcast process output to participants only (observers must not see process logs). */
+  broadcastProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.broadcastToParticipants(session, {
+      type: "process_output",
+      stream,
+      data,
+    });
+  }
+
+  /** Broadcast watchdog state update via session_update. */
+  broadcastWatchdogState(
+    sessionId: string,
+    watchdog: { gracePeriodMs: number; startedAt: number } | null,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.broadcastToConsumers(session, {
+      type: "session_update",
+      session: { watchdog } as Partial<SessionState>,
+    });
+  }
+
+  /** Broadcast circuit breaker state update via session_update. */
+  broadcastCircuitBreakerState(
+    sessionId: string,
+    circuitBreaker: { state: string; failureCount: number; recoveryTimeRemainingMs: number },
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.broadcastToConsumers(session, {
+      type: "session_update",
+      session: { circuitBreaker } as Partial<SessionState>,
     });
   }
 
