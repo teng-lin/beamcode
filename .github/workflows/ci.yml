@@ -71,7 +71,7 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Run coverage on all PRs and pushes to main
 
     steps:
       - uses: actions/checkout@v4
@@ -97,4 +97,4 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          fail_ci_if_error: false  # vitest thresholds enforce coverage; Codecov upload failures are transient
