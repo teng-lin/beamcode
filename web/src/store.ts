@@ -74,6 +74,8 @@ export interface AppState {
   taskPanelOpen: boolean;
   shortcutsModalOpen: boolean;
   inspectedAgentId: string | null;
+  soundEnabled: boolean;
+  alertsEnabled: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
@@ -81,6 +83,8 @@ export interface AppState {
   toggleTaskPanel: () => void;
   setTaskPanelOpen: (open: boolean) => void;
   toggleDarkMode: () => void;
+  toggleSound: () => void;
+  toggleAlerts: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
   setInspectedAgent: (id: string | null) => void;
 
@@ -212,6 +216,8 @@ export const useStore = create<AppState>()((set, get) => ({
   taskPanelOpen: false,
   shortcutsModalOpen: false,
   inspectedAgentId: null,
+  soundEnabled: readBool("beamcode_sound", true),
+  alertsEnabled: readBool("beamcode_alerts", false),
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -227,6 +233,18 @@ export const useStore = create<AppState>()((set, get) => ({
       const next = !s.darkMode;
       writeBool("beamcode_dark_mode", next);
       return { darkMode: next };
+    }),
+  toggleSound: () =>
+    set((s) => {
+      const next = !s.soundEnabled;
+      writeBool("beamcode_sound", next);
+      return { soundEnabled: next };
+    }),
+  toggleAlerts: () =>
+    set((s) => {
+      const next = !s.alertsEnabled;
+      writeBool("beamcode_alerts", next);
+      return { alertsEnabled: next };
     }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
   setInspectedAgent: (id) => set({ inspectedAgentId: id }),
