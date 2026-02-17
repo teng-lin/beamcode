@@ -179,6 +179,7 @@ function translateControlRequest(msg: CLIControlRequestMessage): UnifiedMessage 
     type: "permission_request",
     role: "system",
     metadata: {
+      subtype: msg.request.subtype,
       request_id: msg.request_id,
       tool_name: msg.request.tool_name,
       input: msg.request.input,
