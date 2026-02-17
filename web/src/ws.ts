@@ -120,7 +120,7 @@ function handleMessage(sessionId: string, data: string): void {
       });
       break;
 
-    case "session_init":
+    case "session_init": {
       store.setSessionState(sessionId, {
         // Spread first to preserve optional fields (git_branch, tools, etc.)
         ...msg.session,
@@ -133,7 +133,25 @@ function handleMessage(sessionId: string, data: string): void {
         context_used_percent: msg.session.context_used_percent ?? 0,
         is_compacting: msg.session.is_compacting ?? false,
       });
+      // Populate capabilities from init data as fallback (capabilities_ready may never arrive
+      // if the CLI doesn't respond to the initialize control request)
+      const session = msg.session as Record<string, unknown>;
+      const cmds = Array.isArray(session.slash_commands)
+        ? (session.slash_commands as string[])
+        : [];
+      const initSkills = Array.isArray(session.skills) ? (session.skills as string[]) : [];
+      if (
+        !store.sessionData[sessionId]?.capabilities &&
+        (cmds.length > 0 || initSkills.length > 0)
+      ) {
+        store.setCapabilities(sessionId, {
+          commands: cmds.map((name) => ({ name, description: "" })),
+          models: [],
+          skills: initSkills,
+        });
+      }
       break;
+    }
 
     case "session_update": {
       const prev = store.sessionData[sessionId]?.state;
