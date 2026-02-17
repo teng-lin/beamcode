@@ -232,6 +232,16 @@ export function Composer({ sessionId }: ComposerProps) {
       if (e.key === "ArrowUp" && isOwnQueue && !isEditingQueue && !value) {
         e.preventDefault();
         setValue(queuedMessage!.content);
+        if (queuedMessage!.images && queuedMessage!.images.length > 0) {
+          setImages(
+            queuedMessage!.images.map((img) => ({
+              id: crypto.randomUUID(),
+              media_type: img.media_type,
+              data: img.data,
+              preview: `data:${img.media_type};base64,${img.data}`,
+            })),
+          );
+        }
         setEditingQueue(sessionId, true);
         return;
       }

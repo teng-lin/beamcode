@@ -70,9 +70,10 @@ All queue actions go through the backend and are broadcast to every consumer (pa
 ### New Outbound Messages (backend → all consumers)
 
 ```typescript
-| { type: "message_queued"; consumer_id: string; content: string; images?: Image[]; queued_at: number }
+| { type: "message_queued"; consumer_id: string; display_name: string; content: string; images?: Image[]; queued_at: number }
 | { type: "queued_message_updated"; content: string; images?: Image[] }
 | { type: "queued_message_cancelled" }
+| { type: "queued_message_sent" }
 ```
 
 ## State Management
@@ -84,6 +85,7 @@ Session gains a `queuedMessage` slot:
 ```typescript
 queuedMessage: {
   consumerId: string;
+  displayName: string;
   content: string;
   images?: Image[];
   queuedAt: number;
@@ -104,6 +106,7 @@ Per-session additions:
 ```typescript
 queuedMessage: {
   consumerId: string;
+  displayName: string;
   content: string;
   images?: Image[];
   queuedAt: number;

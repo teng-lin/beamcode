@@ -115,8 +115,9 @@ function handleMessage(sessionId: string, data: string): void {
         store.setFlipOrigin(sessionId, { top: rect.top, left: rect.left, width: rect.width });
         // Safety: clear flipOrigin if the echo user_message never arrives
         setTimeout(() => {
-          if (store.sessionData[sessionId]?.flipOrigin) {
-            store.setFlipOrigin(sessionId, null);
+          const currentStore = useStore.getState();
+          if (currentStore.sessionData[sessionId]?.flipOrigin) {
+            currentStore.setFlipOrigin(sessionId, null);
           }
         }, 2000);
       }

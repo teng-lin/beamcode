@@ -783,7 +783,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     },
     ws: WebSocketLike,
   ): void {
-    // If session is NOT running (idle/null/compacting), send immediately as user_message
+    // If session is idle or its status is unknown, send immediately as user_message.
+    // Otherwise (e.g. "running", "compacting"), proceed to queue it.
     const status = session.lastStatus;
     if (!status || status === "idle") {
       this.handleUserMessage(session, {
