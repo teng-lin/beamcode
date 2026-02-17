@@ -51,6 +51,17 @@ describe("Composer", () => {
     expect(send).toHaveBeenCalledWith({ type: "user_message", content: "hello" }, SESSION);
   });
 
+  it("optimistically sets sessionStatus to running after sending user_message", async () => {
+    const user = userEvent.setup();
+    store().ensureSessionData(SESSION);
+    render(<Composer sessionId={SESSION} />);
+
+    const textarea = screen.getByLabelText("Message input");
+    await user.type(textarea, "hello{Enter}");
+
+    expect(store().sessionData[SESSION]?.sessionStatus).toBe("running");
+  });
+
   it('sends slash_command when input starts with "/"', async () => {
     const user = userEvent.setup();
     store().ensureSessionData(SESSION);

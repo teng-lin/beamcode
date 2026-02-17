@@ -212,6 +212,11 @@ export function Composer({ sessionId }: ComposerProps) {
         },
         sessionId,
       );
+      // Optimistically mark running — the CLI will process this message, but
+      // message_start won't arrive until the API starts streaming (1-5s gap).
+      // Without this, the next Enter would send user_message instead of
+      // queue_message during that gap.
+      useStore.getState().setSessionStatus(sessionId, "running");
     }
     setValue("");
     setImages([]);

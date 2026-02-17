@@ -545,5 +545,30 @@ describe("SessionBridge — message queue handlers", () => {
       ).toBe(true);
       expect(findMessage(consumerSocket, "message_queued")).toBeUndefined();
     });
+
+    it("queues message sent right after user_message (optimistic running)", () => {
+      const { cliSocket, consumerSocket } = setupSession(bridge);
+
+      // Send a user_message — this should optimistically set lastStatus to "running"
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "user_message", content: "first message" }),
+      );
+      cliSocket.sentMessages.length = 0;
+      consumerSocket.sentMessages.length = 0;
+
+      // Immediately queue another message — should be queued because
+      // handleUserMessage set lastStatus = "running"
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "queue_message", content: "follow-up" }),
+      );
+
+      const queued = findMessage(consumerSocket, "message_queued");
+      expect(queued).toBeDefined();
+      expect(queued.content).toBe("follow-up");
+    });
   });
 });

@@ -748,6 +748,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       images?: { media_type: string; data: string }[];
     },
   ): void {
+    // Optimistically mark running — the CLI will process this message, but
+    // message_start won't arrive until the API starts streaming (1-5s gap).
+    // Without this, queue_message arriving in that gap sees lastStatus as
+    // null/idle and bypasses the queue.
+    session.lastStatus = "running";
     this.sendUserMessage(session.id, msg.content, {
       sessionIdOverride: msg.session_id,
       images: msg.images,
