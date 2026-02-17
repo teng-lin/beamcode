@@ -1431,7 +1431,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const json = JSON.stringify(msg);
     const failed: WebSocketLike[] = [];
     for (const [ws, identity] of session.consumerSockets.entries()) {
-      if (identity.role !== "participant") continue;
+      if (identity.role === "observer") continue;
       try {
         ws.send(json);
       } catch (err) {
