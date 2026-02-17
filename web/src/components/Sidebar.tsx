@@ -183,6 +183,166 @@ const SessionItem = memo(function SessionItem({
   );
 });
 
+function SidebarFooterItem({
+  icon,
+  label,
+  trailing,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  trailing?: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+    >
+      <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">{icon}</span>
+      <span className="flex-1">{label}</span>
+      {trailing}
+    </button>
+  );
+}
+
+function SidebarFooter() {
+  const darkMode = useStore((s) => s.darkMode);
+  const toggleDarkMode = useStore((s) => s.toggleDarkMode);
+  const soundEnabled = useStore((s) => s.soundEnabled);
+  const toggleSound = useStore((s) => s.toggleSound);
+  const alertsEnabled = useStore((s) => s.alertsEnabled);
+  const toggleAlerts = useStore((s) => s.toggleAlerts);
+
+  return (
+    <div className="border-t border-bc-border">
+      {/* Notification section */}
+      <div className="px-3 pb-0.5 pt-2">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-bc-text-muted/50">
+          Notification
+        </span>
+      </div>
+
+      <SidebarFooterItem
+        icon={
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            {soundEnabled ? (
+              <>
+                <path
+                  d="M2 5.5h2l3-2.5v8l-3-2.5H2a.5.5 0 01-.5-.5V6a.5.5 0 01.5-.5z"
+                  fill="currentColor"
+                />
+                <path
+                  d="M9.5 4.5c.8.8 1.2 1.6 1.2 2.5s-.4 1.7-1.2 2.5M8 5.5c.5.5.7 1 .7 1.5s-.2 1-.7 1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </>
+            ) : (
+              <>
+                <path
+                  d="M2 5.5h2l3-2.5v8l-3-2.5H2a.5.5 0 01-.5-.5V6a.5.5 0 01.5-.5z"
+                  fill="currentColor"
+                  opacity="0.4"
+                />
+                <path
+                  d="M9 5l3 4M12 5l-3 4"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </>
+            )}
+          </svg>
+        }
+        label={soundEnabled ? "Sound on" : "Sound off"}
+        trailing={<TogglePill enabled={soundEnabled} />}
+        onClick={toggleSound}
+      />
+
+      <SidebarFooterItem
+        icon={
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path
+              d="M7 1.5c-2.5 0-4.5 1.5-4.5 3.5 0 1 .5 2 1.5 3 .5.5.5 1.5.5 2h5c0-.5 0-1.5.5-2 1-1 1.5-2 1.5-3 0-2-2-3.5-4.5-3.5z"
+              fill="currentColor"
+              opacity={alertsEnabled ? 1 : 0.4}
+            />
+            <path
+              d="M5.5 10.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5"
+              stroke="currentColor"
+              strokeWidth="1"
+              strokeLinecap="round"
+            />
+          </svg>
+        }
+        label={alertsEnabled ? "Alerts on" : "Alerts off"}
+        trailing={<TogglePill enabled={alertsEnabled} />}
+        onClick={toggleAlerts}
+      />
+
+      <div className="my-1 border-t border-bc-border/40" />
+
+      <SidebarFooterItem
+        icon={
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            {darkMode ? (
+              <path
+                d="M7 1C3.7 1 1 3.7 1 7s2.7 6 6 6c3.3 0 6-2.7 6-6 0-.3 0-.5-.1-.8C12 7.8 10.5 9 8.8 9 6.7 9 5 7.3 5 5.2c0-1.7 1.2-3.2 2.8-3.8-.3-.1-.5-.4-.8-.4z"
+                fill="currentColor"
+              />
+            ) : (
+              <>
+                <circle cx="7" cy="7" r="2.5" fill="currentColor" />
+                <path
+                  d="M7 2v1M7 11v1M2 7h1M11 7h1M3.5 3.5l.7.7M9.8 9.8l.7.7M10.5 3.5l-.7.7M4.2 9.8l-.7.7"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                />
+              </>
+            )}
+          </svg>
+        }
+        label={darkMode ? "Dark mode" : "Light mode"}
+        onClick={toggleDarkMode}
+      />
+
+      <SidebarFooterItem
+        icon={
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M7 9a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" strokeWidth="1.2" />
+            <path
+              d="M11.4 8.6l.8.5a.5.5 0 01.1.6l-1 1.7a.5.5 0 01-.6.2l-.9-.4a4 4 0 01-.8.5l-.1 1a.5.5 0 01-.5.4H5.6a.5.5 0 01-.5-.4l-.1-1a4 4 0 01-.8-.5l-.9.4a.5.5 0 01-.6-.2l-1-1.7a.5.5 0 01.1-.6l.8-.5V7a4 4 0 010-.6l-.8-.5a.5.5 0 01-.1-.6l1-1.7a.5.5 0 01.6-.2l.9.4a4 4 0 01.8-.5l.1-1A.5.5 0 015.6 1h1.8a.5.5 0 01.5.4l.1 1a4 4 0 01.8.5l.9-.4a.5.5 0 01.6.2l1 1.7a.5.5 0 01-.1.6l-.8.5a4 4 0 010 1.2z"
+              stroke="currentColor"
+              strokeWidth="1"
+            />
+          </svg>
+        }
+        label="Settings"
+      />
+    </div>
+  );
+}
+
+function TogglePill({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      className={`flex h-4 w-7 flex-shrink-0 items-center rounded-full px-0.5 transition-colors ${
+        enabled ? "bg-bc-success" : "bg-bc-surface-2"
+      }`}
+    >
+      <span
+        className={`h-3 w-3 rounded-full bg-white transition-transform ${
+          enabled ? "translate-x-3" : ""
+        }`}
+      />
+    </span>
+  );
+}
+
 export function Sidebar() {
   const sessions = useStore((s) => s.sessions);
   const currentSessionId = useStore((s) => s.currentSessionId);
@@ -255,6 +415,27 @@ export function Sidebar() {
     [activeSessions, updateSession],
   );
 
+  // Group active sessions by project (cwd basename)
+  const groupedSessions = useMemo(() => {
+    const groups: Record<
+      string,
+      { project: string; sessions: SdkSessionInfo[]; runningCount: number }
+    > = {};
+    for (const s of activeSessions) {
+      const project = cwdBasename(s.cwd ?? "untitled");
+      if (!groups[project]) {
+        groups[project] = { project, sessions: [], runningCount: 0 };
+      }
+      groups[project].sessions.push(s);
+      if (s.state === "running" || s.state === "connected") {
+        groups[project].runningCount++;
+      }
+    }
+    return Object.values(groups);
+  }, [activeSessions]);
+
+  const showGroups = groupedSessions.length > 1;
+
   return (
     <aside className="flex h-full w-[260px] flex-shrink-0 flex-col border-r border-bc-border bg-bc-sidebar max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40">
       {/* Header */}
@@ -316,18 +497,58 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {activeSessions.map((info) => (
-              <SessionItem
-                key={info.sessionId}
-                info={info}
-                isActive={info.sessionId === currentSessionId}
-                onSelect={() => {
-                  setCurrentSession(info.sessionId);
-                  connectToSession(info.sessionId);
-                }}
-                onArchiveToggle={() => handleArchiveToggle(info.sessionId, !!info.archived)}
-              />
-            ))}
+            {showGroups
+              ? groupedSessions.map((group) => (
+                  <details key={group.project} open>
+                    <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-bc-text-muted/80 hover:text-bc-text-muted">
+                      <svg
+                        width="8"
+                        height="8"
+                        viewBox="0 0 8 8"
+                        fill="currentColor"
+                        className="flex-shrink-0 transition-transform [[open]>&]:rotate-90"
+                        aria-hidden="true"
+                      >
+                        <path d="M2 1l4 3-4 3z" />
+                      </svg>
+                      <span className="truncate">{group.project}</span>
+                      <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                        {group.runningCount > 0 && (
+                          <span className="text-[10px] text-bc-success">
+                            {group.runningCount} running
+                          </span>
+                        )}
+                        <span className="text-[10px] text-bc-text-muted/50">
+                          {group.sessions.length}
+                        </span>
+                      </span>
+                    </summary>
+                    {group.sessions.map((info) => (
+                      <SessionItem
+                        key={info.sessionId}
+                        info={info}
+                        isActive={info.sessionId === currentSessionId}
+                        onSelect={() => {
+                          setCurrentSession(info.sessionId);
+                          connectToSession(info.sessionId);
+                        }}
+                        onArchiveToggle={() => handleArchiveToggle(info.sessionId, !!info.archived)}
+                      />
+                    ))}
+                  </details>
+                ))
+              : activeSessions.map((info) => (
+                  <SessionItem
+                    key={info.sessionId}
+                    info={info}
+                    isActive={info.sessionId === currentSessionId}
+                    onSelect={() => {
+                      setCurrentSession(info.sessionId);
+                      connectToSession(info.sessionId);
+                    }}
+                    onArchiveToggle={() => handleArchiveToggle(info.sessionId, !!info.archived)}
+                  />
+                ))}
             {archivedSessions.length > 0 && (
               <details className="mt-2 border-t border-bc-border/40 pt-1.5">
                 <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
@@ -350,6 +571,9 @@ export function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* Footer section */}
+      <SidebarFooter />
     </aside>
   );
 }

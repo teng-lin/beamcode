@@ -53,7 +53,7 @@ export function Composer({ sessionId }: ComposerProps) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: value triggers resize recalculation
@@ -258,9 +258,9 @@ export function Composer({ sessionId }: ComposerProps) {
                     ? "Press Enter or Esc to interrupt..."
                     : "Message BeamCode..."
               }
-              rows={1}
+              rows={3}
               disabled={isObserver}
-              className="min-h-[42px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-2.5 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Message input"
             />
             {argumentHint && (
