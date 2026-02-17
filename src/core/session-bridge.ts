@@ -452,7 +452,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     this.emit("message:inbound", { sessionId, message: msg });
-    this.routeConsumerMessage(session, msg);
+    this.routeConsumerMessage(session, msg, ws);
   }
 
   handleConsumerClose(ws: WebSocketLike, sessionId: string): void {
@@ -692,7 +692,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Consumer message routing ─────────────────────────────────────────────
 
-  private routeConsumerMessage(session: Session, msg: InboundMessage): void {
+  private routeConsumerMessage(session: Session, msg: InboundMessage, ws: WebSocketLike): void {
     switch (msg.type) {
       case "user_message":
         this.handleUserMessage(session, msg);
@@ -714,6 +714,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         break;
       case "slash_command":
         this.handleSlashCommand(session, msg);
+        break;
+      case "queue_message":
+        this.handleQueueMessage(session, msg, ws);
+        break;
+      case "update_queued_message":
+        this.handleUpdateQueuedMessage(session, msg, ws);
+        break;
+      case "cancel_queued_message":
+        this.handleCancelQueuedMessage(session, ws);
         break;
     }
   }
@@ -749,6 +758,104 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       updatedPermissions: msg.updated_permissions,
       message: msg.message,
     });
+  }
+
+  // ── Queue message handling ──────────────────────────────────────────────
+
+  private handleQueueMessage(
+    session: Session,
+    msg: {
+      type: "queue_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    },
+    ws: WebSocketLike,
+  ): void {
+    // If session is NOT running (idle/null/compacting), send immediately as user_message
+    const status = session.lastStatus;
+    if (!status || status === "idle") {
+      this.handleUserMessage(session, {
+        type: "user_message",
+        content: msg.content,
+        images: msg.images,
+      });
+      return;
+    }
+
+    // Reject if a message is already queued
+    if (session.queuedMessage) {
+      this.broadcaster.sendTo(ws, {
+        type: "error",
+        message: "A message is already queued for this session",
+      });
+      return;
+    }
+
+    const identity = session.consumerSockets.get(ws);
+    if (!identity) return;
+
+    session.queuedMessage = {
+      consumerId: identity.userId,
+      displayName: identity.displayName,
+      content: msg.content,
+      images: msg.images,
+      queuedAt: Date.now(),
+    };
+
+    this.broadcaster.broadcast(session, {
+      type: "message_queued",
+      consumer_id: identity.userId,
+      display_name: identity.displayName,
+      content: msg.content,
+      images: msg.images,
+      queued_at: session.queuedMessage.queuedAt,
+    });
+  }
+
+  private handleUpdateQueuedMessage(
+    session: Session,
+    msg: {
+      type: "update_queued_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+    },
+    ws: WebSocketLike,
+  ): void {
+    if (!session.queuedMessage) return;
+
+    const identity = session.consumerSockets.get(ws);
+    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
+      this.broadcaster.sendTo(ws, {
+        type: "error",
+        message: "Only the message author can edit a queued message",
+      });
+      return;
+    }
+
+    session.queuedMessage.content = msg.content;
+    session.queuedMessage.images = msg.images;
+
+    this.broadcaster.broadcast(session, {
+      type: "queued_message_updated",
+      content: msg.content,
+      images: msg.images,
+    });
+  }
+
+  private handleCancelQueuedMessage(session: Session, ws: WebSocketLike): void {
+    if (!session.queuedMessage) return;
+
+    const identity = session.consumerSockets.get(ws);
+    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
+      this.broadcaster.sendTo(ws, {
+        type: "error",
+        message: "Only the message author can cancel a queued message",
+      });
+      return;
+    }
+
+    session.queuedMessage = null;
+    this.broadcaster.broadcast(session, { type: "queued_message_cancelled" });
   }
 
   // ── Slash command handling ───────────────────────────────────────────────
@@ -1204,10 +1311,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
     const status = msg.metadata.status as string | null | undefined;
+    session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
     this.broadcaster.broadcast(session, {
       type: "status_change",
-      status: (status ?? null) as "compacting" | "idle" | "running" | null,
+      status: session.lastStatus,
     });
+
+    // Auto-send queued message when transitioning to idle
+    if (status === "idle" && session.queuedMessage) {
+      const queued = session.queuedMessage;
+      session.queuedMessage = null;
+      this.broadcaster.broadcast(session, { type: "queued_message_cancelled" });
+      this.sendUserMessage(session.id, queued.content, {
+        images: queued.images,
+      });
+    }
   }
 
   private handleUnifiedAssistant(session: Session, msg: UnifiedMessage): void {

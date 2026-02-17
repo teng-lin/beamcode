@@ -70,6 +70,7 @@ export function createMockSession(overrides?: Partial<Session>): Session {
     messageHistory: [] as ConsumerMessage[],
     pendingMessages: [],
     queuedMessage: null,
+    lastStatus: null,
     lastActivity: Date.now(),
     pendingInitialize: null,
     teamCorrelationBuffer: {
