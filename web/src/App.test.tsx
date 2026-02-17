@@ -1,6 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Component, type ErrorInfo, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeSessionInfo, resetStore, store } from "./test/factories";
 
@@ -47,13 +46,9 @@ vi.mock("./components/QuickSwitcher", () => ({
   ),
 }));
 
-// We still need the real useKeyboardShortcuts to test keyboard events in App,
-// but it registers its own handlers. For our App-level keyboard tests, the
-// handlers in App.tsx overlap. Let the real hook run so the component mounts cleanly.
-
 // ── Import App AFTER mocks are set up ──────────────────────────────────────
 
-const { default: App } = await import("./App");
+const { default: App, ErrorBoundary } = await import("./App");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -93,6 +88,23 @@ describe("App", () => {
       await waitFor(() => {
         expect(connectToSessionMock).toHaveBeenCalledWith("sess-42");
       });
+    });
+
+    it("handles listSessions failure gracefully without crashing", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      listSessionsMock.mockRejectedValueOnce(new Error("network down"));
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(warnSpy).toHaveBeenCalledWith(
+          "[bootstrap] Failed to load sessions:",
+          expect.any(Error),
+        );
+      });
+      // App still renders without crashing
+      expect(screen.getByTestId("chat-view")).toBeInTheDocument();
+      warnSpy.mockRestore();
     });
 
     it("populates store sessions from API response", async () => {
@@ -158,6 +170,18 @@ describe("App", () => {
       expect(screen.queryByTestId("task-panel")).not.toBeInTheDocument();
     });
 
+    it("renders log drawer when logDrawerOpen is true", () => {
+      resetStore({ logDrawerOpen: true });
+      render(<App />);
+      expect(screen.getByTestId("log-drawer")).toBeInTheDocument();
+    });
+
+    it("hides log drawer when logDrawerOpen is false", () => {
+      resetStore({ logDrawerOpen: false });
+      render(<App />);
+      expect(screen.queryByTestId("log-drawer")).not.toBeInTheDocument();
+    });
+
     it("renders mobile backdrop with Close sidebar label when sidebar is open", () => {
       resetStore({ sidebarOpen: true });
       render(<App />);
@@ -171,44 +195,9 @@ describe("App", () => {
     });
   });
 
-  // ── ErrorBoundary ────────────────────────────────────────────────────
+  // ── ErrorBoundary (real export from App.tsx) ─────────────────────────
 
   describe("ErrorBoundary", () => {
-    // We test the ErrorBoundary class directly since it's not exported.
-    // Re-create a minimal equivalent to exercise the boundary behavior.
-
-    // ErrorBoundary is defined inside App.tsx and not exported, so we
-    // replicate its behavior for isolated testing.
-    class TestErrorBoundary extends Component<
-      { fallback: ReactNode; children: ReactNode },
-      { hasError: boolean; error: Error | null }
-    > {
-      state = { hasError: false, error: null as Error | null };
-
-      static getDerivedStateFromError(error: Error) {
-        return { hasError: true, error };
-      }
-
-      componentDidCatch(error: Error, info: ErrorInfo) {
-        console.error("[ErrorBoundary]", error, info.componentStack);
-      }
-
-      render() {
-        if (this.state.hasError) {
-          return (
-            <div>
-              <div>{this.props.fallback}</div>
-              {this.state.error && <pre>{this.state.error.message}</pre>}
-              <button type="button" onClick={() => this.setState({ hasError: false, error: null })}>
-                Retry
-              </button>
-            </div>
-          );
-        }
-        return this.props.children;
-      }
-    }
-
     function ThrowingChild(): never {
       throw new Error("boom");
     }
@@ -216,9 +205,9 @@ describe("App", () => {
     it("shows fallback UI when child throws", () => {
       const spy = vi.spyOn(console, "error").mockImplementation(() => {});
       render(
-        <TestErrorBoundary fallback="Something went wrong">
+        <ErrorBoundary fallback="Something went wrong">
           <ThrowingChild />
-        </TestErrorBoundary>,
+        </ErrorBoundary>,
       );
       expect(screen.getByText("Something went wrong")).toBeInTheDocument();
       expect(screen.getByText("boom")).toBeInTheDocument();
@@ -237,19 +226,29 @@ describe("App", () => {
 
       const user = userEvent.setup();
       render(
-        <TestErrorBoundary fallback="Something went wrong">
+        <ErrorBoundary fallback="Something went wrong">
           <MaybeThrows />
-        </TestErrorBoundary>,
+        </ErrorBoundary>,
       );
 
       expect(screen.getByText("Something went wrong")).toBeInTheDocument();
 
-      // Fix the child so it doesn't throw on re-render
       shouldThrow = false;
       await user.click(screen.getByRole("button", { name: "Retry" }));
 
       expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
       expect(screen.getByTestId("recovered")).toBeInTheDocument();
+      spy.mockRestore();
+    });
+
+    it("logs error and component stack via componentDidCatch", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      render(
+        <ErrorBoundary fallback="oops">
+          <ThrowingChild />
+        </ErrorBoundary>,
+      );
+      expect(spy).toHaveBeenCalledWith("[ErrorBoundary]", expect.any(Error), expect.any(String));
       spy.mockRestore();
     });
   });

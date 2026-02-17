@@ -19,6 +19,8 @@ export function resetStore(overrides?: Partial<ReturnType<typeof useStore.getSta
     currentSessionId: null,
     sidebarOpen: false,
     taskPanelOpen: false,
+    logDrawerOpen: false,
+    processLogs: {},
     shortcutsModalOpen: false,
     inspectedAgentId: null,
     darkMode: true,

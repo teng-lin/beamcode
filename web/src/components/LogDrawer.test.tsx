@@ -1,14 +1,32 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { useStore } from "../store";
 import { resetStore } from "../test/factories";
 import { LogDrawer } from "./LogDrawer";
 
 const SESSION = "log-drawer-test";
 
-// jsdom does not implement scrollIntoView
-Element.prototype.scrollIntoView = () => {};
+// jsdom does not implement scrollIntoView — stub with proper cleanup
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+beforeAll(() => {
+  Element.prototype.scrollIntoView = () => {};
+});
+afterAll(() => {
+  Element.prototype.scrollIntoView = originalScrollIntoView;
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function setupDrawer(options: { open: boolean; logs?: string[] }): void {
+  useStore.setState({
+    logDrawerOpen: options.open,
+    currentSessionId: SESSION,
+    processLogs: { [SESSION]: options.logs ?? [] },
+  });
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("LogDrawer", () => {
   beforeEach(() => {
@@ -16,11 +34,7 @@ describe("LogDrawer", () => {
   });
 
   it("renders nothing when logDrawerOpen is false", () => {
-    useStore.setState({
-      logDrawerOpen: false,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: ["line1"] },
-    });
+    setupDrawer({ open: false, logs: ["line1"] });
     const { container } = render(<LogDrawer />);
     expect(container.innerHTML).toBe("");
   });
@@ -36,43 +50,27 @@ describe("LogDrawer", () => {
   });
 
   it('renders header "Process Logs" when open', () => {
-    useStore.setState({
-      logDrawerOpen: true,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: [] },
-    });
+    setupDrawer({ open: true });
     render(<LogDrawer />);
     expect(screen.getByText("Process Logs")).toBeInTheDocument();
   });
 
   it("renders log entries", () => {
-    useStore.setState({
-      logDrawerOpen: true,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: ["first line", "second line"] },
-    });
+    setupDrawer({ open: true, logs: ["first line", "second line"] });
     render(<LogDrawer />);
     expect(screen.getByText(/first line/)).toBeInTheDocument();
     expect(screen.getByText(/second line/)).toBeInTheDocument();
   });
 
   it('shows "No process logs yet" when logs array is empty', () => {
-    useStore.setState({
-      logDrawerOpen: true,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: [] },
-    });
+    setupDrawer({ open: true });
     render(<LogDrawer />);
     expect(screen.getByText("No process logs yet")).toBeInTheDocument();
   });
 
   it("closes on Escape key press", async () => {
     const user = userEvent.setup();
-    useStore.setState({
-      logDrawerOpen: true,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: ["log entry"] },
-    });
+    setupDrawer({ open: true, logs: ["log entry"] });
     render(<LogDrawer />);
     expect(screen.getByText("Process Logs")).toBeInTheDocument();
 
@@ -82,11 +80,7 @@ describe("LogDrawer", () => {
 
   it("closes on close button click", async () => {
     const user = userEvent.setup();
-    useStore.setState({
-      logDrawerOpen: true,
-      currentSessionId: SESSION,
-      processLogs: { [SESSION]: ["log entry"] },
-    });
+    setupDrawer({ open: true, logs: ["log entry"] });
     render(<LogDrawer />);
 
     await user.click(screen.getByLabelText("Close logs"));

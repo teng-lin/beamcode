@@ -13,6 +13,8 @@ const { send } = (await import("../ws")) as unknown as { send: ReturnType<typeof
 
 const SESSION = "statusbar-test";
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 function setupSession(
   options?: Partial<{
     adapterType: string;
@@ -51,6 +53,40 @@ function setupSession(
   });
 }
 
+/** Sets up a session with no sessionState -- fields like cwd, model, git_branch will be null/empty. */
+function setupBareSession(): void {
+  store().ensureSessionData(SESSION);
+  useStore.setState({
+    currentSessionId: SESSION,
+    sessions: {
+      [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
+    },
+  });
+}
+
+type ModelEntry = { value: string; displayName: string };
+
+/** Shorthand for setCapabilities with only model entries (commands and skills default to []). */
+function setModels(...models: ModelEntry[]): void {
+  store().setCapabilities(SESSION, { commands: [], models, skills: [] });
+}
+
+/** Opens the permission-mode dropdown and clicks the Auto-Approve option. */
+async function clickBypassOption(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByText("Default"));
+  const buttons = screen.getAllByRole("button");
+  const bypassButton = buttons.find(
+    (b) =>
+      b.textContent?.includes("Auto-Approve") &&
+      b.textContent?.includes("Auto-approve all tool executions"),
+  );
+  expect(bypassButton).toBeDefined();
+  // biome-ignore lint/style/noNonNullAssertion: test helper - bypassButton verified above
+  await user.click(bypassButton!);
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
 describe("StatusBar", () => {
   beforeEach(() => {
     resetStore();
@@ -84,16 +120,8 @@ describe("StatusBar", () => {
     });
 
     it("renders em dash when cwd is not set", () => {
-      store().ensureSessionData(SESSION);
-      useStore.setState({
-        currentSessionId: SESSION,
-        sessions: {
-          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
-        },
-      });
-      // No setSessionState -> cwd is null
+      setupBareSession();
       render(<StatusBar />);
-      // Both cwd and git_branch render em dashes when unset
       const dashes = screen.getAllByText("\u2014");
       expect(dashes.length).toBeGreaterThanOrEqual(1);
     });
@@ -149,7 +177,6 @@ describe("StatusBar", () => {
       render(<StatusBar />);
 
       const label = screen.getByText("Claude Code");
-      // Observer renders a <span>, not a <button>
       expect(label.tagName).toBe("SPAN");
       expect(label.closest("button")).toBeNull();
     });
@@ -184,7 +211,6 @@ describe("StatusBar", () => {
       await user.click(screen.getByText("Default"));
       expect(screen.getByText("Plan")).toBeInTheDocument();
       expect(screen.getByText("Auto-Approve")).toBeInTheDocument();
-      // Check descriptions appear
       expect(screen.getByText("Ask before risky actions")).toBeInTheDocument();
       expect(screen.getByText("Require plan approval first")).toBeInTheDocument();
     });
@@ -195,7 +221,6 @@ describe("StatusBar", () => {
       render(<StatusBar />);
 
       await user.click(screen.getByText("Default"));
-      // Find the Plan option in the dropdown (there are now two "Plan" texts)
       const dropdownButtons = screen.getAllByRole("button");
       const planButton = dropdownButtons.find(
         (b) => b.textContent?.includes("Plan") && b.textContent?.includes("Require plan approval"),
@@ -212,19 +237,8 @@ describe("StatusBar", () => {
       setupSession({ permissionMode: "default" });
       render(<StatusBar />);
 
-      await user.click(screen.getByText("Default"));
-      // Click Auto-Approve option in dropdown
-      const dropdownButtons = screen.getAllByRole("button");
-      const bypassButton = dropdownButtons.find(
-        (b) =>
-          b.textContent?.includes("Auto-Approve") &&
-          b.textContent?.includes("Auto-approve all tool executions"),
-      );
-      expect(bypassButton).toBeDefined();
-      // biome-ignore lint/style/noNonNullAssertion: test helper - bypassButton verified above
-      await user.click(bypassButton!);
+      await clickBypassOption(user);
 
-      // Confirmation dialog should appear
       expect(screen.getByText("Enable Auto-Approve?")).toBeInTheDocument();
       expect(screen.getByText("Enable")).toBeInTheDocument();
       expect(screen.getByText("Cancel")).toBeInTheDocument();
@@ -235,17 +249,7 @@ describe("StatusBar", () => {
       setupSession({ permissionMode: "default" });
       render(<StatusBar />);
 
-      await user.click(screen.getByText("Default"));
-      const dropdownButtons = screen.getAllByRole("button");
-      const bypassButton = dropdownButtons.find(
-        (b) =>
-          b.textContent?.includes("Auto-Approve") &&
-          b.textContent?.includes("Auto-approve all tool executions"),
-      );
-      // biome-ignore lint/style/noNonNullAssertion: test helper - bypassButton verified above
-      await user.click(bypassButton!);
-
-      // Click Enable
+      await clickBypassOption(user);
       await user.click(screen.getByText("Enable"));
 
       expect(send).toHaveBeenCalledWith(
@@ -260,17 +264,7 @@ describe("StatusBar", () => {
       setupSession({ permissionMode: "default" });
       render(<StatusBar />);
 
-      await user.click(screen.getByText("Default"));
-      const dropdownButtons = screen.getAllByRole("button");
-      const bypassButton = dropdownButtons.find(
-        (b) =>
-          b.textContent?.includes("Auto-Approve") &&
-          b.textContent?.includes("Auto-approve all tool executions"),
-      );
-      // biome-ignore lint/style/noNonNullAssertion: test helper - bypassButton verified above
-      await user.click(bypassButton!);
-
-      // Click Cancel
+      await clickBypassOption(user);
       await user.click(screen.getByText("Cancel"));
 
       expect(send).not.toHaveBeenCalled();
@@ -278,13 +272,7 @@ describe("StatusBar", () => {
     });
 
     it("returns null when no permissionMode in state", () => {
-      store().ensureSessionData(SESSION);
-      useStore.setState({
-        currentSessionId: SESSION,
-        sessions: {
-          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
-        },
-      });
+      setupBareSession();
       store().setSessionState(SESSION, {
         session_id: SESSION,
         model: "claude-sonnet-4-20250514",
@@ -293,10 +281,8 @@ describe("StatusBar", () => {
         num_turns: 0,
         context_used_percent: 0,
         is_compacting: false,
-        // no permissionMode
       });
       render(<StatusBar />);
-      // None of the permission mode labels should render
       expect(screen.queryByText("Default")).not.toBeInTheDocument();
       expect(screen.queryByText("Plan")).not.toBeInTheDocument();
       expect(screen.queryByText("Auto-Approve")).not.toBeInTheDocument();
@@ -308,12 +294,10 @@ describe("StatusBar", () => {
       store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
       render(<StatusBar />);
 
-      // The button should be disabled
       // biome-ignore lint/style/noNonNullAssertion: test helper - closest always returns for this selector
       const defaultButton = screen.getByText("Default").closest("button")!;
       expect(defaultButton).toBeDisabled();
 
-      // Clicking should not open dropdown
       await user.click(defaultButton);
       expect(screen.queryByText("Ask before risky actions")).not.toBeInTheDocument();
     });
@@ -324,33 +308,21 @@ describe("StatusBar", () => {
   describe("ModelPicker", () => {
     it("abbreviates model name to Sonnet", () => {
       setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [{ value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" }],
-        skills: [],
-      });
+      setModels({ value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" });
       render(<StatusBar />);
       expect(screen.getByText("Sonnet")).toBeInTheDocument();
     });
 
     it("abbreviates model name to Opus", () => {
       setupSession({ model: "claude-opus-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [{ value: "claude-opus-4-20250514", displayName: "Claude Opus 4" }],
-        skills: [],
-      });
+      setModels({ value: "claude-opus-4-20250514", displayName: "Claude Opus 4" });
       render(<StatusBar />);
       expect(screen.getByText("Opus")).toBeInTheDocument();
     });
 
     it("abbreviates model name to Haiku", () => {
       setupSession({ model: "claude-haiku-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [{ value: "claude-haiku-4-20250514", displayName: "Claude Haiku 4" }],
-        skills: [],
-      });
+      setModels({ value: "claude-haiku-4-20250514", displayName: "Claude Haiku 4" });
       render(<StatusBar />);
       expect(screen.getByText("Haiku")).toBeInTheDocument();
     });
@@ -358,14 +330,10 @@ describe("StatusBar", () => {
     it("opens dropdown when 2+ models are available", async () => {
       const user = userEvent.setup();
       setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [
-          { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
-          { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
-        ],
-        skills: [],
-      });
+      setModels(
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      );
       render(<StatusBar />);
 
       await user.click(screen.getByText("Sonnet"));
@@ -376,14 +344,10 @@ describe("StatusBar", () => {
     it("sends set_model message and closes dropdown on selection", async () => {
       const user = userEvent.setup();
       setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [
-          { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
-          { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
-        ],
-        skills: [],
-      });
+      setModels(
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      );
       render(<StatusBar />);
 
       await user.click(screen.getByText("Sonnet"));
@@ -398,11 +362,7 @@ describe("StatusBar", () => {
 
     it("is not clickable when only 1 model", () => {
       setupSession({ model: "claude-sonnet-4-20250514" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [{ value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" }],
-        skills: [],
-      });
+      setModels({ value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" });
       render(<StatusBar />);
 
       // biome-ignore lint/style/noNonNullAssertion: test helper - closest always returns for this selector
@@ -413,14 +373,10 @@ describe("StatusBar", () => {
     it("is disabled when user is observer", () => {
       setupSession({ model: "claude-sonnet-4-20250514" });
       store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [
-          { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
-          { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
-        ],
-        skills: [],
-      });
+      setModels(
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      );
       render(<StatusBar />);
 
       // biome-ignore lint/style/noNonNullAssertion: test helper - closest always returns for this selector
@@ -429,14 +385,7 @@ describe("StatusBar", () => {
     });
 
     it("returns null when model is empty", () => {
-      store().ensureSessionData(SESSION);
-      useStore.setState({
-        currentSessionId: SESSION,
-        sessions: {
-          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
-        },
-      });
-      // No setSessionState, so model is ""
+      setupBareSession();
       render(<StatusBar />);
       expect(screen.queryByText("Sonnet")).not.toBeInTheDocument();
       expect(screen.queryByText("Opus")).not.toBeInTheDocument();
@@ -445,11 +394,7 @@ describe("StatusBar", () => {
 
     it("uses displayName directly for non-Anthropic models", () => {
       setupSession({ model: "gpt-4o" });
-      store().setCapabilities(SESSION, {
-        commands: [],
-        models: [{ value: "gpt-4o", displayName: "GPT-4o" }],
-        skills: [],
-      });
+      setModels({ value: "gpt-4o", displayName: "GPT-4o" });
       render(<StatusBar />);
       expect(screen.getByText("GPT-4o")).toBeInTheDocument();
     });
@@ -467,13 +412,6 @@ describe("StatusBar", () => {
     it("renders when processLogs has entries", () => {
       setupSession();
       store().appendProcessLog(SESSION, "test log line");
-      render(<StatusBar />);
-      expect(screen.getByLabelText("Toggle process logs")).toBeInTheDocument();
-    });
-
-    it("has correct aria-label", () => {
-      setupSession();
-      store().appendProcessLog(SESSION, "log entry");
       render(<StatusBar />);
       expect(screen.getByLabelText("Toggle process logs")).toBeInTheDocument();
     });
@@ -503,16 +441,8 @@ describe("StatusBar", () => {
     });
 
     it("renders em dash when no git branch", () => {
-      store().ensureSessionData(SESSION);
-      useStore.setState({
-        currentSessionId: SESSION,
-        sessions: {
-          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
-        },
-      });
-      // No state set, so git_branch is null
+      setupBareSession();
       render(<StatusBar />);
-      // Multiple em dashes may be present (cwd and branch)
       const dashes = screen.getAllByText("\u2014");
       expect(dashes.length).toBeGreaterThanOrEqual(1);
     });
@@ -520,7 +450,6 @@ describe("StatusBar", () => {
     it("shows ahead indicator when git_ahead > 0", () => {
       setupSession({ git_ahead: 3 });
       render(<StatusBar />);
-      // The arrow and count render as sibling text nodes inside one <span>
       expect(screen.getByText("\u21913")).toBeInTheDocument();
     });
 
