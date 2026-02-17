@@ -215,7 +215,7 @@ describe("state-reducer", () => {
   });
 
   describe("control_response", () => {
-    it("sets capabilities on success", () => {
+    it("returns original state unchanged (capabilities handled by bridge handler)", () => {
       const state = makeDefaultSessionState();
       const msg = createUnifiedMessage({
         type: "control_response",
@@ -232,11 +232,7 @@ describe("state-reducer", () => {
       });
 
       const next = reduce(state, msg);
-      expect(next.capabilities).toBeDefined();
-      expect(next.capabilities!.commands).toHaveLength(1);
-      expect(next.capabilities!.models).toHaveLength(1);
-      expect(next.capabilities!.account).toEqual({ email: "user@example.com" });
-      expect(next.capabilities!.receivedAt).toBeGreaterThan(0);
+      expect(next).toBe(state); // no mutation — capabilities are set by the bridge handler
     });
 
     it("returns original state on error subtype", () => {
@@ -254,45 +250,15 @@ describe("state-reducer", () => {
       const next = reduce(state, msg);
       expect(next).toBe(state); // same reference — no mutation
     });
-
-    it("returns original state when response is missing", () => {
-      const state = makeDefaultSessionState();
-      const msg = createUnifiedMessage({
-        type: "control_response",
-        role: "system",
-        metadata: {
-          subtype: "success",
-          request_id: "req-1",
-        },
-      });
-
-      const next = reduce(state, msg);
-      expect(next).toBe(state);
-    });
-
-    it("defaults commands/models to empty arrays if not present in response", () => {
-      const state = makeDefaultSessionState();
-      const msg = createUnifiedMessage({
-        type: "control_response",
-        role: "system",
-        metadata: {
-          subtype: "success",
-          request_id: "req-1",
-          response: {},
-        },
-      });
-
-      const next = reduce(state, msg);
-      expect(next.capabilities!.commands).toEqual([]);
-      expect(next.capabilities!.models).toEqual([]);
-      expect(next.capabilities!.account).toBeNull();
-    });
   });
 
   describe("optimistic team state (no tool_result)", () => {
     it("applies TeamCreate immediately on tool_use without tool_result", () => {
       const state = makeDefaultSessionState();
-      const next = reduce(state, makeToolUseMessage("TeamCreate", "tu-opt-1", { team_name: "opt-team" }));
+      const next = reduce(
+        state,
+        makeToolUseMessage("TeamCreate", "tu-opt-1", { team_name: "opt-team" }),
+      );
       expect(next.team).toBeDefined();
       expect(next.team!.name).toBe("opt-team");
       expect(next.team!.role).toBe("lead");
@@ -305,7 +271,11 @@ describe("state-reducer", () => {
       };
       const next = reduce(
         state,
-        makeToolUseMessage("Task", "tu-opt-2", { team_name: "opt-team", name: "worker-1", model: "haiku" }),
+        makeToolUseMessage("Task", "tu-opt-2", {
+          team_name: "opt-team",
+          name: "worker-1",
+          model: "haiku",
+        }),
       );
       expect(next.team!.members).toHaveLength(1);
       expect(next.team!.members[0]!.name).toBe("worker-1");
@@ -318,7 +288,10 @@ describe("state-reducer", () => {
         team: { name: "opt-team", role: "lead", members: [], tasks: [] },
       };
       const toolUseId = "abcd1234-5678-9abc-def0";
-      const next = reduce(state, makeToolUseMessage("TaskCreate", toolUseId, { subject: "Optimistic task" }));
+      const next = reduce(
+        state,
+        makeToolUseMessage("TaskCreate", toolUseId, { subject: "Optimistic task" }),
+      );
       expect(next.team!.tasks).toHaveLength(1);
       expect(next.team!.tasks[0]!.id).toBe(`tu-${toolUseId}`);
       expect(next.team!.tasks[0]!.subject).toBe("Optimistic task");

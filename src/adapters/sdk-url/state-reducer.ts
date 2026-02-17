@@ -136,38 +136,12 @@ function reduceResult(state: SessionState, msg: UnifiedMessage): SessionState {
   return newState;
 }
 
-function reduceControlResponse(state: SessionState, msg: UnifiedMessage): SessionState {
-  const m = msg.metadata;
-
-  if (m.subtype === "error") {
-    return state;
-  }
-
-  const response = m.response as
-    | {
-        commands?: unknown[];
-        models?: unknown[];
-        account?: unknown;
-      }
-    | undefined;
-
-  if (!response) {
-    return state;
-  }
-
-  const commands = Array.isArray(response.commands) ? response.commands : [];
-  const models = Array.isArray(response.models) ? response.models : [];
-  const account = (response.account as Record<string, unknown> | null) ?? null;
-
-  return {
-    ...state,
-    capabilities: {
-      commands,
-      models,
-      account,
-      receivedAt: Date.now(),
-    } as SessionState["capabilities"],
-  };
+function reduceControlResponse(state: SessionState, _msg: UnifiedMessage): SessionState {
+  // Capabilities are applied by the handler (applyCapabilities) which also
+  // registers commands and broadcasts capabilities_ready. The reducer must
+  // not mutate capabilities here to avoid setting state for messages with
+  // unknown request_ids that the handler will ignore.
+  return state;
 }
 
 // ---------------------------------------------------------------------------
