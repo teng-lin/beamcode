@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ProcessHandle, SpawnOptions } from "../interfaces/process-manager.js";
-import { noopLogger } from "../testing/cli-message-factories.js";
+import { flushPromises, noopLogger } from "../testing/cli-message-factories.js";
 import { MockProcessManager } from "../testing/mock-process-manager.js";
 import type { SupervisorEventMap } from "./process-supervisor.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
@@ -386,7 +386,7 @@ describe("error path coverage", () => {
     supervisor.on("process:exited", (e) => events.push(e));
 
     proc.resolveExit(null);
-    await new Promise((r) => setTimeout(r, 20));
+    await flushPromises();
 
     expect(events).toHaveLength(1);
     expect(events[0].exitCode).toBeNull();
@@ -401,7 +401,7 @@ describe("error path coverage", () => {
     const stdoutEvents: any[] = [];
     sv.on("process:stdout", (e) => stdoutEvents.push(e));
     sv.testSpawn("sess-empty", { command: "test", args: [], cwd: "/" });
-    await new Promise((r) => setTimeout(r, 50));
+    await flushPromises();
 
     expect(stdoutEvents).toHaveLength(0);
   });
@@ -422,7 +422,7 @@ describe("error path coverage", () => {
     const sv = createStreamSupervisor(streamPm);
 
     sv.testSpawn("sess-mid-err", { command: "test", args: [], cwd: "/" });
-    await new Promise((r) => setTimeout(r, 50));
+    await flushPromises();
 
     // Should not crash
     expect(sv.hasProcess("sess-mid-err")).toBe(true);
@@ -489,7 +489,7 @@ describe("error path coverage", () => {
     for (let i = 0; i < 6; i++) {
       supervisor.testSpawn(`sess-${i}`, { command: "test", args: [], cwd: "/" });
       pm.lastProcess!.resolveExit(1);
-      await new Promise((r) => setTimeout(r, 10));
+      await flushPromises();
     }
 
     // Spawn one more and watch for the event
@@ -497,7 +497,7 @@ describe("error path coverage", () => {
     const events: any[] = [];
     supervisor.on("process:exited", (e) => events.push(e));
     pm.lastProcess!.resolveExit(1);
-    await new Promise((r) => setTimeout(r, 20));
+    await flushPromises();
 
     const event = events.find((e) => e.sessionId === "final");
     expect(event).toBeDefined();

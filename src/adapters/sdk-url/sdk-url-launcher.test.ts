@@ -6,7 +6,7 @@ vi.mock("node:crypto", () => ({ randomUUID: vi.fn(() => "test-uuid") }));
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
-import { noopLogger } from "../../testing/cli-message-factories.js";
+import { flushPromises, noopLogger } from "../../testing/cli-message-factories.js";
 import { type MockProcessHandle, MockProcessManager } from "../../testing/mock-process-manager.js";
 import { SdkUrlLauncher, type SdkUrlLauncherOptions } from "./sdk-url-launcher.js";
 
@@ -167,8 +167,7 @@ describe("SdkUrlLauncher", () => {
       launcher.launch({});
       const proc = pm.lastProcess!;
       proc.resolveExit(0);
-      // Wait for the exit handler
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       // Set a cliSessionId for resume
       launcher.setCLISessionId("test-uuid-0", "cli-sess-1");
@@ -194,7 +193,7 @@ describe("SdkUrlLauncher", () => {
       // Launch and immediately crash to trip the breaker
       launcher.launch({});
       pm.lastProcess!.resolveExit(1);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const result = await launcher.relaunch("test-uuid-0");
       expect(result).toBe(false);
@@ -228,7 +227,7 @@ describe("SdkUrlLauncher", () => {
 
       // Force a relaunch with --resume
       pm.lastProcess!.resolveExit(0);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
       await launcher.relaunch("test-uuid-0");
 
       const resumeFailedHandler = vi.fn();
@@ -236,7 +235,7 @@ describe("SdkUrlLauncher", () => {
 
       // Simulate quick exit of relaunched process
       pm.lastProcess!.resolveExit(1);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       expect(resumeFailedHandler).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: "test-uuid-0" }),
@@ -264,7 +263,7 @@ describe("SdkUrlLauncher", () => {
       const { launcher, pm } = createLauncher();
       launcher.launch({});
       pm.lastProcess!.resolveExit(0);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       launcher.markConnected("test-uuid-0");
       expect(launcher.getSession("test-uuid-0")!.state).toBe("exited");
@@ -296,7 +295,7 @@ describe("SdkUrlLauncher", () => {
 
       // Exit the first one
       pm.spawnedProcesses[0].resolveExit(0);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const pruned = launcher.pruneExited();
       expect(pruned).toBe(1);
@@ -466,7 +465,7 @@ describe("SdkUrlLauncher", () => {
 
       launcher.launch({});
       pm.lastProcess!.resolveExit(1);
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       expect(handler).toHaveBeenCalledWith(
         expect.objectContaining({
