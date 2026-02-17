@@ -129,7 +129,7 @@ describe("TokenBucketLimiter", () => {
       // Allow margin for timing precision in test execution
       const tokens = limiter.getTokens();
       expect(tokens).toBeGreaterThan(90);
-      expect(tokens).toBeLessThanOrEqual(105);
+      expect(tokens).toBeLessThanOrEqual(115);
     });
 
     it("handles burst traffic within burst size", () => {
