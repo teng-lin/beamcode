@@ -2,10 +2,10 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
-import { ConsoleLogger } from "../adapters/console-logger.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
@@ -107,7 +107,10 @@ function parseArgs(argv: string[]): CliConfig {
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv);
-  const logger = new ConsoleLogger();
+  const logger = new StructuredLogger({
+    component: "beamcode",
+    level: config.verbose ? LogLevel.DEBUG : LogLevel.INFO,
+  });
 
   // Pre-load consumer HTML (also caches gzipped version).
   // API key injection happens after key generation (step 4).
