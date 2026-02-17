@@ -139,8 +139,10 @@ export class SlashCommandRegistry {
       const key = name.toLowerCase();
       const existing = this.commands.get(key);
       if (existing) {
-        // Upgrade source to "skill" so isSkillCommand recognizes it
-        existing.source = "skill";
+        // Only upgrade from "cli" to "skill", preserve "built-in"
+        if (existing.source === "cli") {
+          existing.source = "skill";
+        }
       } else {
         this.commands.set(key, {
           name,

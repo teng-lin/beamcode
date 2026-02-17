@@ -140,7 +140,10 @@ function handleMessage(sessionId: string, data: string): void {
         ? (session.slash_commands as string[])
         : [];
       const initSkills = Array.isArray(session.skills) ? (session.skills as string[]) : [];
-      if (cmds.length > 0 || initSkills.length > 0) {
+      if (
+        !store.sessionData[sessionId]?.capabilities &&
+        (cmds.length > 0 || initSkills.length > 0)
+      ) {
         store.setCapabilities(sessionId, {
           commands: cmds.map((name) => ({ name, description: "" })),
           models: [],
