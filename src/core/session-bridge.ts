@@ -1089,6 +1089,16 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     if (msg.response.subtype === "error") {
       this.logger.warn(`Initialize failed: ${msg.response.error}`);
+      // Synthesize capabilities from session state (populated by system.init)
+      // so consumers still receive capabilities_ready even when the CLI
+      // refuses to re-initialize (e.g. "Already initialized").
+      if (!session.state.capabilities && session.state.slash_commands.length > 0) {
+        const commands = session.state.slash_commands.map((name: string) => ({
+          name,
+          description: "",
+        }));
+        this.applyCapabilities(session, commands, [], null);
+      }
       return;
     }
 
