@@ -23,6 +23,9 @@ export const PARTICIPANT_ONLY_TYPES = new Set([
   "set_permission_mode",
   "slash_command",
   "set_adapter",
+  "queue_message",
+  "update_queued_message",
+  "cancel_queued_message",
 ]);
 
 // ─── ConsumerGatekeeper ──────────────────────────────────────────────────────
