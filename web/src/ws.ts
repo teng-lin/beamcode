@@ -243,6 +243,7 @@ export function connectToSession(sessionId: string): void {
     // Clear ephemeral per-connection state to avoid stale data on reconnect
     store.setIdentity(sessionId, null);
     store.setPresence(sessionId, []);
+    store.clearPendingPermissions(sessionId);
     connections.delete(sessionId);
     scheduleReconnect(sessionId);
   };

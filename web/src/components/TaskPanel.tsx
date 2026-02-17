@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useShallow } from "zustand/shallow";
 import type {
   ConsumerRole,
   ConsumerTeamMember,
@@ -155,11 +156,11 @@ export function TaskPanel() {
   const state = useStore((s) =>
     s.currentSessionId ? s.sessionData[s.currentSessionId]?.state : null,
   );
-  const presence = useStore((s) =>
-    s.currentSessionId ? s.sessionData[s.currentSessionId]?.presence : null,
+  const presence = useStore(
+    useShallow((s) => (s.currentSessionId ? s.sessionData[s.currentSessionId]?.presence : null)),
   );
-  const messages = useStore((s) =>
-    s.currentSessionId ? s.sessionData[s.currentSessionId]?.messages : null,
+  const messages = useStore(
+    useShallow((s) => (s.currentSessionId ? s.sessionData[s.currentSessionId]?.messages : null)),
   );
 
   const hasSession = useStore((s) =>

@@ -158,7 +158,7 @@ export function TopBar() {
             permissionMode === "bypassPermissions"
               ? "bg-bc-success/15 text-bc-success"
               : permissionMode === "plan"
-                ? "bg-blue-500/15 text-blue-400"
+                ? "bg-bc-accent/15 text-bc-accent"
                 : "bg-bc-surface-2 text-bc-text-muted"
           }`}
         >

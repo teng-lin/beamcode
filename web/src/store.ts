@@ -102,6 +102,7 @@ export interface AppState {
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | null) => void;
   addPermission: (sessionId: string, request: ConsumerPermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
+  clearPendingPermissions: (sessionId: string) => void;
   setSessionState: (sessionId: string, state: ConsumerSessionState | null) => void;
   setCapabilities: (
     sessionId: string,
@@ -304,6 +305,9 @@ export const useStore = create<AppState>()((set, get) => ({
       const { [requestId]: _, ...rest } = data.pendingPermissions;
       return patchSession(s, sessionId, { pendingPermissions: rest });
     }),
+
+  clearPendingPermissions: (sessionId) =>
+    set((s) => patchSession(s, sessionId, { pendingPermissions: {} })),
 
   setSessionState: (sessionId, state) => set((s) => patchSession(s, sessionId, { state })),
 
