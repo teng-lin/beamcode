@@ -80,6 +80,33 @@ function handleMessage(sessionId: string, data: string): void {
       store.addMessage(sessionId, msg);
       break;
 
+    case "message_queued":
+      store.setQueuedMessage(sessionId, {
+        consumerId: msg.consumer_id,
+        displayName: msg.display_name,
+        content: msg.content,
+        images: msg.images,
+        queuedAt: msg.queued_at,
+      });
+      break;
+
+    case "queued_message_updated": {
+      const prev = store.sessionData[sessionId]?.queuedMessage;
+      if (prev) {
+        store.setQueuedMessage(sessionId, {
+          ...prev,
+          content: msg.content,
+          images: msg.images,
+        });
+      }
+      break;
+    }
+
+    case "queued_message_cancelled":
+      store.setQueuedMessage(sessionId, null);
+      store.setEditingQueue(sessionId, false);
+      break;
+
     case "stream_event": {
       const { event, parent_tool_use_id } = msg;
       const agentId = parent_tool_use_id; // null = main session
