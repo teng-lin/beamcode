@@ -82,7 +82,6 @@ export {
   isToolUseContent,
   isUnifiedMessage,
 } from "./core/types/unified-message.js";
-
 // Daemon
 export type { CreateSessionOptions, DaemonSessionInfo } from "./daemon/child-process-supervisor.js";
 export { ChildProcessSupervisor } from "./daemon/child-process-supervisor.js";
@@ -95,6 +94,14 @@ export { acquireLock, isLockStale, releaseLock } from "./daemon/lock-file.js";
 export { registerSignalHandlers } from "./daemon/signal-handler.js";
 export type { DaemonState } from "./daemon/state-file.js";
 export { readState, updateHeartbeat, writeState } from "./daemon/state-file.js";
+// Errors
+export {
+  BeamCodeError,
+  errorMessage,
+  ProcessError,
+  StorageError,
+  toBeamCodeError,
+} from "./errors.js";
 // Interfaces
 export type {
   AuthContext,
