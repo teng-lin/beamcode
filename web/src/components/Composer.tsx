@@ -17,9 +17,19 @@ interface AttachedImage {
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_IMAGES = 10;
 
-function composerPlaceholder(isObserver: boolean, isRunning: boolean): string {
+function composerPlaceholder(
+  isObserver: boolean,
+  isRunning: boolean,
+  hasQueuedMessage: boolean,
+  isOwnQueue: boolean,
+  isEditingQueue: boolean,
+  queuedByName?: string,
+): string {
   if (isObserver) return "Observer mode \u2014 read-only";
-  if (isRunning) return "Press Enter or Esc to interrupt...";
+  if (isEditingQueue) return "Editing queued message...";
+  if (hasQueuedMessage && isOwnQueue) return "Message queued \u2014 press \u2191 to edit";
+  if (hasQueuedMessage) return `${queuedByName ?? "Someone"} has a message queued`;
+  if (isRunning) return "Type a message to queue, or Esc to interrupt...";
   return "Message BeamCode...";
 }
 
@@ -33,9 +43,15 @@ export function Composer({ sessionId }: ComposerProps) {
   const sessionStatus = useStore((s) => s.sessionData[sessionId]?.sessionStatus);
   const capabilities = useStore((s) => s.sessionData[sessionId]?.capabilities);
   const identityRole = useStore((s) => s.sessionData[sessionId]?.identity?.role ?? null);
+  const queuedMessage = useStore((s) => s.sessionData[sessionId]?.queuedMessage ?? null);
+  const isEditingQueue = useStore((s) => s.sessionData[sessionId]?.isEditingQueue ?? false);
+  const ownUserId = useStore((s) => s.sessionData[sessionId]?.identity?.userId ?? null);
+  const setEditingQueue = useStore((s) => s.setEditingQueue);
   const isRunning = sessionStatus === "running";
   // Deny-by-default: if identity arrived and role is not participant, it's read-only
   const isObserver = identityRole !== null && identityRole !== "participant";
+  const hasQueuedMessage = queuedMessage !== null;
+  const isOwnQueue = hasQueuedMessage && queuedMessage.consumerId === ownUserId;
 
   // O(1) lookup map for argument hints, keyed by normalized command name (with leading slash)
   const hintMap = useMemo(() => {
@@ -145,10 +161,46 @@ export function Composer({ sessionId }: ComposerProps) {
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
+
+    // Editing mode: update or cancel
+    if (isEditingQueue) {
+      if (trimmed) {
+        send(
+          {
+            type: "update_queued_message",
+            content: trimmed,
+            ...(images.length > 0 && {
+              images: images.map(({ media_type, data }) => ({ media_type, data })),
+            }),
+          },
+          sessionId,
+        );
+      } else {
+        send({ type: "cancel_queued_message" }, sessionId);
+      }
+      setEditingQueue(sessionId, false);
+      setValue("");
+      setImages([]);
+      setShowSlash(false);
+      return;
+    }
+
     if (!trimmed && images.length === 0) return;
 
     if (trimmed.startsWith("/")) {
       send({ type: "slash_command", command: trimmed }, sessionId);
+    } else if (isRunning && !hasQueuedMessage) {
+      // Queue the message
+      send(
+        {
+          type: "queue_message",
+          content: trimmed,
+          ...(images.length > 0 && {
+            images: images.map(({ media_type, data }) => ({ media_type, data })),
+          }),
+        },
+        sessionId,
+      );
     } else {
       send(
         {
@@ -164,7 +216,7 @@ export function Composer({ sessionId }: ComposerProps) {
     setValue("");
     setImages([]);
     setShowSlash(false);
-  }, [value, images, sessionId]);
+  }, [value, images, sessionId, isRunning, hasQueuedMessage, isEditingQueue, setEditingQueue]);
 
   const handleInterrupt = useCallback(() => {
     send({ type: "interrupt" }, sessionId);
@@ -175,9 +227,35 @@ export function Composer({ sessionId }: ComposerProps) {
       if (showSlash && slashMenuRef.current?.handleKeyDown(e)) {
         return;
       }
+
+      // Up arrow to edit own queued message
+      if (e.key === "ArrowUp" && isOwnQueue && !isEditingQueue && !value) {
+        e.preventDefault();
+        setValue(queuedMessage!.content);
+        setEditingQueue(sessionId, true);
+        return;
+      }
+
+      // Escape while editing queue: cancel editing (return to queued state)
+      if (e.key === "Escape" && isEditingQueue) {
+        e.preventDefault();
+        setValue("");
+        setEditingQueue(sessionId, false);
+        return;
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (isRunning) {
+        if (isEditingQueue) {
+          handleSubmit();
+        } else if (isRunning && !hasQueuedMessage) {
+          // Queue the message (or interrupt if empty)
+          if (value.trim()) {
+            handleSubmit();
+          } else {
+            handleInterrupt();
+          }
+        } else if (isRunning && hasQueuedMessage) {
           handleInterrupt();
         } else {
           handleSubmit();
@@ -188,7 +266,19 @@ export function Composer({ sessionId }: ComposerProps) {
         handleInterrupt();
       }
     },
-    [showSlash, isRunning, handleSubmit, handleInterrupt],
+    [
+      showSlash,
+      isRunning,
+      isOwnQueue,
+      isEditingQueue,
+      hasQueuedMessage,
+      value,
+      queuedMessage,
+      handleSubmit,
+      handleInterrupt,
+      sessionId,
+      setEditingQueue,
+    ],
   );
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -257,9 +347,16 @@ export function Composer({ sessionId }: ComposerProps) {
               onChange={handleChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={composerPlaceholder(isObserver, isRunning)}
+              placeholder={composerPlaceholder(
+                isObserver,
+                isRunning,
+                hasQueuedMessage,
+                isOwnQueue,
+                isEditingQueue,
+                queuedMessage?.displayName,
+              )}
               rows={3}
-              disabled={isObserver}
+              disabled={isObserver || (hasQueuedMessage && !isEditingQueue)}
               className="min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Message input"
             />
@@ -273,39 +370,47 @@ export function Composer({ sessionId }: ComposerProps) {
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={isRunning ? handleInterrupt : handleSubmit}
-            disabled={isObserver || (!isRunning && !value.trim() && images.length === 0)}
-            className={`flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl transition-all ${
-              isRunning
-                ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
-                : "bg-bc-accent text-bc-bg shadow-sm hover:bg-bc-accent-hover disabled:bg-bc-surface-2 disabled:text-bc-text-muted/30 disabled:shadow-none"
-            }`}
-            aria-label={isRunning ? "Interrupt" : "Send message"}
-          >
-            {isRunning ? (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
+          {(() => {
+            const showInterrupt = isRunning && hasQueuedMessage && !isEditingQueue;
+            return (
+              <button
+                type="button"
+                onClick={showInterrupt ? handleInterrupt : handleSubmit}
+                disabled={
+                  isObserver ||
+                  (!showInterrupt && !isEditingQueue && !value.trim() && images.length === 0)
+                }
+                className={`flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl transition-all ${
+                  showInterrupt
+                    ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
+                    : "bg-bc-accent text-bc-bg shadow-sm hover:bg-bc-accent-hover disabled:bg-bc-surface-2 disabled:text-bc-text-muted/30 disabled:shadow-none"
+                }`}
+                aria-label={showInterrupt ? "Interrupt" : "Send message"}
               >
-                <rect width="14" height="14" rx="2" />
-              </svg>
-            ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M3 13l10-5L3 3v4l6 1-6 1z" />
-              </svg>
-            )}
-          </button>
+                {showInterrupt ? (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <rect width="14" height="14" rx="2" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 13l10-5L3 3v4l6 1-6 1z" />
+                  </svg>
+                )}
+              </button>
+            );
+          })()}
         </div>
       </div>
 
