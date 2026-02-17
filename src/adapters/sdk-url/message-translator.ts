@@ -47,6 +47,7 @@ export function translate(msg: CLIMessage): UnifiedMessage | null {
     case "auth_status":
       return translateAuthStatus(msg);
     case "keep_alive":
+    case "user": // CLI echo of user message — bridge already handles this directly
       return null;
     default:
       return null;

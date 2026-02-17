@@ -18,7 +18,7 @@ describe("health-check", () => {
 
   afterEach(async () => {
     if (timer) clearInterval(timer);
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("updates heartbeat on interval", async () => {

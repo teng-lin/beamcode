@@ -176,6 +176,14 @@ export interface CLIAuthStatusMessage {
   session_id: string;
 }
 
+/** CLI echo of the user message sent to it. Silently ignored by the bridge. */
+export interface CLIUserEchoMessage {
+  type: "user";
+  message: { role: "user"; content: unknown };
+  parent_tool_use_id: string | null;
+  session_id?: string;
+}
+
 export type CLIMessage =
   | CLISystemInitMessage
   | CLISystemStatusMessage
@@ -187,7 +195,8 @@ export type CLIMessage =
   | CLIControlRequestMessage
   | CLIControlResponseMessage
   | CLIKeepAliveMessage
-  | CLIAuthStatusMessage;
+  | CLIAuthStatusMessage
+  | CLIUserEchoMessage;
 
 // Content Block Types
 export type ContentBlock =
