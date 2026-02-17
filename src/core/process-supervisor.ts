@@ -1,5 +1,6 @@
 import { NoopLogger } from "../adapters/noop-logger.js";
 import { SlidingWindowBreaker } from "../adapters/sliding-window-breaker.js";
+import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { ProcessHandle, ProcessManager } from "../interfaces/process-manager.js";
@@ -40,11 +41,6 @@ export interface ProcessSupervisorOptions {
   };
   /** Threshold (ms): if a process exits faster than this, it counts as a crash. */
   crashThresholdMs?: number;
-}
-
-/** Coerce an unknown thrown value into an Error instance. */
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }
 
 /**
@@ -119,7 +115,7 @@ export abstract class ProcessSupervisor<
     try {
       spawnArgs = this.buildSpawnArgs(sessionId, options);
     } catch (err) {
-      this.emitError(sessionId, `${errorSourcePrefix}:buildSpawnArgs`, toError(err));
+      this.emitError(sessionId, `${errorSourcePrefix}:buildSpawnArgs`, toBeamCodeError(err));
       return null;
     }
 
@@ -131,7 +127,7 @@ export abstract class ProcessSupervisor<
     try {
       proc = this.processManager.spawn(spawnArgs);
     } catch (spawnErr) {
-      this.emitError(sessionId, `${errorSourcePrefix}:spawn`, toError(spawnErr));
+      this.emitError(sessionId, `${errorSourcePrefix}:spawn`, toBeamCodeError(spawnErr));
       return null;
     }
 

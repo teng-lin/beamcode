@@ -12,6 +12,7 @@ import {
 import { join, normalize, resolve } from "node:path";
 import type { LauncherStateStorage, SessionStorage } from "../interfaces/storage.js";
 import type { PersistedSession } from "../types/session-state.js";
+import { CURRENT_SCHEMA_VERSION, migrateSession } from "./state-migrator.js";
 
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -129,6 +130,7 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
 
   saveSync(session: PersistedSession): void {
     try {
+      session.schemaVersion = CURRENT_SCHEMA_VERSION;
       this.atomicWrite(this.filePath(session.id), JSON.stringify(session));
     } catch (err) {
       // Log but don't crash — storage failures shouldn't kill sessions
@@ -139,7 +141,7 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
   load(sessionId: string): PersistedSession | null {
     try {
       const raw = readFileSync(this.filePath(sessionId), "utf-8");
-      return JSON.parse(raw) as PersistedSession;
+      return migrateSession(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -157,7 +159,8 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
         if (!SESSION_ID_PATTERN.test(sessionId)) continue;
         try {
           const raw = readFileSync(safeJoin(this.dir, file), "utf-8");
-          sessions.push(JSON.parse(raw));
+          const migrated = migrateSession(JSON.parse(raw));
+          if (migrated) sessions.push(migrated);
         } catch {
           // Skip corrupt files
         }

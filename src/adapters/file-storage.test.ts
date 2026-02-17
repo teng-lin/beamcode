@@ -448,6 +448,91 @@ describe("FileStorage", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Schema migration on load
+  // -----------------------------------------------------------------------
+
+  describe("schema migration on load", () => {
+    /** Create a v0 session JSON string (no schemaVersion field). */
+    function makeV0Session(id: string): string {
+      return JSON.stringify({
+        id,
+        state: {
+          session_id: id,
+          model: "test",
+          cwd: "/test",
+          tools: [],
+          permissionMode: "default",
+          claude_code_version: "1.0",
+          mcp_servers: [],
+          agents: [],
+          slash_commands: [],
+          skills: [],
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+          git_branch: "",
+          is_worktree: false,
+          repo_root: "",
+          git_ahead: 0,
+          git_behind: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+        },
+        messageHistory: [],
+      });
+    }
+
+    it("migrates unversioned sessions on load", () => {
+      writeFileSync(join(dir, `${VALID_UUID}.json`), makeV0Session(VALID_UUID));
+
+      const loaded = storage.load(VALID_UUID);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.schemaVersion).toBe(1);
+      expect(loaded!.pendingMessages).toEqual([]);
+      expect(loaded!.pendingPermissions).toEqual([]);
+    });
+
+    it("stamps schemaVersion on save", () => {
+      const session = makeSession(VALID_UUID);
+      storage.saveSync(session);
+
+      // Read raw file to check schemaVersion was stamped
+      const raw = JSON.parse(readFileSync(join(dir, `${VALID_UUID}.json`), "utf-8"));
+      expect(raw.schemaVersion).toBe(1);
+    });
+
+    it("migrates unversioned sessions in loadAll", () => {
+      writeFileSync(join(dir, `${VALID_UUID}.json`), makeV0Session(VALID_UUID));
+      writeFileSync(join(dir, `${VALID_UUID_2}.json`), makeV0Session(VALID_UUID_2));
+
+      const all = storage.loadAll();
+      expect(all).toHaveLength(2);
+      for (const session of all) {
+        expect(session.schemaVersion).toBe(1);
+      }
+    });
+
+    it("skips sessions that fail migration in loadAll", () => {
+      // Write a valid session
+      storage.saveSync(makeSession(VALID_UUID));
+      // Write a session with a future schema version (unmigrateable)
+      writeFileSync(
+        join(dir, `${VALID_UUID_2}.json`),
+        JSON.stringify({
+          id: VALID_UUID_2,
+          state: { session_id: VALID_UUID_2 },
+          schemaVersion: 999,
+        }),
+      );
+
+      const all = storage.loadAll();
+      expect(all).toHaveLength(1);
+      expect(all[0].id).toBe(VALID_UUID);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Error handling (atomic write failures)
   // -----------------------------------------------------------------------
 

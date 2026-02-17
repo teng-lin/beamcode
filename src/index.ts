@@ -13,6 +13,9 @@ export { NoopLogger } from "./adapters/noop-logger.js";
 export { PtyCommandRunner } from "./adapters/pty-command-runner.js";
 export type { SdkUrlLauncherOptions } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
+export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
+export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
+export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";
 export { CLILauncher } from "./core/cli-launcher.js";
 export type {
   BackendAdapter,
@@ -82,7 +85,6 @@ export {
   isToolUseContent,
   isUnifiedMessage,
 } from "./core/types/unified-message.js";
-
 // Daemon
 export type { CreateSessionOptions, DaemonSessionInfo } from "./daemon/child-process-supervisor.js";
 export { ChildProcessSupervisor } from "./daemon/child-process-supervisor.js";
@@ -95,6 +97,14 @@ export { acquireLock, isLockStale, releaseLock } from "./daemon/lock-file.js";
 export { registerSignalHandlers } from "./daemon/signal-handler.js";
 export type { DaemonState } from "./daemon/state-file.js";
 export { readState, updateHeartbeat, writeState } from "./daemon/state-file.js";
+// Errors
+export {
+  BeamCodeError,
+  errorMessage,
+  ProcessError,
+  StorageError,
+  toBeamCodeError,
+} from "./errors.js";
 // Interfaces
 export type {
   AuthContext,
