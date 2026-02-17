@@ -8,7 +8,9 @@ import {
   authContext,
   createTestSocket as createMockSocket,
   makeInitMsg,
+  makeResultMsg,
   makeStatusMsg,
+  makeStreamEventMsg,
   noopLogger,
 } from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
@@ -46,6 +48,19 @@ function setupSession(bridge: SessionBridge) {
 /** Simulate a status change coming from the CLI (via handleCLIMessage). */
 function simulateStatusChange(bridge: SessionBridge, sessionId: string, status: string | null) {
   bridge.handleCLIMessage(sessionId, makeStatusMsg({ status }));
+}
+
+/** Simulate the CLI starting a response (stream_event message_start). */
+function simulateMessageStart(bridge: SessionBridge, sessionId: string) {
+  bridge.handleCLIMessage(
+    sessionId,
+    makeStreamEventMsg({ event: { type: "message_start" }, parent_tool_use_id: null }),
+  );
+}
+
+/** Simulate the CLI completing a turn (result message). */
+function simulateResult(bridge: SessionBridge, sessionId: string) {
+  bridge.handleCLIMessage(sessionId, makeResultMsg());
 }
 
 /** Parse all JSON messages sent to a socket and return them. */
@@ -427,6 +442,108 @@ describe("SessionBridge — message queue handlers", () => {
       // With images, content is an array of content blocks
       expect(Array.isArray(userMsg.message.content)).toBe(true);
       expect(userMsg.message.content.some((b: any) => b.type === "image")).toBe(true);
+    });
+  });
+
+  // ── Realistic CLI flow (stream_event + result) ──────────────────────────
+
+  describe("queue with realistic CLI flow (message_start / result)", () => {
+    it("queues message when CLI is streaming (message_start sets running)", () => {
+      const { consumerSocket } = setupSession(bridge);
+
+      // Simulate the CLI starting a response — this is what the real CLI does
+      // instead of sending status_change "running"
+      simulateMessageStart(bridge, "sess-1");
+      consumerSocket.sentMessages.length = 0;
+
+      // Queue a message while running
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "queue_message", content: "queued via stream" }),
+      );
+
+      const queued = findMessage(consumerSocket, "message_queued");
+      expect(queued).toBeDefined();
+      expect(queued.content).toBe("queued via stream");
+    });
+
+    it("auto-sends queued message when CLI sends result", () => {
+      const { cliSocket, consumerSocket } = setupSession(bridge);
+
+      // CLI starts streaming
+      simulateMessageStart(bridge, "sess-1");
+      consumerSocket.sentMessages.length = 0;
+
+      // Queue a message while running
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "queue_message", content: "send on idle" }),
+      );
+      cliSocket.sentMessages.length = 0;
+      consumerSocket.sentMessages.length = 0;
+
+      // CLI finishes — result triggers auto-send
+      simulateResult(bridge, "sess-1");
+
+      // Should have broadcast queued_message_sent
+      const sent = findMessage(consumerSocket, "queued_message_sent");
+      expect(sent).toBeDefined();
+
+      // Should have forwarded to CLI as user message
+      const sentToCli = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
+      expect(
+        sentToCli.some((m: any) => m.type === "user" && m.message.content === "send on idle"),
+      ).toBe(true);
+    });
+
+    it("sends immediately when CLI is idle (no message_start)", () => {
+      const { cliSocket, consumerSocket } = setupSession(bridge);
+
+      // No message_start — session is idle (lastStatus is null after init)
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "queue_message", content: "idle text" }),
+      );
+
+      // Should have sent to CLI immediately
+      const sentToCli = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
+      expect(
+        sentToCli.some((m: any) => m.type === "user" && m.message.content === "idle text"),
+      ).toBe(true);
+
+      // Should NOT have broadcast message_queued
+      expect(findMessage(consumerSocket, "message_queued")).toBeUndefined();
+    });
+
+    it("does not set running from subagent message_start", () => {
+      const { cliSocket, consumerSocket } = setupSession(bridge);
+
+      // Simulate a subagent message_start (has parent_tool_use_id)
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeStreamEventMsg({
+          event: { type: "message_start" },
+          parent_tool_use_id: "tool-123",
+        }),
+      );
+
+      // Status should still be null/idle — queue_message should send immediately
+      bridge.handleConsumerMessage(
+        consumerSocket,
+        "sess-1",
+        JSON.stringify({ type: "queue_message", content: "should be immediate" }),
+      );
+
+      const sentToCli = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
+      expect(
+        sentToCli.some(
+          (m: any) => m.type === "user" && m.message.content === "should be immediate",
+        ),
+      ).toBe(true);
+      expect(findMessage(consumerSocket, "message_queued")).toBeUndefined();
     });
   });
 });

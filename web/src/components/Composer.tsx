@@ -366,8 +366,9 @@ export function Composer({ sessionId }: ComposerProps) {
                 queuedMessage?.displayName,
               )}
               rows={3}
-              disabled={isObserver || (hasQueuedMessage && !isEditingQueue)}
-              className="min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isObserver || (hasQueuedMessage && !isOwnQueue && !isEditingQueue)}
+              readOnly={isOwnQueue && !isEditingQueue}
+              className={`min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50${isOwnQueue && !isEditingQueue ? " cursor-default opacity-50" : ""}`}
               aria-label="Message input"
             />
             {argumentHint && (

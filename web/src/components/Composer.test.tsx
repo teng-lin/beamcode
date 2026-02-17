@@ -73,9 +73,24 @@ describe("Composer", () => {
     expect(textarea).toHaveValue("");
   });
 
-  it("shows interrupt button when session is running", () => {
+  it("shows send button (queue mode) when session is running without a queued message", () => {
     store().ensureSessionData(SESSION);
     store().setSessionStatus(SESSION, "running");
+    render(<Composer sessionId={SESSION} />);
+
+    expect(screen.getByLabelText("Send message")).toBeInTheDocument();
+  });
+
+  it("shows interrupt button when session is running and a message is queued", () => {
+    store().ensureSessionData(SESSION);
+    store().setSessionStatus(SESSION, "running");
+    store().setIdentity(SESSION, { userId: "u1", displayName: "User 1", role: "participant" });
+    store().setQueuedMessage(SESSION, {
+      consumerId: "u1",
+      displayName: "User 1",
+      content: "queued text",
+      queuedAt: Date.now(),
+    });
     render(<Composer sessionId={SESSION} />);
 
     expect(screen.getByLabelText("Interrupt")).toBeInTheDocument();
@@ -390,6 +405,92 @@ describe("Composer", () => {
 
       await user.type(screen.getByLabelText("Message input"), "/config ");
       expect(screen.getByText("[key]")).toBeInTheDocument();
+    });
+  });
+
+  // ── Queue message editing ──────────────────────────────────────────
+
+  describe("queue message editing", () => {
+    function setupQueue() {
+      store().ensureSessionData(SESSION);
+      store().setSessionStatus(SESSION, "running");
+      store().setIdentity(SESSION, { userId: "u1", displayName: "User 1", role: "participant" });
+      store().setQueuedMessage(SESSION, {
+        consumerId: "u1",
+        displayName: "User 1",
+        content: "queued text",
+        queuedAt: Date.now(),
+      });
+    }
+
+    it("makes textarea readOnly (not disabled) when own queue message exists", () => {
+      setupQueue();
+      render(<Composer sessionId={SESSION} />);
+
+      const textarea = screen.getByLabelText("Message input");
+      expect(textarea).not.toBeDisabled();
+      expect(textarea).toHaveAttribute("readonly");
+    });
+
+    it("disables textarea when another user has a queued message", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionStatus(SESSION, "running");
+      store().setIdentity(SESSION, { userId: "u2", displayName: "User 2", role: "participant" });
+      store().setQueuedMessage(SESSION, {
+        consumerId: "u1",
+        displayName: "User 1",
+        content: "someone else queued",
+        queuedAt: Date.now(),
+      });
+      render(<Composer sessionId={SESSION} />);
+
+      expect(screen.getByLabelText("Message input")).toBeDisabled();
+    });
+
+    it("populates textarea with queued content on ArrowUp", async () => {
+      const user = userEvent.setup();
+      setupQueue();
+      render(<Composer sessionId={SESSION} />);
+
+      const textarea = screen.getByLabelText("Message input");
+      await user.click(textarea);
+      await user.keyboard("{ArrowUp}");
+
+      expect(textarea).toHaveValue("queued text");
+    });
+
+    it("sends update_queued_message when editing and submitting", async () => {
+      const user = userEvent.setup();
+      setupQueue();
+      render(<Composer sessionId={SESSION} />);
+
+      const textarea = screen.getByLabelText("Message input");
+      await user.click(textarea);
+      await user.keyboard("{ArrowUp}");
+
+      // Now in editing mode — clear and type new content
+      await user.clear(textarea);
+      await user.type(textarea, "updated text{Enter}");
+
+      expect(send).toHaveBeenCalledWith(
+        { type: "update_queued_message", content: "updated text" },
+        SESSION,
+      );
+    });
+
+    it("sends cancel_queued_message when editing and submitting empty", async () => {
+      const user = userEvent.setup();
+      setupQueue();
+      render(<Composer sessionId={SESSION} />);
+
+      const textarea = screen.getByLabelText("Message input");
+      await user.click(textarea);
+      await user.keyboard("{ArrowUp}");
+
+      await user.clear(textarea);
+      await user.keyboard("{Enter}");
+
+      expect(send).toHaveBeenCalledWith({ type: "cancel_queued_message" }, SESSION);
     });
   });
 });

@@ -624,7 +624,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private routeCLIMessage(session: Session, msg: CLIMessage): void {
     const unified = translateCLI(msg);
     if (!unified) {
-      if (msg.type !== "keep_alive") {
+      if (msg.type !== "keep_alive" && msg.type !== "user") {
         this.logger.warn(`Unrecognized CLI message type "${msg.type}" in session ${session.id}`);
       }
       return;
@@ -1446,6 +1446,20 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.broadcaster.broadcast(session, consumerMsg);
     this.persistSession(session);
 
+    // Mark session idle — the CLI only sends status_change for "compacting" | null,
+    // so the bridge must infer "idle" from result messages (mirrors frontend logic).
+    session.lastStatus = "idle";
+
+    // Auto-send queued message now that the turn is complete
+    if (session.queuedMessage) {
+      const queued = session.queuedMessage;
+      session.queuedMessage = null;
+      this.broadcaster.broadcast(session, { type: "queued_message_sent" });
+      this.sendUserMessage(session.id, queued.content, {
+        images: queued.images,
+      });
+    }
+
     // Trigger auto-naming after first turn
     const numTurns = (m.num_turns as number) ?? 0;
     const isError = (m.is_error as boolean) ?? false;
@@ -1462,6 +1476,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   private handleUnifiedStreamEvent(session: Session, msg: UnifiedMessage): void {
     const m = msg.metadata;
+    const event = m.event as { type?: string } | undefined;
+
+    // Derive "running" status from message_start (main session only).
+    // The CLI only sends status_change for "compacting" | null — it never
+    // reports "running", so the bridge must infer it from stream events.
+    if (event?.type === "message_start" && !m.parent_tool_use_id) {
+      session.lastStatus = "running";
+    }
+
     this.broadcaster.broadcast(session, {
       type: "stream_event",
       event: m.event,
