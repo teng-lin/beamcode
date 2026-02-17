@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ResultData } from "../../../shared/consumer-types";
-import { formatCost, formatDuration, formatTokens } from "../utils/format";
+import { formatCost, formatTokens } from "../utils/format";
 import { ResultBanner } from "./ResultBanner";
 
 function makeResult(overrides?: Partial<ResultData>): ResultData {
@@ -39,7 +39,7 @@ describe("ResultBanner", () => {
   it("displays formatted duration", () => {
     const data = makeResult({ duration_ms: 5000 });
     render(<ResultBanner data={data} />);
-    expect(screen.getByText(formatDuration(5000))).toBeInTheDocument();
+    expect(screen.getByText(/5\.0s/)).toBeInTheDocument();
   });
 
   it("displays formatted cost", () => {
@@ -84,5 +84,45 @@ describe("ResultBanner", () => {
       <ResultBanner data={makeResult({ is_error: true, subtype: "error_during_execution" })} />,
     );
     expect(container.firstChild).toHaveClass("bg-bc-error/5");
+  });
+
+  // ── Latency breakdown ─────────────────────────────────────────────────
+
+  it("renders API breakdown when duration_api_ms is present", () => {
+    render(<ResultBanner data={makeResult({ duration_ms: 2300, duration_api_ms: 1900 })} />);
+    expect(screen.getByText(/API/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.9s/)).toBeInTheDocument();
+  });
+
+  it("omits API breakdown when duration_api_ms is 0", () => {
+    render(<ResultBanner data={makeResult({ duration_ms: 2300, duration_api_ms: 0 })} />);
+    expect(screen.queryByText(/API/)).not.toBeInTheDocument();
+  });
+
+  it("omits API breakdown when duration_api_ms is absent", () => {
+    render(
+      <ResultBanner
+        data={makeResult({ duration_ms: 2300, duration_api_ms: undefined as unknown as number })}
+      />,
+    );
+    expect(screen.queryByText(/API/)).not.toBeInTheDocument();
+  });
+
+  it("highlights slow turns (> 5s) with warning color", () => {
+    const { container } = render(<ResultBanner data={makeResult({ duration_ms: 6000 })} />);
+    const durationEl = container.querySelector(".text-bc-warning");
+    expect(durationEl).toBeInTheDocument();
+  });
+
+  it("does not highlight fast turns (< 5s)", () => {
+    const { container } = render(<ResultBanner data={makeResult({ duration_ms: 3000 })} />);
+    const durationEl = container.querySelector(".text-bc-warning");
+    expect(durationEl).not.toBeInTheDocument();
+  });
+
+  it("handles clock skew (api_ms > duration_ms) by clamping", () => {
+    render(<ResultBanner data={makeResult({ duration_ms: 2000, duration_api_ms: 3000 })} />);
+    // Should show API time clamped to duration_ms
+    expect(screen.getByText(/API 2\.0s/)).toBeInTheDocument();
   });
 });

@@ -368,6 +368,22 @@ describe("TaskPanel", () => {
       expect(screen.queryByText(/cache/i)).not.toBeInTheDocument();
     });
 
+    it("does not show model usage when absent", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText("Model Usage")).not.toBeInTheDocument();
+    });
+
     it("shows per-model cost formatted", () => {
       store().ensureSessionData(SESSION);
       store().setSessionState(SESSION, {
@@ -396,6 +412,153 @@ describe("TaskPanel", () => {
       // Total cost: $0.150, per-model cost: $0.050
       expect(screen.getByText("$0.150")).toBeInTheDocument();
       expect(screen.getByText("$0.050")).toBeInTheDocument();
+    });
+  });
+
+  // ── Presence ─────────────────────────────────────────────────────────
+
+  describe("presence", () => {
+    it("does not render presence section when no presence data", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText(/Connected Users/)).not.toBeInTheDocument();
+    });
+
+    it("renders presence section with users and roles", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      store().setPresence(SESSION, [
+        { userId: "u1", displayName: "Alice", role: "participant" },
+        { userId: "u2", displayName: "Bob", role: "observer" },
+      ]);
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("Connected Users (2)")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Bob")).toBeInTheDocument();
+      expect(screen.getByText("participant")).toBeInTheDocument();
+      expect(screen.getByText("observer")).toBeInTheDocument();
+    });
+  });
+
+  // ── MCP servers ──────────────────────────────────────────────────────
+
+  describe("MCP servers", () => {
+    it("does not render MCP section when mcp_servers is absent", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText(/MCP Servers/)).not.toBeInTheDocument();
+    });
+
+    it("does not render MCP section when mcp_servers is empty", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        mcp_servers: [],
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+      expect(screen.queryByText(/MCP Servers/)).not.toBeInTheDocument();
+    });
+
+    it("renders MCP servers with correct status", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        mcp_servers: [
+          { name: "context7", status: "connected" },
+          { name: "postgres", status: "failed" },
+        ],
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("MCP Servers (2)")).toBeInTheDocument();
+      expect(screen.getByText("context7")).toBeInTheDocument();
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+      expect(screen.getByText("postgres")).toBeInTheDocument();
+      expect(screen.getByText("Failed")).toBeInTheDocument();
+    });
+
+    it("shows capitalized status for unknown status values", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        mcp_servers: [{ name: "custom-server", status: "initializing" }],
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      expect(screen.getByText("Initializing")).toBeInTheDocument();
+    });
+
+    it("renders as a details element that defaults to open", () => {
+      store().ensureSessionData(SESSION);
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-3-opus",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        mcp_servers: [{ name: "context7", status: "connected" }],
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      const summary = screen.getByText("MCP Servers (1)");
+      const details = summary.closest("details");
+      expect(details).not.toBeNull();
+      expect(details).toHaveAttribute("open");
+      expect(screen.getByText("context7")).toBeInTheDocument();
     });
   });
 });

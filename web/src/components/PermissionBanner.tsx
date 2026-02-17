@@ -55,6 +55,8 @@ function toolPreview(name: string, input: Record<string, unknown>): ReactNode {
 
 export function PermissionBanner({ sessionId }: PermissionBannerProps) {
   const permissions = useStore((s) => s.sessionData[sessionId]?.pendingPermissions);
+  const identityRole = useStore((s) => s.sessionData[sessionId]?.identity?.role ?? null);
+  const isObserver = identityRole !== null && identityRole !== "participant";
 
   const handleResponse = useCallback(
     (requestId: string, behavior: "allow" | "deny") => {
@@ -81,7 +83,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
       role="alert"
       aria-label="Permission requests"
     >
-      {permList.length > 1 && (
+      {permList.length > 1 && !isObserver && (
         <div className="flex items-center justify-between border-b border-bc-border bg-bc-surface-2/50 px-4 py-2">
           <span className="text-xs text-bc-text-muted">{permList.length} pending permissions</span>
           <button
@@ -124,24 +126,26 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps) {
 
           {toolPreview(perm.tool_name, perm.input)}
 
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => handleResponse(perm.request_id, "allow")}
-              className="rounded-lg bg-bc-success/20 px-4 py-1.5 text-xs font-medium text-bc-success transition-colors hover:bg-bc-success/30"
-              aria-label={`Approve ${perm.tool_name}: ${perm.description ?? ""}`}
-            >
-              Allow
-            </button>
-            <button
-              type="button"
-              onClick={() => handleResponse(perm.request_id, "deny")}
-              className="rounded-lg bg-bc-error/20 px-4 py-1.5 text-xs font-medium text-bc-error transition-colors hover:bg-bc-error/30"
-              aria-label={`Deny ${perm.tool_name}: ${perm.description ?? ""}`}
-            >
-              Deny
-            </button>
-          </div>
+          {!isObserver && (
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => handleResponse(perm.request_id, "allow")}
+                className="rounded-lg bg-bc-success/20 px-4 py-1.5 text-xs font-medium text-bc-success transition-colors hover:bg-bc-success/30"
+                aria-label={`Approve ${perm.tool_name}: ${perm.description ?? ""}`}
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                onClick={() => handleResponse(perm.request_id, "deny")}
+                className="rounded-lg bg-bc-error/20 px-4 py-1.5 text-xs font-medium text-bc-error transition-colors hover:bg-bc-error/30"
+                aria-label={`Deny ${perm.tool_name}: ${perm.description ?? ""}`}
+              >
+                Deny
+              </button>
+            </div>
+          )}
         </div>
       ))}
     </div>

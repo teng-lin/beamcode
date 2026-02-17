@@ -177,6 +177,18 @@ function handleMessage(sessionId: string, data: string): void {
     case "session_name_update":
       store.updateSession(sessionId, { name: msg.name });
       break;
+
+    case "identity":
+      store.setIdentity(sessionId, {
+        userId: msg.userId,
+        displayName: msg.displayName,
+        role: msg.role,
+      });
+      break;
+
+    case "presence_update":
+      store.setPresence(sessionId, msg.consumers);
+      break;
   }
 }
 
@@ -228,6 +240,9 @@ export function connectToSession(sessionId: string): void {
     store.setConnectionStatus(sessionId, "disconnected");
     store.clearStreaming(sessionId);
     store.setSessionStatus(sessionId, "idle");
+    // Clear ephemeral per-connection state to avoid stale data on reconnect
+    store.setIdentity(sessionId, null);
+    store.setPresence(sessionId, []);
     connections.delete(sessionId);
     scheduleReconnect(sessionId);
   };

@@ -333,6 +333,33 @@ describe("Sidebar", () => {
       render(<Sidebar />);
       expect(screen.getByRole("img", { name: "Offline" })).toBeInTheDocument();
     });
+
+    it("shows exit code in tooltip when state is exited", () => {
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          cwd: "/tmp/proj",
+          createdAt: 1000,
+          state: "exited",
+          exitCode: 1,
+        }),
+      );
+      render(<Sidebar />);
+      expect(screen.getByRole("img", { name: "Exited (code 1)" })).toBeInTheDocument();
+    });
+
+    it("shows plain Exited label when no exit code", () => {
+      setupSessions(
+        makeSessionInfo({
+          sessionId: "s1",
+          cwd: "/tmp/proj",
+          createdAt: 1000,
+          state: "exited",
+        }),
+      );
+      render(<Sidebar />);
+      expect(screen.getByRole("img", { name: "Exited" })).toBeInTheDocument();
+    });
   });
 
   // ── formatTime ─────────────────────────────────────────────────────────

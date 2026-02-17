@@ -305,6 +305,49 @@ describe("PermissionBanner", () => {
     });
   });
 
+  // ── Observer mode ──────────────────────────────────────────────────────
+
+  describe("observer mode", () => {
+    it("hides Allow/Deny buttons when identity role is observer", () => {
+      store().setIdentity(SESSION_ID, { userId: "u1", displayName: "Bob", role: "observer" });
+      renderWithPermission(makePermission());
+
+      expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /deny/i })).not.toBeInTheDocument();
+    });
+
+    it("hides Allow All when observer with multiple permissions", () => {
+      store().setIdentity(SESSION_ID, { userId: "u1", displayName: "Bob", role: "observer" });
+      renderWithPermission(
+        makePermission({ request_id: "req-1", tool_use_id: "tu-1" }),
+        makePermission({
+          request_id: "req-2",
+          tool_use_id: "tu-2",
+          tool_name: "Edit",
+          input: { file_path: "/tmp/a.ts", old_string: "a", new_string: "b" },
+        }),
+      );
+
+      expect(screen.queryByRole("button", { name: /allow all/i })).not.toBeInTheDocument();
+    });
+
+    it("still shows permission previews for observers (read-only view)", () => {
+      store().setIdentity(SESSION_ID, { userId: "u1", displayName: "Bob", role: "observer" });
+      renderWithPermission(makePermission({ tool_name: "Bash", input: { command: "echo hi" } }));
+
+      expect(screen.getByText("Bash")).toBeInTheDocument();
+      expect(screen.getByText("$ echo hi")).toBeInTheDocument();
+    });
+
+    it("shows buttons when role is participant", () => {
+      store().setIdentity(SESSION_ID, { userId: "u1", displayName: "Alice", role: "participant" });
+      renderWithPermission(makePermission());
+
+      expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
+    });
+  });
+
   // ── Permission without description ─────────────────────────────────────
 
   describe("permission without description", () => {

@@ -270,4 +270,103 @@ describe("TopBar", () => {
     render(<TopBar />);
     expect(screen.queryByLabelText("Team")).not.toBeInTheDocument();
   });
+
+  // ── Observer badge ──────────────────────────────────────────────────
+
+  describe("observer badge", () => {
+    it("shows Observer badge when identity role is observer", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<TopBar />);
+      expect(screen.getByText("Observer")).toBeInTheDocument();
+    });
+
+    it("does not show Observer badge when role is participant", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Alice", role: "participant" });
+      render(<TopBar />);
+      expect(screen.queryByText("Observer")).not.toBeInTheDocument();
+    });
+
+    it("does not show Observer badge when no identity", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      render(<TopBar />);
+      expect(screen.queryByText("Observer")).not.toBeInTheDocument();
+    });
+
+    it("model picker is not clickable for observers", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      store().setCapabilities(SESSION, {
+        commands: [],
+        models: [
+          { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+          { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+        ],
+        skills: [],
+      });
+      render(<TopBar />);
+      const modelText = screen.getByText("claude-sonnet-4-20250514");
+      expect(modelText.closest("button")).toBeNull();
+    });
+  });
+
+  // ── Permission mode badge ──────────────────────────────────────────
+
+  describe("permission mode badge", () => {
+    it("shows Auto-Allow badge for bypassPermissions mode", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        permissionMode: "bypassPermissions",
+      });
+      render(<TopBar />);
+      expect(screen.getByText("Auto-Allow")).toBeInTheDocument();
+    });
+
+    it("shows Plan badge for plan mode", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        permissionMode: "plan",
+      });
+      render(<TopBar />);
+      expect(screen.getByText("Plan")).toBeInTheDocument();
+    });
+
+    it("hides badge for default mode", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        permissionMode: "default",
+      });
+      render(<TopBar />);
+      expect(screen.queryByText("Auto-Allow")).not.toBeInTheDocument();
+      expect(screen.queryByText("Plan")).not.toBeInTheDocument();
+    });
+
+    it("hides badge when permissionMode is undefined", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      render(<TopBar />);
+      expect(screen.queryByText("Auto-Allow")).not.toBeInTheDocument();
+    });
+  });
 });

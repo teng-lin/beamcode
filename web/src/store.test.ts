@@ -375,6 +375,65 @@ describe("store", () => {
     });
   });
 
+  describe("identity", () => {
+    it("setIdentity stores identity", () => {
+      store().ensureSessionData(SESSION_ID);
+      store().setIdentity(SESSION_ID, {
+        userId: "user-1",
+        displayName: "Alice",
+        role: "participant",
+      });
+      expect(store().sessionData[SESSION_ID].identity).toEqual({
+        userId: "user-1",
+        displayName: "Alice",
+        role: "participant",
+      });
+    });
+
+    it("setIdentity clears identity when null", () => {
+      store().ensureSessionData(SESSION_ID);
+      store().setIdentity(SESSION_ID, {
+        userId: "user-1",
+        displayName: "Alice",
+        role: "observer",
+      });
+      store().setIdentity(SESSION_ID, null);
+      expect(store().sessionData[SESSION_ID].identity).toBeNull();
+    });
+
+    it("identity defaults to null in new session data", () => {
+      store().ensureSessionData(SESSION_ID);
+      expect(store().sessionData[SESSION_ID].identity).toBeNull();
+    });
+  });
+
+  describe("presence", () => {
+    it("setPresence stores consumers", () => {
+      store().ensureSessionData(SESSION_ID);
+      store().setPresence(SESSION_ID, [
+        { userId: "u1", displayName: "Alice", role: "participant" },
+        { userId: "u2", displayName: "Bob", role: "observer" },
+      ]);
+      expect(store().sessionData[SESSION_ID].presence).toHaveLength(2);
+      expect(store().sessionData[SESSION_ID].presence[0].displayName).toBe("Alice");
+    });
+
+    it("setPresence replaces previous presence", () => {
+      store().ensureSessionData(SESSION_ID);
+      store().setPresence(SESSION_ID, [
+        { userId: "u1", displayName: "Alice", role: "participant" },
+      ]);
+      store().setPresence(SESSION_ID, [{ userId: "u2", displayName: "Bob", role: "observer" }]);
+      expect(store().sessionData[SESSION_ID].presence).toHaveLength(1);
+      expect(store().sessionData[SESSION_ID].presence[0].displayName).toBe("Bob");
+    });
+
+    it("presence defaults to empty array in new session data", () => {
+      store().ensureSessionData(SESSION_ID);
+      expect(store().sessionData[SESSION_ID].presence).toEqual([]);
+    });
+  });
+
   describe("localStorage persistence", () => {
     beforeEach(() => {
       localStorage.removeItem("beamcode_dark_mode");

@@ -1,5 +1,9 @@
 import { memo } from "react";
-import type { ConsumerTeamMember, ConsumerTeamTask } from "../../../shared/consumer-types";
+import type {
+  ConsumerRole,
+  ConsumerTeamMember,
+  ConsumerTeamTask,
+} from "../../../shared/consumer-types";
 import { useStore } from "../store";
 import { downloadFile, exportAsJson, exportAsMarkdown } from "../utils/export";
 import { formatCost, formatTokens } from "../utils/format";
@@ -84,17 +88,86 @@ const TeamTaskItem = memo(function TeamTaskItem({ task }: { task: ConsumerTeamTa
   );
 });
 
+const ROLE_BADGE_STYLES: Record<ConsumerRole, string> = {
+  owner: "bg-bc-accent/20 text-bc-accent",
+  operator: "bg-bc-accent/10 text-bc-accent/70",
+  participant: "bg-bc-success/20 text-bc-success",
+  observer: "bg-bc-text-muted/20 text-bc-text-muted",
+};
+
+function PresenceSection({
+  consumers,
+}: {
+  consumers: Array<{ userId: string; displayName: string; role: ConsumerRole }>;
+}) {
+  if (consumers.length === 0) return null;
+  return (
+    <div className="mb-5">
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+        Connected Users ({consumers.length})
+      </div>
+      {consumers.map((c) => (
+        <div key={c.userId} className="flex items-center gap-2 py-1">
+          <span className="truncate text-xs text-bc-text">{c.displayName}</span>
+          <span
+            className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${ROLE_BADGE_STYLES[c.role] ?? ROLE_BADGE_STYLES.observer}`}
+          >
+            {c.role}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const MCP_STATUS_STYLES: Record<string, { dot: string; label: string }> = {
+  connected: { dot: "bg-bc-success", label: "Connected" },
+  failed: { dot: "bg-bc-error", label: "Failed" },
+};
+const MCP_STATUS_DEFAULT = { dot: "bg-bc-warning", label: "" };
+
+function McpServersSection({ servers }: { servers: { name: string; status: string }[] }) {
+  if (servers.length === 0) return null;
+  return (
+    <details className="mb-5" open>
+      <summary className="mb-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
+        MCP Servers ({servers.length})
+      </summary>
+      {servers.map((s) => {
+        const style = MCP_STATUS_STYLES[s.status] ?? MCP_STATUS_DEFAULT;
+        const label = style.label || s.status.charAt(0).toUpperCase() + s.status.slice(1);
+        return (
+          <div key={s.name} className="flex items-center gap-2 py-1">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
+            <span className="truncate text-xs text-bc-text">{s.name}</span>
+            <span className="ml-auto text-[10px] text-bc-text-muted">{label}</span>
+          </div>
+        );
+      })}
+    </details>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function TaskPanel() {
   const currentSessionId = useStore((s) => s.currentSessionId);
-  const sessionData = useStore((s) =>
-    s.currentSessionId ? s.sessionData[s.currentSessionId] : null,
+  const state = useStore((s) =>
+    s.currentSessionId ? s.sessionData[s.currentSessionId]?.state : null,
+  );
+  const presence = useStore((s) =>
+    s.currentSessionId ? s.sessionData[s.currentSessionId]?.presence : null,
+  );
+  const messages = useStore((s) =>
+    s.currentSessionId ? s.sessionData[s.currentSessionId]?.messages : null,
   );
 
-  if (!currentSessionId || !sessionData) return null;
+  const hasSession = useStore((s) =>
+    s.currentSessionId ? s.currentSessionId in s.sessionData : false,
+  );
 
-  const state = sessionData.state;
+  if (!currentSessionId || !hasSession) return null;
+
   const team = state?.team ?? null;
   const cost = state?.total_cost_usd ?? 0;
   const turns = state?.num_turns ?? 0;
@@ -106,10 +179,9 @@ export function TaskPanel() {
     visibleTasks.length > 0 ? Math.round((completedCount / visibleTasks.length) * 100) : 0;
 
   const handleExport = (format: "json" | "markdown") => {
+    if (!messages) return;
     const isJson = format === "json";
-    const content = isJson
-      ? exportAsJson(sessionData.messages)
-      : exportAsMarkdown(sessionData.messages);
+    const content = isJson ? exportAsJson(messages) : exportAsMarkdown(messages);
     const ext = isJson ? "json" : "md";
     const mime = isJson ? "application/json" : "text/markdown";
     downloadFile(content, `beamcode-session-${currentSessionId}.${ext}`, mime);
@@ -209,9 +281,12 @@ export function TaskPanel() {
           </div>
         )}
 
+        {/* Connected users */}
+        {presence && presence.length > 0 && <PresenceSection consumers={presence} />}
+
         {/* Model usage breakdown */}
         {state?.last_model_usage && (
-          <div>
+          <div className="mb-5">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-bc-text-muted/70">
               Model Usage
             </div>
@@ -220,6 +295,9 @@ export function TaskPanel() {
             ))}
           </div>
         )}
+
+        {/* MCP servers */}
+        {state?.mcp_servers && <McpServersSection servers={state.mcp_servers} />}
 
         {/* Export */}
         <div className="mt-5 border-t border-bc-border/40 pt-4">

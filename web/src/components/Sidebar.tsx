@@ -28,10 +28,16 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
 
 const STATUS_DEFAULT = { dot: "border border-bc-text-muted/50", label: "Offline" };
 
-function StatusDot({ status }: { status: string | null }) {
+function StatusDot({ status, exitCode }: { status: string | null; exitCode?: number | null }) {
   const { dot, label } = (status ? STATUS_STYLES[status] : null) ?? STATUS_DEFAULT;
+  const tooltip = status === "exited" && exitCode != null ? `${label} (code ${exitCode})` : label;
   return (
-    <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`} role="img" aria-label={label} />
+    <span
+      className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`}
+      role="img"
+      aria-label={tooltip}
+      title={tooltip}
+    />
   );
 }
 
@@ -138,7 +144,7 @@ const SessionItem = memo(function SessionItem({
           </button>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-bc-text-muted/70">
-          <StatusDot status={status} />
+          <StatusDot status={status} exitCode={info.exitCode} />
           <span>{formatTime(info.createdAt)}</span>
         </div>
       </div>

@@ -26,7 +26,10 @@ export function Composer({ sessionId }: ComposerProps) {
   const slashMenuRef = useRef<SlashMenuHandle>(null);
   const sessionStatus = useStore((s) => s.sessionData[sessionId]?.sessionStatus);
   const capabilities = useStore((s) => s.sessionData[sessionId]?.capabilities);
+  const identityRole = useStore((s) => s.sessionData[sessionId]?.identity?.role ?? null);
   const isRunning = sessionStatus === "running";
+  // Deny-by-default: if identity arrived and role is not participant, it's read-only
+  const isObserver = identityRole !== null && identityRole !== "participant";
 
   // O(1) lookup map for argument hints, keyed by normalized command name (with leading slash)
   const hintMap = useMemo(() => {
@@ -248,9 +251,16 @@ export function Composer({ sessionId }: ComposerProps) {
               onChange={handleChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={isRunning ? "Press Enter or Esc to interrupt..." : "Message BeamCode..."}
+              placeholder={
+                isObserver
+                  ? "Observer mode \u2014 read-only"
+                  : isRunning
+                    ? "Press Enter or Esc to interrupt..."
+                    : "Message BeamCode..."
+              }
               rows={1}
-              className="min-h-[42px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-2.5 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none"
+              disabled={isObserver}
+              className="min-h-[42px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-2.5 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Message input"
             />
             {argumentHint && (
@@ -266,7 +276,7 @@ export function Composer({ sessionId }: ComposerProps) {
           <button
             type="button"
             onClick={isRunning ? handleInterrupt : handleSubmit}
-            disabled={!isRunning && !value.trim() && images.length === 0}
+            disabled={isObserver || (!isRunning && !value.trim() && images.length === 0)}
             className={`flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl transition-all ${
               isRunning
                 ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
