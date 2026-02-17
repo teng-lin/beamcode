@@ -1,8 +1,8 @@
 # UI Gap Analysis: Backend Capabilities Not Exposed in Frontend
 
-**Date**: 2026-02-16 (updated with competitive analysis + PR #23–#26 implementation audit)
-**Methodology**: 5-agent parallel review — session management, metrics/observability, process lifecycle, security/relay, and configuration/adapters + competitive analysis of Companion, Happy, and Halo UIs
-**Scope**: All `src/` backend capabilities vs. `web/` frontend coverage + competitor feature comparison
+**Date**: 2026-02-17 (updated with full competitive landscape — 25+ projects surveyed)
+**Methodology**: 5-agent parallel review — session management, metrics/observability, process lifecycle, security/relay, and configuration/adapters + competitive analysis of 25+ competitor UIs and platforms
+**Scope**: All `src/` backend capabilities vs. `web/` frontend coverage + comprehensive competitor feature comparison
 
 ---
 
@@ -16,19 +16,33 @@ BeamCode's backend is **production-grade** with sophisticated session management
 |--------|-----------------|-------------|-------------|
 | Core Chat (messaging, streaming, permissions) | 31 message types | ~95% | Low |
 | Session State (model, cost, context, git) | 25+ fields | **~95%** | **Low** |
-| Session Management (admin, archive, health) | 10 operational commands | **~70%** | **Medium** |
-| Observability (metrics, latency, errors) | 15 metric event types | **~40%** | **Medium** |
-| Process Lifecycle (circuit breaker, reconnect) | 22+ state dimensions | **~70%** | **Medium** |
-| Security (encryption, pairing, tunnels, roles) | 7 crypto modules + relay | **~25%** | **High** |
-| Configuration (adapters, settings, MCP) | 50+ config options, 4 adapters | **~40%** | **Medium** |
+| Session Management (admin, archive, health) | 10 operational commands | **~60%** | **Medium** |
+| Observability (metrics, latency, errors) | 15 metric event types | **~25%** | **High** |
+| Process Lifecycle (circuit breaker, reconnect) | 22+ state dimensions | ~10% | **Critical** |
+| Security (encryption, pairing, tunnels, roles) | 7 crypto modules + relay | ~0% | **Critical** |
+| Configuration (adapters, settings, MCP) | 50+ config options, 4 adapters | **~25%** | **High** |
 
-> **Note**: Coverage improved significantly in PRs #23–#25 (session management from 20%→60%, observability from 5%→25%, configuration from 5%→25%) and again in PR #26 (process lifecycle from 10%→70%, security from 0%→25%, observability from 25%→40%, configuration from 25%→40%). See "Shipped in PRs #23–#26" section below for details.
+> **Note**: Coverage improved significantly in PRs #23–#25 (session management from 20%→60%, observability from 5%→25%, configuration from 5%→25%). See "Shipped in PRs #23–#25" section below for details.
 
 ---
 
 ## Competitive Landscape
 
-Analysis of three competitor UIs — **The Companion**, **Happy**, and **Halo** — reveals features that validate several of our gap findings and surface new opportunities.
+The coding agent GUI market has **exploded** — 25+ active projects exist as of Feb 2026, most created in the last year. Analysis of direct competitors and the broader landscape reveals features that validate our gap findings and surface new opportunities.
+
+> **Key market insight**: Claude Code has the most GUI wrappers (15+) of any coding agent CLI. Multi-agent support is the emerging differentiator — single-agent GUIs are commoditized. Tauri 2 dominates desktop; web-first remains rare. BeamCode's web-first daemon architecture and protocol-level adapter abstraction remain unique.
+
+### Market Overview (25+ projects)
+
+| Tier | Projects | Stars Range | Description |
+|------|----------|-------------|-------------|
+| **Platforms** | OpenHands, Cline, Aider, Tabby, Continue | 31K–68K | Complete agents with built-in UI (set UX standards) |
+| **Major GUIs** | Opcode, CC-Switch, CloudCLI, Crystal, CUI, AiderDesk | 1K–21K | Dedicated GUI wrappers for coding agent CLIs |
+| **Notable** | OpenWork, claude-code-webui, claude-code-viewer, CCManager, Agentrooms, claude-run, Codexia, Agent Sessions | 250–10K | Smaller but differentiated projects |
+| **Niche** | Yume, sunpix/claude-code-web, vultuk/claude-code-web, claudeCO-webui, Codex-CLI-UI | <100 | Early-stage or single-purpose |
+| **Infrastructure** | claude-flow, AG-UI Protocol | 3K–14K | Orchestration frameworks and protocols |
+
+### Deep-Dive Competitors (directly relevant to BeamCode)
 
 ### The Companion
 
@@ -103,10 +117,123 @@ Open-source desktop application wrapping Claude Code agent for non-technical use
 - 8 Zustand stores (app, chat, space, canvas, search, onboarding, perf, ai-browser)
 - Uses `@anthropic-ai/claude-agent-sdk` directly (not CLI WebSocket bridge)
 
+### Opcode (formerly Claudia)
+
+The most-starred dedicated Claude Code GUI. Tauri 2 desktop app with React frontend and Rust backend. Built by Asterisk (YC-backed). AGPL-3.0 licensed. ~20.5K stars.
+
+**Key features observed:**
+- **OS-level sandboxing**: seccomp (Linux), macOS Seatbelt — enforces agent permissions at the OS level, not just UI
+- **Custom agent creation**: Define permission-scoped agents with different capabilities
+- **Checkpoint system**: Save/restore agent state mid-session
+- **Background agents**: Run agents without active UI focus
+- **Usage analytics**: Dashboard showing cost, tokens, session metrics
+- **MCP server management**: Full UI for configuring MCP servers
+- **Session management**: Persistence, archiving, history browsing
+
+**Architecture notes:**
+- Tauri 2 + React 18 + Rust backend + SQLite
+- Claude Code SDK / CLI subprocess connection
+- Native installers (macOS DMG, Windows MSI, Linux AppImage)
+
+### CC-Switch
+
+Cross-platform desktop all-in-one assistant supporting **4 coding agent CLIs**: Claude Code, Codex, OpenCode, AND Gemini CLI. ~18.5K stars. MIT licensed.
+
+**Key features observed:**
+- **4-agent provider management**: One-click switching between Claude Code, Codex, OpenCode, Gemini CLI
+- **Multi-endpoint API key management**: Configure multiple API keys per provider with speed testing
+- **Skills store ecosystem**: Marketplace for downloadable agent skills/presets
+- **System prompt presets**: Pre-configured system prompts for different workflows
+- **MCP server management**: Both stdio and HTTP/SSE MCP server support
+
+**Architecture notes:**
+- Tauri 2 + React + TypeScript
+- CLI subprocess for all 4 agents
+- Native installers including ARM64 Linux
+
+### CloudCLI (Claude Code UI)
+
+Web + mobile UI for Claude Code, Cursor CLI, and Codex. npm-distributed. ~6.3K stars. GPL-3.0.
+
+**Key features observed:**
+- **Mobile-first responsive design**: Strong mobile experience, usable on phones/tablets
+- **Multi-CLI support**: Claude Code + Cursor CLI + Codex via CLI subprocess
+- **Integrated shell terminal**: In-browser terminal access
+- **File explorer**: Browse workspace files
+- **Git explorer**: Visual git status and operations
+- **Remote session management**: Access sessions from other devices
+
+**Architecture notes:**
+- JavaScript, distributed as npm package (`@siteboon/claude-code-ui`)
+- CLI subprocess connection model
+
+### Crystal
+
+Electron desktop app focused on **parallel multi-session workflows** with git worktree isolation. ~2.9K stars. MIT licensed.
+
+**Key features observed:**
+- **Multi-session parallel execution**: Run multiple Claude Code + Codex sessions simultaneously
+- **Git worktree isolation**: Each session gets its own worktree — prevents file conflicts between parallel agents
+- **Built-in rebase/squash**: Merge worktree results back to main branch
+- **Diff viewing**: Compare changes across sessions
+- **AI session name generation**: Auto-generates descriptive session names
+- **Desktop notifications**: Native OS notifications on session completion
+
+**Architecture notes:**
+- Electron + TypeScript + SQLite
+- Claude Code CLI subprocess + git worktree orchestration
+
+### CUI (Common Agent UI)
+
+Web UI powered by Claude Code SDK with push notifications, dictation, and cron scheduling. ~1.1K stars. Apache-2.0.
+
+**Key features observed:**
+- **Cron scheduling**: Schedule agent tasks with cron expressions — unique feature
+- **Dictation**: Voice-to-text input via Gemini 2.5 Flash
+- **Push notifications**: Browser push on session completion/error
+- **Parallel background agents**: Stream multiple agents simultaneously
+- **Task forking/resuming/archiving**: Full task lifecycle management
+- **Auto-scan ~/.claude/ history**: Imports existing Claude Code sessions
+- **Stateless server design**: Kill/restart server without data loss
+
+**Architecture notes:**
+- React + Tailwind + Node.js
+- Claude Code SDK via stdio proxy (cui-server spawns processes)
+- npm / self-hosted distribution
+
+### Other Notable Projects
+
+| Project | Stars | Description | Unique Feature |
+|---------|-------|-------------|----------------|
+| **OpenWork** | 9,871 | Free Cowork alternative, wraps OpenCode engine (Tauri) | WhatsApp/Slack/Telegram connector; positions against $200/mo Cowork |
+| **CCManager** | 859 | CLI session manager for **8+ coding agents** | Broadest agent support (CC, Gemini, Codex, Cursor, Copilot, Cline, OpenCode, Kimi); devcontainer sandboxing; auto-approval |
+| **Agentrooms** | 775 | Multi-agent orchestration via @mentions (Electron) | Remote agent coordination across machines (Mac Mini, cloud); @mention-based routing |
+| **claude-code-webui** | 914 | Lightweight web interface (React + Node/Deno) | Supports both Deno and Node.js runtimes; almost entirely AI-written |
+| **claude-code-viewer** | 889 | Full-featured web client with zero info loss (Zod schemas) | Cron scheduling; web app preview panel; i18n (EN/JP/ZH) |
+| **claude-run** | 511 | Read-only session history viewer (by roadmap.sh author) | SSE streaming for live sessions; useful as debugging tool |
+| **Codexia** | 437 | Tauri GUI for Codex + Claude Code | PDF/CSV/XLSX preview; prompt notepad for reusable prompts |
+| **Agent Sessions** | 253 | Native macOS app for browsing 7+ agent sessions (Swift) | Rate limit tracking; analytics dashboard; broadest read-only support |
+| **Open Claude Cowork** | 3,065 | Composio-backed open Cowork alternative | 500+ SaaS app integrations via Composio platform |
+
+### AG-UI Protocol
+
+Open standard protocol by CopilotKit bridging any AI agent backend to any UI frontend via Server-Sent Events. Not a product but a protocol — could become the HTTP of agent-UI communication. Relevant to BeamCode's adapter architecture.
+
 ### Project Comparison
 
-| Dimension | BeamCode | Companion | Happy | Halo |
-|-----------|----------|-----------|-------|------|
+| Dimension | BeamCode | Companion | Happy | Halo | Opcode | CC-Switch |
+|-----------|----------|-----------|-------|------|--------|-----------|
+| Identity | Universal adapter library | Web application | Full-stack product | Desktop app (Electron) | Desktop app (Tauri) | Desktop app (Tauri) |
+| Scale | ~40K LOC | ~45K LOC | ~129K LOC | ~78K LOC | Unknown | Unknown |
+| Agents supported | 25+ (4 adapters) | 2 | 3 | 1 (SDK) + multi-provider | 1 (Claude Code) | 4 (CC+Codex+OC+Gemini) |
+| Runtime | Node.js ≥ 22 | Bun | Node.js ≥ 20 | Electron 28 | Tauri 2 (Rust) | Tauri 2 |
+| Database | JSON files | JSON files | PostgreSQL + Redis | JSON files | SQLite | Unknown |
+| Encryption | libsodium (relay) | None | libsodium + tweetnacl | None | OS-level sandbox | None |
+| Agent protocol | BackendAdapter interface | Inline ws-bridge | Inline per-agent | SDK direct | SDK / CLI subprocess | CLI subprocess |
+| Monitoring | None | PostHog | Prometheus | GA4 (optional) | Usage analytics | None |
+| Distribution | npm / web | npm | npm | Native (DMG/EXE/AppImage) | Native (DMG/MSI/AppImage) | Native (DMG/MSI/AppImage) |
+| Remote access | Cloudflare Tunnel + token | None observed | QR device linking | Cloudflare Quick Tunnel + PIN | None observed | None observed |
+| Stars | — | ~2K | ~1K | ~1K | ~20.5K | ~18.5K |
 | Identity | Universal adapter library | Web application | Full-stack product | Desktop app (Electron) |
 | Scale | ~40K LOC | ~45K LOC | ~129K LOC | ~78K LOC |
 | Agents supported | 25+ (4 adapters) | 2 | 3 | 1 (Claude Code SDK) + multi-provider |
@@ -124,19 +251,19 @@ Open-source desktop application wrapping Claude Code agent for non-technical use
 
 | Competitor Feature | Source | BeamCode Backend | Gap Item | Status |
 |---|---|---|---|---|
-| Multi-backend toggle | Companion | 4 adapters ready | P3-1 | **✅ Shipped** (PR #26) — AdapterSelector dropdown |
+| Multi-backend toggle | Companion | 4 adapters ready | P3-1 | Badge shipped (PR #25), **selector UI still needed** |
 | Session archiving with count | Companion | archive/unarchive commands | P1-4 | **✅ Shipped** (PR #25) |
-| E2E encryption indicator | Happy | Full crypto stack | P0-4 | **✅ Shipped** (PR #26) — lock icon in TopBar |
+| E2E encryption indicator | Happy | Full crypto stack | P0-4 | **Not started** |
 | Branch/folder picker toolbar | Companion | `repo_root`, `git_branch` in state | P1-7 | **✅ Shipped** (PR #25) — StatusBar |
 | Environment management | Companion | Not yet in backend | — | Future consideration |
-| Notification controls | Companion | Not yet in backend | P2-7 | **✅ Shipped** (PR #25/#26) — UI + Web Audio + Browser Notifications |
+| Notification controls | Companion | Not yet in backend | P2-7 | **UI shipped** (PR #25), behavior not wired |
 | Image upload in composer | Companion | Depends on backend adapter | — | **✅ Shipped** (PR #14) — CW-5 |
 | Voice input | Happy | Not in scope | — | Differentiator for Happy, not us |
 | Mobile native apps | Happy | Not in scope | — | Differentiator for Happy, not us |
 | Git status bar (ahead/behind) | Happy | `git_ahead`/`git_behind` in state | P2-8 | **✅ Shipped** (PR #25) |
-| Session naming | Companion, Happy | Auto-generated IDs currently | P1-8 | **✅ Shipped** (PR #25/#26) — auto-name on first turn + secret redaction |
+| Session naming | Companion, Happy | Auto-generated IDs currently | P1-8 | **Plumbing done** (PR #25), trigger missing |
 | Project grouping with count | Companion | `cwd` available per session | P2-9 | **✅ Shipped** (PR #25) |
-| Content Canvas (artifact preview) | Halo | Tool results in messages | CW-7 | **Mostly shipped** (PR #25/#26) — PreBlock with line numbers/copy/ANSI strip, MarkdownBlock, grep highlighting |
+| Content Canvas (artifact preview) | Halo | Tool results in messages | CW-7 | **Partially shipped** — PreBlock/MarkdownBlock, no rich viewers |
 | AI Browser (embedded Chromium) | Halo | Not in backend | — | New consideration — see MA-5 |
 | Workspace/Space system | Halo | `cwd` per session | — | Sessions approximate this, no explicit "space" abstraction |
 | File explorer tree | Halo | Not in frontend | — | New consideration — see P3-8 |
@@ -145,7 +272,19 @@ Open-source desktop application wrapping Claude Code agent for non-technical use
 | Multi-provider (OpenAI compat router) | Halo | 4 adapters (different approach) | P3-1 | BeamCode adapts to CLIs; Halo adapts API protocols |
 | Tool permission previews | Halo | Full permission system | — | **✅ Shipped** — DiffView, PreBlock in PermissionBanner |
 | Conversation search | Halo | Session search in sidebar | — | **✅ Shipped** (PR #14) — CW-2 |
-| Process health/recovery | Halo | Circuit breaker + reconnect | P0-1/P0-3 | **✅ Shipped** (PR #26) — circuit breaker + watchdog banners |
+| Process health/recovery | Halo | Circuit breaker + reconnect | P0-1/P0-3 | Backend ready, **UI not started** |
+| OS-level sandboxing | Opcode | Not in backend | — | Different security model — BeamCode trusts CLI permissions |
+| Checkpoint/save state | Opcode | Not in backend | — | Future consideration |
+| Custom agent creation | Opcode | Adapter system (different) | — | BeamCode adapts to existing CLIs rather than creating agents |
+| Skills store/marketplace | CC-Switch | Not in backend | — | Future consideration |
+| Git worktree per session | Crystal | `is_worktree` in state | — | Related to MA-1; Crystal validates parallel-session-per-worktree model |
+| Cron scheduling | CUI, claude-code-viewer | Not in backend | — | New consideration — see Borrowable Ideas |
+| Dictation (voice-to-text) | CUI | Not in scope | — | Cut |
+| Multi-machine agent orchestration | Agentrooms | Remote relay exists | — | BeamCode's relay/tunnel enables this; no UI for it yet |
+| Session history import | CUI | Not in backend | — | Useful for onboarding — import ~/.claude/ history |
+| 8-agent CLI support | CCManager | 4 adapters | — | BeamCode's adapter model is more extensible but has fewer adapters |
+| Devcontainer sandboxing | CCManager | Not in backend | — | Future consideration for enterprise |
+| Rate limit visibility | Agent Sessions | Token bucket in backend | P2-3 | Backend ready, **UI not started** |
 
 ### New Items from Competitive Analysis
 
@@ -162,26 +301,25 @@ Open-source desktop application wrapping Claude Code agent for non-technical use
 - ✅ Permission mode picker (moved from TopBar)
 - ✅ Model picker with dropdown (moved from TopBar)
 
-#### P1-8: Descriptive Session Names — **SHIPPED (PR #25/#26)**
+#### P1-8: Descriptive Session Names — **PARTIALLY WIRED (PR #25)**
 
 **Competitive evidence**: Both competitors auto-generate meaningful session names — Companion uses creative names ("Deft Quartz"), Happy uses task-derived names ("OpenTunnel Dependency Upgrade").
 
 **Wired in PR #25**:
-- ✅ `session_name_update` WS message type defined in protocol
-- ✅ Frontend handler stores name via `store.updateSession()`
-- ✅ Sidebar displays `info.name` with fallback to `cwdBasename(info.cwd)`
-- ✅ Backend `broadcastNameUpdate()` API with tests
+- ✅ `session_name_update` WS message type defined in protocol (`consumer-messages.ts:158`)
+- ✅ Frontend handler in `ws.ts:195-196` stores name via `store.updateSession(sessionId, { name: msg.name })`
+- ✅ Sidebar displays `info.name` with fallback to `cwdBasename(info.cwd)` (`Sidebar.tsx:74`)
+- ✅ Backend `broadcastNameUpdate()` API in `SessionBridge` with tests
 
-**Shipped in PR #26** (completing the gaps):
-- ✅ Auto-naming trigger on `session:first_turn_completed` event
-- ✅ Name derived from first user message (truncated to ~50 chars, first line only)
-- ✅ Secret redaction applied before persisting/broadcasting (`redactSecrets()` utility)
-- ✅ Persists name via storage + broadcasts to consumers
+**Not wired**:
+- ❌ No auto-naming trigger — `broadcastNameUpdate()` is defined but never called from any production code path
+- ❌ No name derivation logic (from first message, LLM summary, or creative generator)
+- ❌ No click-to-rename UI in sidebar
 
-**Remaining gap**:
-- ❌ No click-to-rename UI in sidebar (minor — names auto-generate well)
+**Effort**: S (just need to call `broadcastNameUpdate` when first user message arrives + add rename UI)
+**Impact**: Medium — significantly improves session identification in sidebar
 
-#### P2-7: Notification Preferences — **SHIPPED (PR #25/#26)**
+#### P2-7: Notification Preferences — **UI SHIPPED, BEHAVIOR NOT WIRED (PR #25)**
 
 **Competitive evidence**: Companion has Sound on/off and Alerts on/off toggles in sidebar.
 
@@ -189,14 +327,15 @@ Open-source desktop application wrapping Claude Code agent for non-technical use
 - ✅ Sound toggle (speaker icon with on/off state) — persists to localStorage via `beamcode_sound`
 - ✅ Alerts toggle (bell icon with on/off state) — persists to localStorage via `beamcode_alerts`
 - ✅ Dark mode toggle (sun/moon icon) — persists to localStorage, fully functional
+- ✅ Settings button (scaffolded, no onClick handler)
 
-**Shipped in PR #26** (completing the behavior wiring):
-- ✅ Web Audio API helper (`audio.ts`) — synthesized beep via `OscillatorNode` (440Hz, 200ms)
-- ✅ `AudioContext` created lazily on first user gesture (click/keydown) to comply with autoplay policy
-- ✅ Sound plays on `result` messages when `soundEnabled` and `document.hidden`
-- ✅ Browser Notification dispatched on `result` when `alertsEnabled` and `document.hidden`
-- ✅ `Notification.permission` checked on mount, requested if `alertsEnabled` is true
-- ✅ Both gated on `document.hidden` to avoid noise when user is looking at the tab
+**Not wired**:
+- ❌ `soundEnabled` state is stored but never consumed — no audio playback on completion/error
+- ❌ `alertsEnabled` state is stored but never consumed — no `Notification.requestPermission()` or desktop notification dispatch
+- ❌ No per-session notification override
+
+**Effort**: S (wire `soundEnabled` to audio playback on `result` messages, wire `alertsEnabled` to Notification API)
+**Impact**: Medium — quality-of-life for multi-session workflows
 
 #### P2-8: Git Ahead/Behind Indicator — **SHIPPED (PR #25)**
 
@@ -245,14 +384,13 @@ Broader competitive research (Cursor, Cline, Copilot, etc.). **Six of eight ship
 - ✅ O(1) `toolNameByUseId` Map in `AssistantMessage` for efficient tool name lookups
 - ✅ 9 `ToolResultBlock` tests
 
-**Enhanced in PR #26**:
-- ✅ Line numbers on monospace blocks (gutter column)
-- ✅ Copy-to-clipboard button (appears on hover, top-right corner)
-- ✅ ANSI code stripping for Bash output (`ansi-strip.ts` utility)
-- ✅ Grep match highlighting with `bc-accent/20` background
-
 **Remaining gaps**:
-- ❌ No syntax highlighting for language-specific output (would need a library like Shiki/Prism)
+- ❌ No line numbers on monospace blocks
+- ❌ No syntax highlighting for language-specific output
+- ❌ No grep match highlighting (matches not color-coded)
+- ❌ No ANSI color support for Bash output
+
+**Effort**: S-M | **Impact**: Medium — core rendering works, enhancements are polish
 
 #### CW-8: Plan/Act Mode Toggle
 
@@ -304,37 +442,50 @@ Features observed in competitors that would strengthen BeamCode's backend:
 | 7 | Zero-knowledge encryption upgrade | Happy | Per-message encryption, not just transport-level — daemon becomes dumb relay |
 | 8 | macOS launchd integration | Happy | "Install and forget" daemon management |
 | 9 | Lazy thought storage | Halo | Separate thought/reasoning data from conversation JSON (~97% reduction). Applies to message history caching. |
+| 10 | Cron scheduling for agent tasks | CUI, claude-code-viewer | Schedule recurring or delayed agent tasks — useful for CI-like workflows and overnight runs |
+| 11 | Session history import (~/.claude/) | CUI | Auto-scan and import existing Claude Code session history — smooth onboarding for existing users |
+| 12 | Git worktree-per-session orchestration | Crystal | Automatic worktree creation per parallel session with built-in rebase/squash — validates MA-1 approach |
+| 13 | AG-UI protocol adoption | AG-UI (CopilotKit) | Open SSE-based protocol for agent-UI communication — potential standard to adopt or align with |
 
 ### Competitive Threat Assessment
 
-| Competitor | Can Replicate Moat? | Threat |
-|------------|---------------------|--------|
-| VS Code Copilot (Agent HQ) | Yes — already announced | **CRITICAL** |
-| Cursor 2.0 | Yes — resources + Composer | HIGH |
-| Windsurf | Yes — Cascade autonomous mode | HIGH |
-| Continue | Yes — open-source, extensible | MEDIUM |
-| Hello Halo | No — single-agent, desktop-first | LOW |
-| LibreChat | Maybe — multi-model, not multi-agent | LOW |
+| Competitor | Can Replicate Moat? | Threat | Rationale |
+|------------|---------------------|--------|-----------|
+| VS Code Copilot (Agent HQ) | Yes — already announced | **CRITICAL** | Resources + distribution + ecosystem lock-in |
+| Cursor 2.0 | Yes — resources + Composer | **HIGH** | VC-funded, strong UX team |
+| Windsurf | Yes — Cascade autonomous mode | **HIGH** | Autonomous agent + IDE integration |
+| **Opcode** | Partially — single-agent, desktop-only | **HIGH** | 20.5K stars, YC-backed, strong community. But locked to Claude Code. |
+| **CC-Switch** | Partially — 4 agents via CLI subprocess | **HIGH** | 18.5K stars, closest to multi-agent vision. But CLI subprocess, no adapter abstraction. |
+| Continue | Yes — open-source, extensible | MEDIUM | IDE-first, not web-first |
+| **Crystal** | No — Claude Code + Codex only | MEDIUM | Validates worktree-per-session model; could inspire similar features |
+| **CloudCLI** | Partially — web + multi-CLI | MEDIUM | 6.3K stars, web-based like BeamCode, but simpler architecture |
+| **CUI** | No — single-agent, web-based | MEDIUM | Web-based competitor with cron scheduling and dictation |
+| **OpenWork** | No — wraps OpenCode, not multi-agent | LOW | Anti-Cowork positioning; different market |
+| Hello Halo | No — single-agent, desktop-first | LOW | Electron-locked, no multi-agent |
+| LibreChat | Maybe — multi-model, not multi-agent | LOW | Chat-focused, not coding-agent-focused |
 
 **What BeamCode can do that they can't:**
-1. **Protocol-agnostic**: VS Code will likely lock to Microsoft models. BeamCode connects to ANY CLI.
-2. **Remote access**: VS Code can't run on an iPad. BeamCode can.
-3. **Cross-agent routing**: Single-agent tools have no incentive to recommend competitors.
-4. **Agent benchmarking**: No cross-agent visibility in single-agent tools.
+1. **Protocol-agnostic adapter abstraction**: CC-Switch uses CLI subprocess; CCManager is CLI-only TUI. BeamCode's `BackendAdapter` interface with compliance tests is architecturally superior.
+2. **Web-first remote access**: Opcode, CC-Switch, Crystal are all desktop-only. Only CloudCLI and CUI are web-based, but lack BeamCode's tunnel/encryption/RBAC stack.
+3. **Cross-agent routing**: No competitor routes tasks to the best agent. Single-agent tools have no incentive.
+4. **Agent benchmarking**: No cross-agent performance visibility anywhere in the market.
+5. **E2E encryption + RBAC**: No competitor combines relay encryption with participant/observer roles.
+6. **Multi-user/multi-consumer**: BeamCode's daemon serves multiple consumers per session. All competitors are single-user.
 
-**What Halo does better than BeamCode today:**
-1. **Content Canvas**: Rich artifact preview (CodeMirror, HTML iframe, image zoom/pan, CSV tables) — BeamCode has basic PreBlock/MarkdownBlock renderers.
-2. **AI Browser**: 26-tool embedded Chromium with accessibility tree — BeamCode has nothing comparable.
-3. **One-click install**: Native desktop installers — BeamCode requires npm setup.
-4. **i18n**: 7 languages — BeamCode is English-only.
-5. **File explorer**: Interactive tree view of workspace files — BeamCode has no file browser.
+**What competitors do better than BeamCode today:**
+1. **Opcode**: OS-level sandboxing (seccomp/Seatbelt), checkpoint system, custom agent creation, usage analytics dashboard
+2. **CC-Switch**: 4-agent switching with skills marketplace
+3. **Crystal**: Git worktree isolation per parallel session with built-in rebase/squash
+4. **CUI**: Cron scheduling, dictation, push notifications, ~/.claude/ history import
+5. **CloudCLI**: Mobile-first responsive design, integrated terminal + file explorer + git explorer
+6. **Halo**: Content Canvas, AI Browser, i18n, one-click install, file explorer
+7. **CCManager**: 8-agent support, devcontainer sandboxing, auto-approval
 
-**Why Halo is LOW threat:**
-- Locked to Claude Code SDK (not CLI adapter, not multi-agent)
-- Desktop-first (Electron) limits deployment flexibility — no headless daemon mode
-- No multi-agent orchestration, no cross-agent routing
-- No E2E encryption
-- BeamCode's adapter architecture is fundamentally more extensible
+**Why BeamCode's position is defensible:**
+- **Adapter abstraction** is fundamentally more extensible than CLI subprocess — adding a new agent is a single class implementation, not fork-and-hack
+- **Web-first daemon** enables use cases desktop apps can't: headless server, iPad access, multi-user collaboration
+- **Encryption + RBAC** enables enterprise/team use cases that no competitor addresses
+- **The market is fragmenting by CLI** (Opcode=Claude, AiderDesk=Aider, Codexia=Codex). BeamCode is the only project designed to unify them all.
 
 #### P3-8: File Explorer Tree (New from Halo)
 
@@ -368,24 +519,35 @@ Features observed in competitors that would strengthen BeamCode's backend:
 | MCP server management UI | Setup-time operation, not daily workflow. Agents manage their own configs. |
 | Persistent agent memory UI | Creates conflict with file-based CLAUDE.md system. |
 | Embedded AI browser | Web-based product can't use Electron BrowserView. Browser automation better served by MCP tools. Halo differentiator, not ours. |
-| Native desktop installers | BeamCode is web-first daemon architecture. Electron packaging adds complexity without clear benefit for developer audience. |
+| Native desktop installers | BeamCode is web-first daemon architecture. Electron/Tauri packaging adds complexity without clear benefit for developer audience. Opcode/CC-Switch own this space. |
 | i18n (multi-language) | Low priority for developer-focused tool. Code and agent output is English. May reconsider later. |
+| OS-level sandboxing | Opcode's seccomp/Seatbelt approach is desktop-only. BeamCode trusts CLI permissions. Enterprise sandboxing better via devcontainers. |
+| Skills store/marketplace | CC-Switch differentiator. BeamCode's adapter model is the abstraction layer — skills are agent-specific (CLAUDE.md, .cursorrules, etc.). |
+| Dictation/voice-to-text | CUI feature via Gemini Flash. Not developer workflow. |
+| Custom agent creation UI | Opcode feature. BeamCode adapts to existing CLIs — users create agents in their respective tools, not in our UI. |
 
 ---
 
 ## Priority 0 — Critical Gaps (Users Are Flying Blind)
 
-### P0-1: Circuit Breaker State Visibility — **SHIPPED (PR #26)**
+### P0-1: Circuit Breaker State Visibility
 
-**Shipped in PR #26**:
-- ✅ `SlidingWindowBreaker.getSnapshot()` returns `{ state, failureCount, recoveryTimeRemainingMs }` (relative, no server clock leak)
-- ✅ `ProcessSupervisor` enriches `process:exited` event payload with breaker snapshot when OPEN/HALF_OPEN
-- ✅ `SessionBridge` broadcasts `circuitBreaker` field in `session_update`
-- ✅ `ConnectionBanner.tsx` renders state-aware messaging with countdown timer:
-  - OPEN: "CLI restart protection active — cooling down (Ns remaining)..."
-  - HALF_OPEN: "Testing connection stability..."
-- ✅ `useCountdown` hook for live countdown display
-- ✅ Types added to `ConsumerSessionState` and `shared/consumer-types.ts`
+**Problem**: When CLI crashes repeatedly, the circuit breaker blocks restarts for 30s. User sees "CLI disconnected," clicks Retry, gets silently blocked — no feedback.
+
+**Backend has** (`src/adapters/sliding-window-breaker.ts`):
+- States: CLOSED (normal) → OPEN (blocked, 30s cooldown) → HALF_OPEN (testing recovery)
+- Failure count in sliding window (5 failures / 60s triggers OPEN)
+- Recovery timer, success threshold (2 successes to close)
+
+**Frontend shows**: A yellow "CLI disconnected" banner with retry button.
+
+**Proposed UI**: Replace generic banner with state-aware messaging:
+- OPEN: "CLI restart protection active — too many failures. Cooling down for 20s..."
+- HALF_OPEN: "Testing connection stability (1/2 successes needed)"
+- Include failure count and countdown timer
+
+**Effort**: S (small banner logic change)
+**Impact**: High — eliminates the most confusing UX in the product
 
 ---
 
@@ -411,59 +573,90 @@ Features observed in competitors that would strengthen BeamCode's backend:
 
 ---
 
-### P0-3: Reconnection Watchdog Visibility — **SHIPPED (PR #26)**
+### P0-3: Reconnection Watchdog Visibility
 
-**Shipped in PR #26**:
-- ✅ `SessionManager` emits `watchdog:active` with `{ gracePeriodMs, startedAt }` and `watchdog:timeout`
-- ✅ `SessionBridge` broadcasts `watchdog` field in `session_update`
-- ✅ `ConnectionBanner.tsx` shows live countdown: "Waiting for CLI to reconnect (Ns remaining)..."
-- ✅ After timeout: "CLI did not reconnect — relaunching..."
-- ✅ `useCountdown` hook powers the timer display
+**Problem**: After daemon restart, a 30s watchdog timer runs to reconnect CLI processes. User sees "disconnected" with no context.
 
----
+**Backend has** (`src/core/session-manager.ts:289-306`):
+- 30s grace period (configurable `reconnectGracePeriodMs`)
+- Auto-kills stale processes after timeout
+- Triggers relaunch
 
-### P0-4: Encryption Status Indicator — **SHIPPED (PR #26)**
+**Frontend shows**: "CLI disconnected — waiting for reconnection" (no timer, no context)
 
-**Shipped in PR #26**:
-- ✅ `encryption: { isActive, isPaired }` included in `session_init` message (participant-only for security)
-- ✅ `TopBar.tsx` renders lock icon when encrypted+paired, warning icon when active but unpaired
-- ✅ Tooltip: "E2E encrypted" / "Encryption active — not yet paired"
-- ✅ Only shown when `encryption.isActive` is true (no icon for local-only sessions)
-- ✅ Types added to `ConsumerSessionState` and `shared/consumer-types.ts`
+**Proposed UI**: Countdown banner:
+- "Waiting for CLI to reconnect (25s remaining)..."
+- After timeout: "CLI did not reconnect — relaunching..."
+
+**Effort**: S (timer display, needs small backend event)
+**Impact**: High — explains automatic recovery
 
 ---
 
-### P0-5: Observer Role UI Enforcement — **SHIPPED (PR #23/#25/#26)**
+### P0-4: Encryption Status Indicator
+
+**Problem**: BeamCode has full E2E encryption (X25519 + XSalsa20-Poly1305) but users have zero indication whether their session is encrypted or plaintext.
+
+**Backend has** (`src/utils/crypto/`):
+- `EncryptionLayer.isActive()`, `isPaired()`
+- Device fingerprints via `fingerprintPublicKey()`
+- Authenticated encryption for all post-pairing messages
+
+**Frontend shows**: Nothing about encryption.
+
+**Competitive evidence**: Happy headlines E2E encryption as a top-3 marketing feature. Companion doesn't surface it.
+
+**Proposed UI**:
+- 🔒 icon in TopBar when encrypted (hover: "E2E encrypted — fingerprint: 4a7c...")
+- ⚠️ "Unencrypted" warning when tunnel active but no pairing
+
+**Effort**: S (badge + tooltip)
+**Impact**: Critical for security trust — competitors are marketing this, we should at minimum show it
+
+---
+
+### P0-5: Observer Role UI Enforcement — **MOSTLY SHIPPED (PR #23/#25)**
+
+**Problem**: Backend enforces observer role (blocks user_message, permission_response, interrupt, set_model, set_permission_mode, slash_command) but UI still shows all controls.
+
+**Backend has** (`src/core/session-bridge.ts:115-123`):
+- `PARTICIPANT_ONLY_TYPES` set for message filtering
+- Returns error: "Observers cannot send user_message messages"
 
 **Shipped in PR #23/#25**:
-- ✅ Composer disabled for observers, placeholder shows "Observer mode — read-only"
+- ✅ Composer disabled for observers (`Composer.tsx:262`), placeholder shows "Observer mode — read-only"
 - ✅ Send button disabled for observers
-- ✅ Model picker disabled for observers
-- ✅ Permission mode picker disabled for observers
-- ✅ Observer badge shown in TopBar
+- ✅ Model picker disabled for observers (`TopBar.tsx:141`)
+- ✅ Permission mode picker disabled for observers (`StatusBar.tsx:44,97`)
+- ✅ Observer badge shown in TopBar (`TopBar.tsx:110-114`)
 - ✅ Identity/role received via `identity` WS message and stored
 
-**Shipped in PR #26** (completing the gaps):
-- ✅ Observer banner above composer: "You are observing this session (read-only)"
-- ✅ Permission action buttons hidden in `PermissionBanner` for observers
-- ✅ New message types (`process_output`, circuit breaker) added to `PARTICIPANT_ONLY_TYPES`
-- ✅ Doc comment on `createAnonymousIdentity()` noting observer mode requires a configured `Authenticator`
+**Remaining gaps**:
+- ❌ No explicit observer banner explaining the read-only state
+- ❌ Permission buttons in `PermissionBanner` still visible (backend rejects, but UI shows them)
+
+**Effort**: XS (add banner + hide permission buttons)
+**Impact**: Completes the observer UX
 
 ---
 
 ## Priority 1 — High-Impact Gaps
 
-### P1-1: Process Output Streams (Logs) — **SHIPPED (PR #26)**
+### P1-1: Process Output Streams (Logs)
 
-**Shipped in PR #26**:
-- ✅ `SessionBridge` forwards `process:stdout`/`process:stderr` as `{ type: "process_output", stream, data }` messages
-- ✅ Secret redaction filter applied before forwarding (strips `sk-ant-*`, `ghp_*`, `Bearer *`, API keys, etc.)
-- ✅ `process_output` added to `PARTICIPANT_ONLY_TYPES` — observers cannot see process logs
-- ✅ Backend ring buffer: last 500 lines per session
-- ✅ `LogDrawer.tsx` — side panel with scrollable monospace output, auto-scroll, Escape-to-close
-- ✅ Frontend caps at 200 lines (FIFO eviction)
-- ✅ "View Logs" button in StatusBar
-- ✅ Store: `processLogs: Record<sessionId, string[]>`, `logDrawerOpen: boolean`
+**Backend has** (`src/types/events.ts:108-109`):
+- `process:stdout` and `process:stderr` events with full CLI output
+- Error messages, model loading status, API failures
+
+**Frontend shows**: Nothing. When CLI fails to spawn, user only sees "disconnected."
+
+**Proposed UI**: Collapsible "Process Logs" drawer accessible from error states:
+- "CLI exited (code 1) [View Logs →]"
+- Last 100 lines of stdout/stderr
+- Filter by stream, search by keyword
+
+**Effort**: M
+**Impact**: Transforms debugging from impossible to self-service
 
 ---
 
@@ -543,36 +736,47 @@ Features observed in competitors that would strengthen BeamCode's backend:
 - ✅ Observer-aware: disabled for non-participants
 - ✅ Click-outside and Escape key to close dropdown
 
-**Enhanced in PR #26** (YOLO mode safeguards):
-- ✅ Renamed "YOLO" to "Auto-Approve (Unrestricted)" for clarity
-- ✅ Confirmation dialog when selecting `bypassPermissions`: "Auto-approve all tool executions? This grants unrestricted access."
-- ✅ Visual warning indicator (yellow/orange border on StatusBar) when `bypassPermissions` is active
-
 **Remaining gap**:
-- ❌ No auto-respond behavior — `PermissionBanner` still appears. Backend may need to handle auto-approval, or frontend could auto-respond with `behavior: "allow"` when mode is `bypassPermissions`.
+- ❌ No auto-respond behavior in "YOLO" mode — `PermissionBanner` still appears. The frontend sends the mode change but doesn't suppress incoming permission requests client-side. Backend may need to handle auto-approval, or frontend could auto-respond with `behavior: "allow"` when mode is `bypassPermissions`.
 
 ---
 
-### P1-6: Resume Failure Notification — **SHIPPED (PR #26)**
+### P1-6: Resume Failure Notification
 
-**Shipped in PR #26**:
-- ✅ `SessionBridge` listens to `process:resume_failed`, broadcasts `{ type: "resume_failed", sessionId }` to consumers
-- ✅ `ws.ts` handles `resume_failed` → `store.addToast("Could not resume previous session — starting fresh", "error")`
-- ✅ Toast system (foundation) with auto-dismiss for info/success (5s), manual close for errors
-- ✅ `ToastContainer.tsx` with fade-slide-in animation, max 5 visible (FIFO eviction)
+**Backend has** (`src/adapters/sdk-url/sdk-url-launcher.ts:102-127`):
+- Detects when `--resume` fails (CLI exits within 5s)
+- Clears `cliSessionId`, falls back to fresh start
+- Emits `process:resume_failed` event
+
+**Frontend shows**: Nothing. Conversation context silently disappears.
+
+**Proposed UI**: Toast notification:
+- "Could not resume previous session — starting fresh conversation"
+- Explanation that conversation history may be lost
+
+**Effort**: S
+**Impact**: Prevents user confusion when context is lost
 
 ---
 
 ## Priority 2 — Operational Visibility
 
-### P2-1: Connection Health Dashboard — **SHIPPED (PR #26)**
+### P2-1: Connection Health Dashboard
 
-**Shipped in PR #26**:
-- ✅ `HealthSection` in `TaskPanel.tsx` showing:
-  - Connection status dot (green/yellow/red) with label (Healthy/CLI disconnected/Connecting/Disconnected)
-  - Reconnect attempt counter
-  - Circuit breaker state and failure count when OPEN/HALF_OPEN
-- ✅ Data sourced from existing store (connectionStatus, cliConnected, reconnectAttempt, circuitBreaker)
+**Backend has** (`src/interfaces/metrics.ts`):
+- 13 metric event types: session lifecycle, connections, messages, errors, rate limits, latency, queue depth
+- `ConsoleMetricsCollector` records everything
+
+**Frontend shows**: Connection dot (green/yellow/red), per-turn cost/duration in ResultBanner.
+
+**Proposed UI**: Expandable connection health section in TaskPanel:
+- Last error reason (from `backend:disconnected` code + reason)
+- Failure count in window: "3/5 failures in last 60s"
+- Next retry countdown
+- Circuit breaker state indicator
+
+**Effort**: M (needs new WS message type for metrics)
+**Impact**: Self-service debugging for connection issues
 
 ---
 
@@ -664,17 +868,18 @@ Features observed in competitors that would strengthen BeamCode's backend:
 
 ## Priority 3 — Power User & Admin Features
 
-### P3-1: Backend Adapter Selector — **SHIPPED (PR #26)**
+### P3-1: Backend Adapter Selector (**Elevated from P3 — see Competitive Analysis**)
 
 **Competitive evidence**: Companion ships an inline "Claude Code | Codex" backend toggle. BeamCode has 4 adapters ready but zero UI to choose between them.
 
-**Shipped in PR #26** (frontend UI only):
-- ✅ `AdapterSelector` dropdown in `StatusBar.tsx` (replaced static `AdapterBadge`)
-- ✅ Available adapters sourced from `capabilities_ready` message
-- ✅ Sends `set_adapter` inbound message on selection
-- ✅ Same dropdown pattern as `PermissionModePicker` (click-outside + Escape to close)
-- ✅ `set_adapter` added to `InboundMessage` type and `shared/consumer-types.ts`
-- ⚠️ **Backend handler deferred** — `routeConsumerMessage()` has no `case "set_adapter"` yet; adapter switching requires launcher-level changes (process teardown + relaunch with different adapter config)
+**Backend has** (`src/adapters/`): 4 adapters — sdk-url, acp, codex, agent-sdk — each with different capabilities (teams, slash commands, streaming). All conform to `BackendAdapter` interface with compliance tests.
+
+**Proposed UI**: Segmented control or dropdown in toolbar (like Companion's bottom bar):
+- Show available adapters with capability badges
+- Persist selection per session
+- Tooltip showing adapter capabilities (streaming, teams, slash commands)
+
+**Effort**: S-M (frontend selector + adapter factory wiring) | **Impact**: **High** — unique multi-backend story, already built on backend
 
 ### P3-2: Configuration Settings Panel
 
@@ -738,69 +943,48 @@ Features observed in competitors that would strengthen BeamCode's backend:
 | Item | PR | Implementation |
 |------|-----|---------------|
 | ~~ws.ts singleton→Map refactor~~ | #22 | Per-session `Map<string, WebSocket>` connection manager — **unblocks MA-1** |
-| ~~P0-5: Observer role enforcement~~ | #23/#25 | Composer/buttons disabled, observer badge, identity WS handler |
+| ~~P0-5: Observer role enforcement~~ | #23/#25 | Composer/buttons disabled, observer badge, identity WS handler (banner still missing) |
 | ~~P1-4: Archive management~~ | #25 | REST endpoints + sidebar UI with active/archived sections |
 | ~~P1-5: Permission mode picker~~ | #25 | 3-mode dropdown in StatusBar with `set_permission_mode` backend integration |
 | ~~P1-7: Context toolbar~~ | #25 | Full StatusBar: adapter, cwd, branch, ahead/behind, worktree, model |
-| ~~P1-8: Session naming (partial)~~ | #25 | Protocol + handler + display wired |
+| ~~P1-8: Session naming (partial)~~ | #25 | Protocol + handler + display wired, but no auto-naming trigger |
 | ~~P2-2: Latency breakdown~~ | #23 | ResultBanner shows "Total (API Xs)" with clamping |
 | ~~P2-5: MCP server status~~ | #23 | `McpServersSection` in TaskPanel with status badges |
 | ~~P2-6: Active users & presence~~ | #23 | `PresenceSection` in TaskPanel with role badges |
-| ~~P2-7: Notification prefs (UI only)~~ | #25 | Sound/alerts/dark-mode toggles in sidebar footer |
+| ~~P2-7: Notification prefs (UI only)~~ | #25 | Sound/alerts/dark-mode toggles in sidebar footer (behavior not wired) |
 | ~~P2-8: Git ahead/behind~~ | #25 | ↑N/↓N indicators in StatusBar |
 | ~~P2-9: Session grouping~~ | #25 | Groups by project with running count |
 | ~~CW-7: Tool result rendering (improved)~~ | #25 | PreBlock/MarkdownBlock/JsonBlock renderers per tool type |
 
-### Shipped in PR #26 (UI Gap Phase 1 & 2)
+### Phase 1: Critical Visibility (remaining — ~1 week)
 
-| Item | Implementation |
-|------|---------------|
-| ~~P0-1: Circuit breaker banner~~ | `ConnectionBanner` with OPEN/HALF_OPEN states, countdown timer, `useCountdown` hook |
-| ~~P0-3: Reconnect watchdog timer~~ | `ConnectionBanner` with watchdog countdown, backend `watchdog:active`/`watchdog:timeout` events |
-| ~~P0-4: Encryption status icon~~ | Lock/warning icon in `TopBar`, participant-only `encryption` field in `session_init` |
-| ~~P0-5: Observer banner (finish)~~ | Observer banner in `ChatView`, permission buttons hidden for observers |
-| ~~P1-1: Process logs drawer~~ | `LogDrawer.tsx`, secret redaction, `PARTICIPANT_ONLY_TYPES` gating, ring buffer |
-| ~~P1-6: Resume failure toast~~ | Toast system (`ToastContainer.tsx`), `resume_failed` WS handler |
-| ~~P1-8: Session naming (finish)~~ | Auto-name on `first_turn_completed`, secret redaction, persist + broadcast |
-| ~~P2-1: Connection health panel~~ | `HealthSection` in `TaskPanel` with status, reconnect attempts, circuit breaker |
-| ~~P2-7: Notification behavior (finish)~~ | Web Audio API beep, Browser Notifications, gated on `document.hidden` |
-| ~~CW-7: Tool result polish~~ | Line numbers, copy button, ANSI stripping, grep match highlighting |
-| ~~P3-1: Adapter selector~~ | `AdapterSelector` dropdown in `StatusBar`, `set_adapter` inbound message (backend handler deferred — requires launcher-level changes) |
-| ~~P1-5: YOLO safeguards~~ | Renamed to "Auto-Approve", confirmation dialog, warning indicator |
-
-### Phase 1: Critical Visibility — **SHIPPED (PR #26)**
-
-All 8 remaining Phase 1 items shipped in PR #26.
+Items remaining from original Phase 1, all S effort.
 
 | Item | Effort | Backend Changes Needed | Status |
 |------|--------|----------------------|--------|
-| P0-1: Circuit breaker banner | S | Enriched `process:exited` payload + `getSnapshot()` | **✅ Shipped** (PR #26) |
-| P0-2: Session state badge | S | None (data in session_update) | **✅ Already shipped** (PR #25) |
-| P0-3: Reconnect watchdog timer | S | Watchdog events on SessionManager | **✅ Shipped** (PR #26) |
-| P0-4: Encryption status icon | S | Encryption state in `session_init` | **✅ Shipped** (PR #26) |
-| P0-5: Observer banner (finish) | XS | None | **✅ Shipped** (PR #26) |
-| P1-6: Resume failure toast | S | Forward `process:resume_failed` via WS | **✅ Shipped** (PR #26) |
-| P1-8: Session naming (finish) | S | Auto-name on `first_turn_completed` + secret redaction | **✅ Shipped** (PR #26) |
-| P2-7: Notification behavior (finish) | S | None | **✅ Shipped** (PR #26) — Web Audio + Browser Notifications |
+| P0-1: Circuit breaker banner | S | New WS event for breaker state | Not started |
+| P0-2: Session state badge | S | None (data in session_update) | Not started |
+| P0-3: Reconnect watchdog timer | S | New WS event for watchdog | Not started |
+| P0-4: Encryption status icon | S | Expose isPaired/isActive via WS | Not started |
+| P0-5: Observer banner (finish) | XS | None | Missing banner text only |
+| P1-6: Resume failure toast | S | Forward process:resume_failed | Not started |
+| P1-8: Session naming (finish) | S | Call broadcastNameUpdate on first message | Plumbing done, trigger missing |
+| P2-7: Notification behavior (finish) | S | None | UI done, wire sound/alerts |
 
-**0 items remaining.** Phase 1 is complete.
+**8 items remaining** (down from 13), most are truly S effort.
 
-### Phase 2: Coding Workflow + Sharing — **MOSTLY SHIPPED (PR #26)**
-
-6 of 8 items shipped in PR #26. Tunnel URL sharing and device pairing deferred to future PR.
+### Phase 2: Coding Workflow + Sharing (3-4 weeks)
 
 | Item | Effort | Backend Changes Needed | Status |
 |------|--------|----------------------|--------|
-| CW-7: Tool result polish (syntax/ANSI) | S-M | None | **✅ Shipped** (PR #26) — line numbers, copy button, ANSI stripping, grep highlighting |
-| CW-8: Plan/Act mode toggle | M | New inbound message type | **Superseded** — covered by PermissionModePicker "Plan" option (PR #25) |
-| P1-1: Process logs drawer | M | Forward stdout/stderr via new WS msg + secret redaction | **✅ Shipped** (PR #26) |
-| P1-2: Tunnel URL sharing | M | Expose tunnelUrl via WS or API | **Deferred** — future PR |
-| P1-3: Device pairing flow | M | Expose pairing API to frontend | **Deferred** — future PR |
-| P2-1: Connection health panel | M | Uses existing store data | **✅ Shipped** (PR #26) — HealthSection in TaskPanel |
-| P2-4: Health dashboard | M | Merged into P2-1 | **✅ Shipped** (PR #26) — combined with connection health |
-| P3-1: Adapter selector | S-M | `set_adapter` inbound message type | **✅ Shipped** (PR #26) |
-
-**2 items remaining** (P1-2, P1-3) — deferred to future PR.
+| CW-7: Tool result polish (syntax/ANSI) | S-M | None | Core rendering shipped, polish remaining |
+| CW-8: Plan/Act mode toggle | M | New inbound message type | Not started |
+| P1-1: Process logs drawer | M | Forward stdout/stderr via new WS msg | Not started |
+| P1-2: Tunnel URL sharing | M | Expose tunnelUrl via WS or API | Not started |
+| P1-3: Device pairing flow | M | Expose pairing API to frontend | Not started |
+| P2-1: Connection health panel | M | New metrics snapshot WS message | Not started |
+| P2-4: Health dashboard | M | Expose GET /health to frontend | Not started |
+| P3-1: Adapter selector | S-M | Adapter factory wiring | Not started |
 
 ### Phase 3: Multi-Agent Moat + Advanced (4-6 weeks)
 
@@ -863,18 +1047,19 @@ Most backend data already exists and flows through existing channels. **Signific
 
 The remaining engineering work is:
 
-1. **Frontend rendering** — most data is now displayed; remaining gaps are Phase 3 features
-2. **New HTTP endpoints** (few) — health, config need REST API exposure
-3. ~~**One critical refactor**~~ — ws.ts singleton → Map **completed in PR #22**
-4. ~~**Behavior wiring**~~ — notification sound/alerts **completed in PR #26**; permission mode auto-approve still pending
+1. **Frontend rendering** (majority) — data is already in the store or available via existing messages, just not displayed
+2. **New WS message types** (some) — circuit breaker state, process logs, metrics snapshots need new message types
+3. **New HTTP endpoints** (few) — ~~archive~~, health, config need REST API exposure
+4. ~~**One critical refactor**~~ — ws.ts singleton → Map **completed in PR #22**
+5. **Behavior wiring** (new category) — notification sound/alerts toggles exist in UI but don't trigger actual notifications; permission mode picker sends mode but doesn't auto-approve
 
-**Key principle**: Phases 1-2 are complete. Phase 3 (multi-agent moat) is unblocked.
+**Key principle**: Phases 1-2 are almost entirely frontend work. The backend is ready.
 
-**Progress update**: Phase 1 is **100% complete** (all 8 items shipped across PRs #23–#26). Phase 2 is **~85% complete** (6 of 8 items shipped; tunnel URL sharing and device pairing deferred). The ws.ts refactor (Phase 3 blocker) is complete. PR #26 added 14 features spanning toast system, observer banner, resume failure toast, session auto-naming, notification wiring, encryption status, watchdog timer, circuit breaker banner, tool result polish, process logs drawer, connection health, YOLO safeguards, and adapter selector.
+**Progress update**: Of the original 13 Phase 1 items, **8 are fully shipped** and 5 are partially done or have remaining polish. Phase 2 lost 4 items (P1-7, P2-6, P2-9, CW-7 core) that shipped early. The ws.ts refactor (Phase 3 blocker) is complete.
 
-**Competitive insight**: The adapter selector (P3-1) is now shipped — BeamCode's strongest differentiator vs. both Companion and Happy, since the backend supports 4 adapters with compliance-tested interfaces.
+**Competitive insight**: Phase 2 includes the adapter selector (P3-1, elevated) — BeamCode's strongest differentiator vs. both Companion and Happy, since the backend supports 4 adapters with compliance-tested interfaces.
 
-**Strategic insight**: BeamCode cannot out-Cursor Cursor. The revised plan front-loaded quick wins that fix daily pain points. **Next priority**: multi-agent features (Phase 3) that no competitor can replicate.
+**Strategic insight**: BeamCode cannot out-Cursor Cursor. The revised plan front-loads quick wins that fix daily pain points, then pivots to multi-agent features that no competitor can replicate.
 
 ---
 
@@ -905,60 +1090,66 @@ These fields are sent to the frontend in `ConsumerSessionState` or `session_upda
 
 ### Frontend Features
 
-| Feature | Companion | Happy | Halo | BeamCode (Current) | Status |
-|---------|-----------|-------|------|--------------------|--------|
-| Multi-backend selector | Claude Code + Codex | No | Multi-provider (OpenAI compat) | **✅ 4 adapters + selector UI** | P3-1 (PR #26) |
-| Code diff view | Yes (DiffPanel) | Yes | Yes (react-diff-viewer) | **✅ Shipped** | CW-4 (PR #14) |
-| Keyboard shortcuts | Unknown | Unknown | Unknown | **✅ Shipped** | CW-1 (PR #14) |
-| "Allow All" permissions | Unknown | Unknown | Tool approve/reject | **✅ Permission mode picker** | P1-5 (PR #25) |
-| Image upload | Composer button | Unknown | Unknown | **✅ Drag-and-drop** | CW-5 (PR #14) |
-| Session archiving | ARCHIVED (N) section | No | No | **✅ Shipped** | P1-4 (PR #25) |
-| Session naming | Creative auto-names | Task-derived names | No | **✅ Auto-naming + redaction** | P1-8 (PR #25/#26) |
-| Session search | Unknown | Unknown | Full-text search | **✅ Shipped** | CW-2 (PR #14) |
-| Session grouping | By project + count | Flat list | By space | **✅ Shipped** | P2-9 (PR #25) |
-| Context toolbar (branch/folder) | Bottom toolbar bar | Git status bar | No | **✅ Full StatusBar** | P1-7 (PR #25) |
-| Git ahead/behind | Branch picker | +N -N status bar | No | **✅ Shipped** | P2-8 (PR #25) |
-| Notification controls | Sound/Alerts toggles | Native push | No | **✅ UI + Web Audio + Notifications** | P2-7 (PR #25/#26) |
-| Terminal emulator (xterm.js) | Yes | No | No | No | MA-2 planned |
-| E2E encryption indicator | Not visible | Headline feature | No | **✅ Lock icon in TopBar** | P0-4 (PR #26) |
-| Observer role enforcement | Unknown | Unknown | No | **✅ Mostly shipped** | P0-5 (PR #23/#25) |
-| Permission mode display | Unknown | Unknown | No | **✅ Shipped** | P1-5 (PR #25) |
-| MCP server status | Unknown | Unknown | MCP support (config) | **✅ Shipped** | P2-5 (PR #23) |
-| Plan/Act mode toggle | Unknown | Unknown | No | No | CW-8 not started |
-| Conversation export | Unknown | Unknown | No | **✅ Shipped** | CW-6 (PR #14) |
-| Tool result rendering | Unknown | Unknown | Tool approval UI | **✅ Per-tool renderers** | CW-7 (PR #25) |
-| Latency breakdown | Unknown | Unknown | Token usage tracking | **✅ Shipped** | P2-2 (PR #23) |
-| Connected users/presence | Unknown | Unknown | No (single-user) | **✅ Shipped** | P2-6 (PR #23) |
-| Content Canvas (rich preview) | No | No | **Yes** (Code/HTML/MD/Image/JSON/CSV/Browser) | No | Cut |
-| AI Browser (embedded) | No | No | **Yes** (26 tools, CDP, a11y tree) | No | Cut |
-| File explorer tree | Folder picker | No | **Yes** (react-arborist + file watcher) | No | P3-8 |
-| i18n (multi-language) | No | No | **Yes** (7 languages) | No | Cut |
-| Dark/light theme | Unknown | Unknown | **Yes** (CSS variables, system-aware) | **✅ Shipped** | PR #25 |
-| Remote access UI | No | QR linking | **Yes** (PIN + Cloudflare tunnel) | **Backend only** | P1-2 not started |
+| Feature | Companion | Happy | Halo | Opcode | CC-Switch | Crystal | CUI | BeamCode | Status |
+|---------|-----------|-------|------|--------|-----------|---------|-----|----------|--------|
+| Multi-backend selector | CC+Codex | No | Multi-provider | No | **4 CLIs** | CC+Codex | No | 4 adapters, **no selector UI** | P3-1 |
+| Code diff view | DiffPanel | Yes | react-diff-viewer | Unknown | Unknown | **Yes** | Unknown | **✅ Shipped** | CW-4 |
+| Keyboard shortcuts | Unknown | Unknown | Unknown | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | CW-1 |
+| Permission mode picker | Unknown | Unknown | Approve/reject | Scoped agents | Unknown | Unknown | Unknown | **✅ Shipped** | P1-5 |
+| Image upload | Composer btn | Unknown | Unknown | Unknown | Unknown | Unknown | Unknown | **✅ Drag-drop** | CW-5 |
+| Session archiving | ARCHIVED (N) | No | No | **Yes** | Unknown | **Yes** | **Yes** (fork/archive) | **✅ Shipped** | P1-4 |
+| Session naming | Creative | Task-derived | No | Unknown | Unknown | **AI-generated** | Unknown | **⚠️ Partial** | P1-8 |
+| Session search | Unknown | Unknown | Full-text | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | CW-2 |
+| Session grouping | By project | Flat | By space | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | P2-9 |
+| Context toolbar | Bottom bar | Status bar | No | Unknown | Unknown | Unknown | Unknown | **✅ StatusBar** | P1-7 |
+| Git ahead/behind | Branch picker | +N -N | No | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | P2-8 |
+| Notifications | Sound/Alerts | Native push | No | Unknown | Unknown | **Desktop** | **Push** | **⚠️ UI only** | P2-7 |
+| Terminal emulator | xterm.js | No | No | Unknown | Unknown | Unknown | Unknown | No | MA-2 |
+| E2E encryption indicator | No | Headline | No | No | No | No | No | **Backend only** | P0-4 |
+| Observer enforcement | Unknown | Unknown | No | No | No | No | No | **✅ Shipped** | P0-5 |
+| MCP server management | Unknown | Unknown | Config | **Full UI** | **stdio+HTTP** | Unknown | Unknown | **✅ Status** | P2-5 |
+| Plan/Act mode | Unknown | Unknown | No | Unknown | Unknown | Unknown | Unknown | No | CW-8 |
+| Export | Unknown | Unknown | No | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | CW-6 |
+| Tool result rendering | Unknown | Unknown | Approval UI | Unknown | Unknown | Unknown | Unknown | **✅ Per-tool** | CW-7 |
+| Usage analytics | Unknown | Unknown | Token tracking | **Dashboard** | Speed test | Unknown | Unknown | **✅ Latency** | P2-2 |
+| Presence/multi-user | Unknown | Unknown | No | No | No | No | No | **✅ Shipped** | P2-6 |
+| Content Canvas | No | No | **6 viewers** | Unknown | Unknown | Unknown | Unknown | No | Cut |
+| AI Browser | No | No | **26 tools** | No | No | No | No | No | Cut |
+| File explorer | Folder picker | No | **Tree view** | Unknown | Unknown | Unknown | Unknown | No | P3-8 |
+| i18n | No | No | **7 langs** | Unknown | Unknown | Unknown | Unknown | No | Cut |
+| Dark/light theme | Unknown | Unknown | System-aware | Unknown | Unknown | Unknown | Unknown | **✅ Shipped** | PR #25 |
+| Remote access UI | No | QR | PIN+tunnel | No | No | No | Unknown | **Backend only** | P1-2 |
+| Cron scheduling | **Yes** | No | No | No | No | No | **Yes** | No | Borrowable |
+| Parallel sessions | Unknown | Unknown | Unknown | Background | Unknown | **Worktrees** | **Background** | Backend ready | MA-1 |
+| Checkpoint/save state | No | No | No | **Yes** | No | No | No | No | Cut |
+| Custom agent creation | No | No | No | **Yes** | Presets | No | No | No | Cut |
+| Skills marketplace | No | No | No | No | **Yes** | No | No | No | Cut |
+| OS-level sandboxing | No | No | No | **seccomp/Seatbelt** | No | No | No | No | Cut |
+| Git worktree per session | No | No | No | No | No | **Yes** | No | No | MA-1 related |
 
 ### Backend/Infrastructure Features
 
-| Feature | Companion | Happy | Halo | BeamCode (Current) | Status |
-|---------|-----------|-------|------|--------------------|--------|
-| Multi-agent adapter abstraction | No | No | No | **Yes** (4 adapters) | ✅ Backend ready |
-| Per-session WebSocket connections | Unknown | Unknown | Per-conversation V2 session | **Yes** (Map refactor) | ✅ PR #22 |
-| E2E encryption | No | **Yes** (zero-knowledge) | No (deprecated safeStorage) | **Yes** (relay-level) | Phase 4 upgrade |
-| RBAC (participant/observer) | No | No | No (single-user) | **Yes** + **UI enforcement** | ✅ PR #23/#25 |
-| Rate limiting | No | No | No | **Yes** | ✅ Backend ready |
-| Circuit breaker | No | No | Health system (recovery) | **Yes** | **✅ UI shipped** (PR #26) |
-| Sequenced message replay | No | No | No | **Yes** | ✅ Backend ready |
-| Protocol recording | **Yes** (JSONL) | **Yes** (JSONL) | No | No | Phase 4 |
-| Protocol drift detection tests | **Yes** | No | No | No | Phase 4 |
-| Prometheus metrics | No | **Yes** | No | No | Phase 4 |
-| MCP protocol support | No | **Yes** | **Yes** (Claude Desktop compat) | No | Phase 4 |
-| Idempotent messages | No | **Yes** | No | No | Phase 4 |
-| macOS launchd daemon | No | **Yes** | No | No | Phase 4 |
-| Session process reuse (V2) | Unknown | Unknown | **Yes** (avoids cold start) | No | Borrowable idea |
-| Lazy thought storage | No | No | **Yes** (97% data reduction) | No | Borrowable idea |
-| Cron scheduled tasks | **Yes** | No | No | No | Not planned |
-| Voice input | No | **Yes** (GPT-4.1) | No | No | Cut |
-| Mobile native | No | **Yes** (Expo) | No | No | Not planned |
-| Desktop native | No | **Yes** (Tauri) | **Yes** (Electron 28) | No | Cut |
-| AI Browser (embedded CDP) | No | No | **Yes** (26 tools) | No | Cut |
-| Team/multi-agent observation | No | No | No | **Yes** | MA-1 (unblocked) |
-| OpenAI-compatible API router | No | No | **Yes** (transparent SDK adapter) | No (different approach: CLI adapters) | — |
+| Feature | Companion | Happy | Halo | Opcode | CC-Switch | Crystal | CUI | BeamCode | Status |
+|---------|-----------|-------|------|--------|-----------|---------|-----|----------|--------|
+| Multi-agent adapters | No | No | No | No | 4 CLIs (subprocess) | 2 CLIs | No | **Yes** (4 typed adapters) | ✅ Ready |
+| Per-session connections | Unknown | Unknown | V2 Session | Unknown | Unknown | Per-worktree | Per-process | **Yes** (Map) | ✅ PR #22 |
+| E2E encryption | No | **Zero-knowledge** | No | No | No | No | No | **Yes** (relay) | Phase 4 |
+| RBAC | No | No | No | Scoped agents | No | No | No | **Yes** + UI | ✅ PR #23/#25 |
+| Rate limiting | No | No | No | No | No | No | No | **Yes** | ✅ Ready |
+| Circuit breaker | No | No | Health system | No | No | No | No | **Yes** | UI pending |
+| Message replay | No | No | No | No | No | No | No | **Yes** | ✅ Ready |
+| Protocol recording | **JSONL** | **JSONL** | No | No | No | No | No | No | Phase 4 |
+| Protocol drift tests | **Yes** | No | No | No | No | No | No | No | Phase 4 |
+| Prometheus metrics | No | **Yes** | No | No | No | No | No | No | Phase 4 |
+| MCP support | No | **Yes** | **Yes** | **Yes** | **stdio+HTTP** | No | No | No | Phase 4 |
+| Idempotent messages | No | **Yes** | No | No | No | No | No | No | Phase 4 |
+| Cron scheduling | **Yes** | No | No | No | No | No | **Yes** | No | Borrowable |
+| Session process reuse | Unknown | Unknown | **V2 Sessions** | Unknown | Unknown | Unknown | Unknown | No | Borrowable |
+| Lazy thought storage | No | No | **97% reduction** | No | No | No | No | No | Borrowable |
+| History import | No | No | No | No | No | No | **~/.claude/** | No | Borrowable |
+| Git worktree orchestration | No | No | No | No | No | **Yes** | No | No | MA-1 |
+| Devcontainer sandbox | No | No | No | No | No | No | No | No | CCManager does |
+| Desktop native | No | Tauri | **Electron** | **Tauri 2** | **Tauri 2** | **Electron** | No | No | Cut |
+| Multi-user/consumer | No | No | No | No | No | No | No | **Yes** | ✅ Unique |
+| Team/multi-agent obs. | No | No | No | No | No | No | No | **Yes** | MA-1 |
+| AG-UI protocol compat | No | No | No | No | No | No | No | No | Evaluate |
