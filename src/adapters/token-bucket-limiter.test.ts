@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TokenBucketLimiter } from "./token-bucket-limiter.js";
 
 describe("TokenBucketLimiter", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // -----------------------------------------------------------------------
   // Basic consumption
   // -----------------------------------------------------------------------
@@ -47,35 +55,32 @@ describe("TokenBucketLimiter", () => {
   // -----------------------------------------------------------------------
 
   describe("refilling", () => {
-    it("refills tokens over time", async () => {
+    it("refills tokens over time", () => {
       const limiter = new TokenBucketLimiter(10, 100, 10); // 10 tokens per 100ms
       expect(limiter.tryConsume()).toBe(true);
       expect(limiter.tryConsume()).toBe(true); // 8 tokens left
 
-      // Wait for partial refill
-      await new Promise((r) => setTimeout(r, 50)); // 50ms = 5 tokens refilled
+      // Advance 50ms = 5 tokens refilled → 13, capped at 10
+      vi.advanceTimersByTime(50);
 
-      // Should have approximately 13 tokens, but capped at capacity (10)
-      expect(limiter.getTokens()).toBeLessThanOrEqual(10);
-      expect(limiter.getTokens()).toBeGreaterThan(8);
+      expect(limiter.getTokens()).toBe(10);
     });
 
-    it("caps tokens at capacity after refill", async () => {
+    it("caps tokens at capacity after refill", () => {
       const limiter = new TokenBucketLimiter(5, 100, 10);
-      // Start at capacity (5)
 
-      await new Promise((r) => setTimeout(r, 50)); // 5 more tokens would be added
+      vi.advanceTimersByTime(50); // 5 more tokens would be added
 
       // Should still be capped at 5
       expect(limiter.getTokens()).toBe(5);
     });
 
-    it("refills completely after consuming and waiting", async () => {
+    it("refills completely after consuming and waiting", () => {
       const limiter = new TokenBucketLimiter(10, 100, 10);
       expect(limiter.tryConsume(8)).toBe(true); // 2 tokens left
 
-      // Wait for full refill
-      await new Promise((r) => setTimeout(r, 150)); // 15 more tokens would be added
+      // Advance 150ms = 15 more tokens → 17, capped at 10
+      vi.advanceTimersByTime(150);
 
       expect(limiter.getTokens()).toBe(10); // Refilled to capacity
     });
@@ -110,26 +115,19 @@ describe("TokenBucketLimiter", () => {
   // -----------------------------------------------------------------------
 
   describe("rate limiting scenarios", () => {
-    it("simulates per-second rate limiting (1000 msg/sec)", async () => {
+    it("simulates per-second rate limiting (1000 msg/sec)", () => {
       // 1000 messages per second = 1 token per millisecond
       const limiter = new TokenBucketLimiter(1000, 1000, 1000);
 
-      // Consume all tokens quickly
-      let consumed = 0;
-      while (limiter.tryConsume()) {
-        consumed++;
-        if (consumed > 1100) break; // safety guard
+      // Consume all tokens (no time passes with fake timers)
+      for (let i = 0; i < 1000; i++) {
+        expect(limiter.tryConsume()).toBe(true);
       }
-      // Allow a few tokens refilled during loop execution (timing imprecision)
-      expect(consumed).toBeGreaterThanOrEqual(1000);
-      expect(consumed).toBeLessThanOrEqual(1010);
+      expect(limiter.tryConsume()).toBe(false); // depleted
 
-      // Wait 100ms for refill (100 new tokens)
-      await new Promise((r) => setTimeout(r, 100));
-      // Allow margin for timing precision in test execution
-      const tokens = limiter.getTokens();
-      expect(tokens).toBeGreaterThan(90);
-      expect(tokens).toBeLessThanOrEqual(115);
+      // Advance 100ms → 100 new tokens
+      vi.advanceTimersByTime(100);
+      expect(limiter.getTokens()).toBe(100);
     });
 
     it("handles burst traffic within burst size", () => {
@@ -141,28 +139,23 @@ describe("TokenBucketLimiter", () => {
       expect(limiter.tryConsume()).toBe(false); // Burst exhausted
     });
 
-    it("prevents sustained high-rate attack after burst", async () => {
+    it("prevents sustained high-rate attack after burst", () => {
       const limiter = new TokenBucketLimiter(10, 100, 100); // Refill 100 tokens per 100ms
       // Consume all tokens (burst)
       for (let i = 0; i < 10; i++) {
         expect(limiter.tryConsume()).toBe(true);
       }
-      // After burst, should be empty or nearly empty (timing may allow small refill).
-      // Refill rate is 1 token/ms; CI jitter can add 10+ ms of refill time.
-      const _attempt = limiter.tryConsume();
-      expect(limiter.getTokens()).toBeLessThan(10);
+      expect(limiter.tryConsume()).toBe(false); // empty
 
-      // Try to send continuously - should be rate-limited
-      const results = [];
-      for (let i = 0; i < 5; i++) {
-        results.push(limiter.tryConsume());
-        await new Promise((r) => setTimeout(r, 10)); // 10ms between attempts
+      // Advance 10ms → refill 10 tokens
+      vi.advanceTimersByTime(10);
+      expect(limiter.getTokens()).toBe(10); // capped at capacity
+
+      // Consume all again
+      for (let i = 0; i < 10; i++) {
+        expect(limiter.tryConsume()).toBe(true);
       }
-      // After 50ms, refill is ~50 tokens (capped at 10), but we already used them
-      // Most attempts should fail since we only get 10 tokens per 100ms
-      const successCount = results.filter((r) => r).length;
-      expect(successCount).toBeLessThanOrEqual(5); // Most should fail
-      expect(successCount).toBeGreaterThan(0); // Some should succeed after refill
+      expect(limiter.tryConsume()).toBe(false); // empty again
     });
   });
 });
