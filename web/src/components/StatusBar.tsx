@@ -236,8 +236,8 @@ export function PermissionModePicker({ disabled }: { disabled?: boolean } = {}) 
 
 const FALLBACK_MODELS: { value: string; displayName: string }[] = [
   { value: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
-  { value: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
-  { value: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
+  { value: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5" },
+  { value: "claude-haiku-4-5", displayName: "Claude Haiku 4.5" },
 ];
 
 /** Extract a display name with version ("Opus 4.6", "Sonnet 4.5") from the model identifier. */
