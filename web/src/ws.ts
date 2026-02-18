@@ -16,6 +16,58 @@ const reconnectState = new Map<
 >();
 const MAX_RECONNECT_DELAY = 30_000;
 
+// ── Streaming delta batching ──────────────────────────────────────────────
+// Coalesce rapid content_block_delta events into at most one Zustand set()
+// per animation frame, reducing re-renders from hundreds/s to ~60/s.
+
+interface PendingDelta {
+  /** Accumulated text for the main session streaming. */
+  main: string;
+  /** Accumulated text per agent sub-stream. */
+  agents: Record<string, string>;
+}
+
+const pendingDeltas = new Map<string, PendingDelta>();
+let flushScheduled = false;
+
+function scheduleDeltaFlush(): void {
+  if (flushScheduled) return;
+  flushScheduled = true;
+  requestAnimationFrame(flushDeltas);
+}
+
+/** @internal Exported for testing only. */
+export function flushDeltas(): void {
+  flushScheduled = false;
+  // Snapshot and clear atomically to avoid re-entrancy issues if a Zustand
+  // subscriber synchronously triggers another bufferStreamingDelta call.
+  const snapshot = new Map(pendingDeltas);
+  pendingDeltas.clear();
+  const store = useStore.getState();
+  for (const [sessionId, delta] of snapshot) {
+    if (delta.main) {
+      store.appendStreaming(sessionId, delta.main);
+    }
+    for (const [agentId, text] of Object.entries(delta.agents)) {
+      store.appendAgentStreaming(sessionId, agentId, text);
+    }
+  }
+}
+
+function bufferStreamingDelta(sessionId: string, agentId: string | null, text: string): void {
+  let entry = pendingDeltas.get(sessionId);
+  if (!entry) {
+    entry = { main: "", agents: {} };
+    pendingDeltas.set(sessionId, entry);
+  }
+  if (agentId) {
+    entry.agents[agentId] = (entry.agents[agentId] ?? "") + text;
+  } else {
+    entry.main += text;
+  }
+  scheduleDeltaFlush();
+}
+
 function getConsumerId(): string {
   const key = "beamcode_consumer_id";
   let id = localStorage.getItem(key);
@@ -51,6 +103,8 @@ function handleMessage(sessionId: string, data: string): void {
 
   switch (msg.type) {
     case "assistant":
+      // Flush any buffered deltas before clearing streaming state
+      if (pendingDeltas.has(sessionId)) flushDeltas();
       if (msg.parent_tool_use_id) {
         store.clearAgentStreaming(sessionId, msg.parent_tool_use_id);
       } else {
@@ -60,6 +114,7 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "result":
+      if (pendingDeltas.has(sessionId)) flushDeltas();
       store.setSessionStatus(sessionId, "idle");
       store.addMessage(sessionId, msg);
       // Sound + browser notification when tab is hidden
@@ -148,11 +203,7 @@ function handleMessage(sessionId: string, data: string): void {
         case "content_block_delta": {
           const delta = (event as { delta?: { type: string; text?: string } }).delta;
           if (delta?.type === "text_delta" && delta.text) {
-            if (agentId) {
-              store.appendAgentStreaming(sessionId, agentId, delta.text);
-            } else {
-              store.appendStreaming(sessionId, delta.text);
-            }
+            bufferStreamingDelta(sessionId, agentId, delta.text);
           }
           break;
         }
@@ -173,6 +224,7 @@ function handleMessage(sessionId: string, data: string): void {
     }
 
     case "message_history":
+      if (pendingDeltas.has(sessionId)) flushDeltas();
       store.setMessages(sessionId, msg.messages);
       store.clearStreaming(sessionId);
       break;
@@ -413,4 +465,6 @@ export function getActiveSessionId(): string | null {
 /** Reset internal state -- test-only. */
 export function _resetForTesting(): void {
   disconnect();
+  pendingDeltas.clear();
+  flushScheduled = false;
 }
