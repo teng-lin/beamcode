@@ -23,6 +23,7 @@ import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
+import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper } from "./consumer-gatekeeper.js";
@@ -41,6 +42,7 @@ import { MessageQueueHandler } from "./message-queue-handler.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
+import { SlashCommandHandler } from "./slash-command-handler.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { diffTeamState } from "./team-event-differ.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
@@ -62,7 +64,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private slashCommandExecutor: SlashCommandExecutor;
   private queueHandler: MessageQueueHandler;
   private capabilitiesProtocol: CapabilitiesProtocol;
-  private adapter: BackendAdapter | null;
+  private backendLifecycle: BackendLifecycleManager;
+  private slashCommandHandler: SlashCommandHandler;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -89,14 +92,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.gitResolver = options?.gitResolver ?? null;
     this.gitTracker = new GitInfoTracker(this.gitResolver);
     this.metrics = options?.metrics ?? null;
-    this.adapter = options?.adapter ?? null;
+    const emitEvent = this.forwardEvent.bind(this);
     this.capabilitiesProtocol = new CapabilitiesProtocol(
       this.config,
       this.logger,
       (session, ndjson) => this.sendToCLI(session, ndjson),
       this.broadcaster,
-      (type, payload) =>
-        this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]),
+      emitEvent,
       (session) => this.persistSession(session),
     );
     this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
@@ -106,6 +108,28 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       commandRunner: options?.commandRunner,
       config: this.config,
     });
+    this.backendLifecycle = new BackendLifecycleManager({
+      adapter: options?.adapter ?? null,
+      logger: this.logger,
+      metrics: this.metrics,
+      broadcaster: this.broadcaster,
+      sendToCLI: (session, ndjson) => this.sendToCLI(session, ndjson),
+      routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
+      emitEvent,
+    });
+    this.slashCommandHandler = new SlashCommandHandler({
+      executor: this.slashCommandExecutor,
+      broadcaster: this.broadcaster,
+      sendUserMessage: (sessionId, content, opts) => this.sendUserMessage(sessionId, content, opts),
+      emitEvent,
+    });
+  }
+
+  // ── Event forwarding ─────────────────────────────────────────────────────
+
+  /** Forward a typed event from a delegate to the bridge's event emitter. */
+  private forwardEvent(type: string, payload: unknown): void {
+    this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]);
   }
 
   // ── Persistence ──────────────────────────────────────────────────────────
@@ -172,7 +196,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   removeSession(sessionId: string): void {
     const session = this.store.get(sessionId);
     if (session) {
-      this.cancelPendingInitialize(session);
+      this.capabilitiesProtocol.cancelPendingInitialize(session);
     }
     this.store.remove(sessionId);
   }
@@ -182,7 +206,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.store.get(sessionId);
     if (!session) return;
 
-    this.cancelPendingInitialize(session);
+    this.capabilitiesProtocol.cancelPendingInitialize(session);
 
     // Close CLI socket
     if (session.cliSocket) {
@@ -279,7 +303,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.store.get(sessionId);
     if (!session) return;
 
-    this.cancelPendingInitialize(session);
+    this.capabilitiesProtocol.cancelPendingInitialize(session);
 
     session.cliSocket = null;
     this.logger.info(`CLI disconnected for session ${sessionId}`);
@@ -686,16 +710,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.routeUnifiedMessage(session, unified);
   }
 
-  // ── Initialize protocol (delegated to CapabilitiesProtocol) ─────────────
-
-  private cancelPendingInitialize(session: Session): void {
-    this.capabilitiesProtocol.cancelPendingInitialize(session);
-  }
-
-  private sendInitializeRequest(session: Session): void {
-    this.capabilitiesProtocol.sendInitializeRequest(session);
-  }
-
   // ── Structured data APIs ───────────────────────────────────────────────
 
   getSupportedModels(sessionId: string): InitializeModel[] {
@@ -733,7 +747,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.broadcaster.broadcastPresence(session);
         break;
       case "slash_command":
-        this.handleSlashCommand(session, msg);
+        this.slashCommandHandler.handleSlashCommand(session, msg);
         break;
       case "queue_message":
         this.queueHandler.handleQueueMessage(session, msg, ws);
@@ -790,75 +804,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
   }
 
-  // ── Slash command handling ───────────────────────────────────────────────
-
-  /** Returns true if the command should be forwarded to the CLI as a user message (native or skill). */
-  private shouldForwardToCLI(command: string, session: Session): boolean {
-    return (
-      this.slashCommandExecutor.isNativeCommand(command, session.state) ||
-      this.slashCommandExecutor.isSkillCommand(command, session.registry)
-    );
-  }
-
-  private handleSlashCommand(
-    session: Session,
-    msg: { type: "slash_command"; command: string; request_id?: string },
-  ): void {
-    const { command, request_id } = msg;
-
-    if (this.shouldForwardToCLI(command, session)) {
-      this.sendUserMessage(session.id, command);
-      return;
-    }
-
-    if (!this.slashCommandExecutor.canHandle(command, session.state)) {
-      const errorMsg = `Unknown slash command: ${command.split(/\s+/)[0]}`;
-      this.broadcaster.broadcast(session, {
-        type: "slash_command_error",
-        command,
-        request_id,
-        error: errorMsg,
-      });
-      this.emit("slash_command:failed", {
-        sessionId: session.id,
-        command,
-        error: errorMsg,
-      });
-      return;
-    }
-
-    this.slashCommandExecutor
-      .execute(session.state, command, session.cliSessionId ?? session.id, session.registry)
-      .then((result) => {
-        this.broadcaster.broadcast(session, {
-          type: "slash_command_result",
-          command,
-          request_id,
-          content: result.content,
-          source: result.source,
-        });
-        this.emit("slash_command:executed", {
-          sessionId: session.id,
-          command,
-          source: result.source,
-          durationMs: result.durationMs,
-        });
-      })
-      .catch((err) => {
-        const error = err instanceof Error ? err.message : String(err);
-        this.broadcaster.broadcast(session, {
-          type: "slash_command_error",
-          command,
-          request_id,
-          error,
-        });
-        this.emit("slash_command:failed", {
-          sessionId: session.id,
-          command,
-          error,
-        });
-      });
-  }
+  // ── Slash command handling (delegated to SlashCommandHandler) ────────────
 
   /** Execute a slash command programmatically (no WebSocket needed). */
   async executeSlashCommand(
@@ -867,23 +813,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
     const session = this.store.get(sessionId);
     if (!session) return null;
-
-    if (this.shouldForwardToCLI(command, session)) {
-      this.sendUserMessage(sessionId, command);
-      return null; // result comes back via normal CLI message flow
-    }
-
-    if (!this.slashCommandExecutor.canHandle(command, session.state)) {
-      return null;
-    }
-
-    const result = await this.slashCommandExecutor.execute(
-      session.state,
-      command,
-      session.cliSessionId ?? session.id,
-      session.registry,
-    );
-    return { content: result.content, source: result.source };
+    return this.slashCommandHandler.executeSlashCommand(session, command);
   }
 
   // ── Transport helpers ────────────────────────────────────────────────────
@@ -968,11 +898,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
   }
 
-  // ── BackendAdapter path (coexistence with CLI WebSocket path) ───────────
+  // ── BackendAdapter path (delegated to BackendLifecycleManager) ──────────
 
   /** Whether a BackendAdapter is configured. */
   get hasAdapter(): boolean {
-    return this.adapter !== null;
+    return this.backendLifecycle.hasAdapter;
   }
 
   /** Connect a session via BackendAdapter and start consuming messages. */
@@ -980,147 +910,32 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     sessionId: string,
     options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },
   ): Promise<void> {
-    if (!this.adapter) {
-      throw new Error("No BackendAdapter configured");
-    }
     const session = this.getOrCreateSession(sessionId);
-
-    // Close any existing backend session
-    if (session.backendSession) {
-      session.backendAbort?.abort();
-      await session.backendSession.close().catch(() => {});
-    }
-
-    const backendSession = await this.adapter.connect({
-      sessionId,
-      resume: options?.resume,
-      adapterOptions: options?.adapterOptions,
-    });
-
-    session.backendSession = backendSession;
-    const abort = new AbortController();
-    session.backendAbort = abort;
-
-    this.logger.info(`Backend connected for session ${sessionId} via ${this.adapter.name}`);
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "cli:connected",
-      sessionId,
-    });
-    this.broadcaster.broadcast(session, { type: "cli_connected" });
-    this.emit("backend:connected", { sessionId });
-    this.emit("cli:connected", { sessionId });
-
-    // Flush any pending messages
-    if (session.pendingMessages.length > 0) {
-      this.logger.info(
-        `Flushing ${session.pendingMessages.length} queued message(s) for session ${sessionId}`,
-      );
-      for (const ndjson of session.pendingMessages) {
-        this.sendToCLI(session, ndjson);
-      }
-      session.pendingMessages = [];
-    }
-
-    // Start consuming backend messages in the background
-    this.startBackendConsumption(session, abort.signal);
+    return this.backendLifecycle.connectBackend(session, options);
   }
 
   /** Disconnect the backend session. */
   async disconnectBackend(sessionId: string): Promise<void> {
     const session = this.store.get(sessionId);
-    if (!session?.backendSession) return;
-
-    session.backendAbort?.abort();
-    await session.backendSession.close().catch(() => {});
-    session.backendSession = null;
-    session.backendAbort = null;
-
-    this.logger.info(`Backend disconnected for session ${sessionId}`);
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "cli:disconnected",
-      sessionId,
-    });
-    this.broadcaster.broadcast(session, { type: "cli_disconnected" });
-    this.emit("backend:disconnected", { sessionId, code: 1000, reason: "normal" });
-    this.emit("cli:disconnected", { sessionId });
-
-    // Cancel pending permissions
-    for (const [reqId] of session.pendingPermissions) {
-      this.broadcaster.broadcastToParticipants(session, {
-        type: "permission_cancelled",
-        request_id: reqId,
-      });
-    }
-    session.pendingPermissions.clear();
+    if (!session) return;
+    return this.backendLifecycle.disconnectBackend(session);
   }
 
   /** Whether a backend session is connected for a given session ID. */
   isBackendConnected(sessionId: string): boolean {
-    return !!this.store.get(sessionId)?.backendSession;
+    const session = this.store.get(sessionId);
+    if (!session) return false;
+    return this.backendLifecycle.isBackendConnected(session);
   }
 
   /** Send a UnifiedMessage to the backend session. */
   sendToBackend(sessionId: string, message: UnifiedMessage): void {
     const session = this.store.get(sessionId);
-    if (!session?.backendSession) {
+    if (!session) {
       this.logger.warn(`No backend session for ${sessionId}, cannot send message`);
       return;
     }
-    try {
-      session.backendSession.send(message);
-    } catch (err) {
-      this.logger.error(`Failed to send to backend for session ${sessionId}`, { error: err });
-      this.emit("error", {
-        source: "sendToBackend",
-        error: err instanceof Error ? err : new Error(String(err)),
-        sessionId,
-      });
-    }
-  }
-
-  // ── Backend message consumption ────────────────────────────────────────
-
-  private startBackendConsumption(session: Session, signal: AbortSignal): void {
-    const sessionId = session.id;
-
-    // Consume in the background — don't await
-    (async () => {
-      try {
-        if (!session.backendSession) return;
-        for await (const msg of session.backendSession.messages) {
-          if (signal.aborted) break;
-          session.lastActivity = Date.now();
-          this.routeUnifiedMessage(session, msg);
-        }
-      } catch (err) {
-        if (signal.aborted) return; // expected shutdown
-        this.logger.error(`Backend message stream error for session ${sessionId}`, { error: err });
-        this.emit("error", {
-          source: "backendConsumption",
-          error: err instanceof Error ? err : new Error(String(err)),
-          sessionId,
-        });
-      }
-
-      // Stream ended — backend disconnected (unless we aborted intentionally)
-      if (!signal.aborted) {
-        session.backendSession = null;
-        session.backendAbort = null;
-        this.broadcaster.broadcast(session, { type: "cli_disconnected" });
-        this.emit("backend:disconnected", { sessionId, code: 1000, reason: "stream ended" });
-        this.emit("cli:disconnected", { sessionId });
-
-        for (const [reqId] of session.pendingPermissions) {
-          this.broadcaster.broadcastToParticipants(session, {
-            type: "permission_cancelled",
-            request_id: reqId,
-          });
-        }
-        session.pendingPermissions.clear();
-      }
-    })();
+    this.backendLifecycle.sendToBackend(session, message);
   }
 
   // ── Unified message routing ────────────────────────────────────────────
@@ -1155,7 +970,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.handleUnifiedPermissionRequest(session, msg);
         break;
       case "control_response":
-        this.handleUnifiedControlResponse(session, msg);
+        this.capabilitiesProtocol.handleControlResponse(session, msg);
         break;
       case "tool_progress":
         this.handleUnifiedToolProgress(session, msg);
@@ -1233,7 +1048,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session: session.state,
     });
     this.persistSession(session);
-    this.sendInitializeRequest(session);
+    this.capabilitiesProtocol.sendInitializeRequest(session);
   }
 
   private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
@@ -1332,10 +1147,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       request: cliPerm,
     });
     this.persistSession(session);
-  }
-
-  private handleUnifiedControlResponse(session: Session, msg: UnifiedMessage): void {
-    this.capabilitiesProtocol.handleControlResponse(session, msg);
   }
 
   private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {
