@@ -252,29 +252,36 @@ describe("Slash command integration", () => {
       expect(result.source).toBe("emulated");
     });
 
-    it("/cost returns cost data with skills present", async () => {
+    it.each([
+      "/cost",
+      "/context",
+    ])("%s is forwarded to CLI as passthrough (not emulated)", (command) => {
       const { bridge } = createBridge();
       const cliSocket = createMockSocket();
       const consumerSocket = createMockSocket();
 
       bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      bridge.handleCLIMessage(
+        "sess-1",
+        makeInitMsg({ slash_commands: ["/cost", "/context"], skills: ["commit"] }),
+      );
 
+      cliSocket.sentMessages.length = 0;
       consumerSocket.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         consumerSocket,
         "sess-1",
-        JSON.stringify({ type: "slash_command", command: "/cost" }),
+        JSON.stringify({ type: "slash_command", command }),
       );
 
-      await tick();
+      const cliMsgs = parseSent(cliSocket);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === command)).toBe(true);
 
-      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.source).toBe("emulated");
-      expect(result.content).toContain("Total cost:");
+      // Should NOT produce a local slash_command_result (forwarded, not emulated)
+      const consumerMsgs = parseSent(consumerSocket);
+      expect(consumerMsgs.some((m) => m.type === "slash_command_result")).toBe(false);
     });
   });
 

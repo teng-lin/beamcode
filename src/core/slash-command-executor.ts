@@ -88,36 +88,6 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
     }
     return lines.join("\n");
   },
-
-  "/cost": (state) => {
-    const lines = [`Total cost: $${state.total_cost_usd.toFixed(4)}`];
-    if (state.last_duration_ms != null) {
-      lines.push(`Last turn duration: ${(state.last_duration_ms / 1000).toFixed(1)}s`);
-    }
-    if (state.last_duration_api_ms != null) {
-      lines.push(`Last turn API duration: ${(state.last_duration_api_ms / 1000).toFixed(1)}s`);
-    }
-    if (state.last_model_usage) {
-      for (const [model, usage] of Object.entries(state.last_model_usage)) {
-        lines.push(
-          `  ${model}: in=${usage.inputTokens} out=${usage.outputTokens} cache_read=${usage.cacheReadInputTokens} cache_create=${usage.cacheCreationInputTokens} cost=$${usage.costUSD.toFixed(4)}`,
-        );
-      }
-    }
-    return lines.join("\n");
-  },
-
-  "/context": (state) => {
-    const lines = [`Context used: ${state.context_used_percent}%`];
-    if (state.last_model_usage) {
-      for (const [model, usage] of Object.entries(state.last_model_usage)) {
-        const total = usage.inputTokens + usage.outputTokens;
-        const pct = usage.contextWindow > 0 ? Math.round((total / usage.contextWindow) * 100) : 0;
-        lines.push(`  ${model}: ${total}/${usage.contextWindow} tokens (${pct}%)`);
-      }
-    }
-    return lines.join("\n");
-  },
 };
 
 export class SlashCommandExecutor {
