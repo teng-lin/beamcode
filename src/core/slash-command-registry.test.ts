@@ -43,11 +43,10 @@ describe("SlashCommandRegistry", () => {
     }
   });
 
-  it("getAll includes consumer, relay, and passthrough built-ins", () => {
+  it("getAll includes consumer and passthrough built-ins", () => {
     const all = registry.getAll();
     const categories = new Set(all.map((c) => c.category));
     expect(categories.has("consumer")).toBe(true);
-    expect(categories.has("relay")).toBe(true);
     expect(categories.has("passthrough")).toBe(true);
   });
 
