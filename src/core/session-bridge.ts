@@ -992,6 +992,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // reports "running", so the bridge must infer it from stream events.
     if (event?.type === "message_start" && !m.parent_tool_use_id) {
       session.lastStatus = "running";
+      this.broadcaster.broadcast(session, {
+        type: "status_change",
+        status: session.lastStatus,
+      });
     }
 
     this.broadcaster.broadcast(session, mapStreamEvent(msg));

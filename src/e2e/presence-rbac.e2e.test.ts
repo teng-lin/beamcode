@@ -1,25 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
 import type { TestSessionManager } from "./helpers/test-utils.js";
 import {
   cleanupSessionManager,
   closeWebSockets,
+  connectTestConsumerWithQuery,
   createTestSession,
   setupTestSessionManager,
+  waitForMessage,
   waitForMessageType,
 } from "./helpers/test-utils.js";
-
-function connectConsumerWithRole(
-  port: number,
-  sessionId: string,
-  role: "participant" | "observer",
-) {
-  return new Promise<WebSocket>((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?role=${role}`);
-    ws.on("open", () => resolve(ws));
-    ws.on("error", reject);
-  });
-}
 
 describe("E2E: Presence & RBAC", () => {
   let tm: TestSessionManager | undefined;
@@ -47,7 +36,7 @@ describe("E2E: Presence & RBAC", () => {
     });
 
     const { sessionId, port } = createTestSession(tm);
-    const observer = await connectConsumerWithRole(port, sessionId, "observer");
+    const observer = await connectTestConsumerWithQuery(port, sessionId, { role: "observer" });
 
     const identity = (await waitForMessageType(observer, "identity")) as {
       type: "identity";
@@ -75,15 +64,26 @@ describe("E2E: Presence & RBAC", () => {
     });
 
     const { sessionId, port } = createTestSession(tm);
-    const participant = await connectConsumerWithRole(port, sessionId, "participant");
+    const participant = await connectTestConsumerWithQuery(port, sessionId, {
+      role: "participant",
+    });
     await waitForMessageType(participant, "identity");
     await waitForMessageType(participant, "session_init");
 
-    const observer = await connectConsumerWithRole(port, sessionId, "observer");
+    const observer = await connectTestConsumerWithQuery(port, sessionId, { role: "observer" });
     await waitForMessageType(observer, "identity");
     await waitForMessageType(observer, "session_init");
 
-    const presence = (await waitForMessageType(participant, "presence_update")) as {
+    const presence = (await waitForMessage(
+      participant,
+      (m) =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type?: string }).type === "presence_update" &&
+        Array.isArray((m as { consumers?: unknown[] }).consumers) &&
+        (m as { consumers: unknown[] }).consumers.length >= 2,
+      5000,
+    )) as {
       type: "presence_update";
       consumers: Array<{ role: string }>;
     };

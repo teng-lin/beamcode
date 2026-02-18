@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
 import type { TestSessionManager } from "./helpers/test-utils.js";
 import {
   cleanupSessionManager,
   closeWebSockets,
   connectTestConsumer,
+  connectTestConsumerWithQuery,
   createTestSession,
   mockSlashCommand,
   sendAndWait,
@@ -98,11 +98,7 @@ describe("E2E: Consumer Edge Cases", () => {
     });
     const { sessionId, port } = createTestSession(tm);
 
-    const observer = await new Promise<WebSocket>((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?role=observer`);
-      ws.on("open", () => resolve(ws));
-      ws.on("error", reject);
-    });
+    const observer = await connectTestConsumerWithQuery(port, sessionId, { role: "observer" });
     await waitForMessageType(observer, "session_init");
 
     observer.send(JSON.stringify({ type: "user_message", content: "observer write attempt" }));

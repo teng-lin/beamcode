@@ -8,6 +8,7 @@ import {
   createTestSession,
   mockSystemInit,
   setupTestSessionManager,
+  waitForMessage,
   waitForMessageType,
 } from "./helpers/test-utils.js";
 
@@ -36,6 +37,29 @@ describe("E2E: Capabilities Broadcast", () => {
         }),
       ),
     );
+    const initReq = (await waitForMessage(
+      cli,
+      (m) =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type?: string }).type === "control_request" &&
+        (m as { request?: { subtype?: string } }).request?.subtype === "initialize",
+      5000,
+    )) as { request_id: string };
+    cli.send(
+      JSON.stringify({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: initReq.request_id,
+          response: {
+            commands: [{ name: "/vim", description: "Toggle vim mode" }],
+            models: [],
+            account: null,
+          },
+        },
+      }),
+    );
 
     const caps = await waitForMessageType(consumer, "capabilities_ready", 10_000);
     expect((caps as { commands?: unknown[] }).commands).toBeDefined();
@@ -51,6 +75,25 @@ describe("E2E: Capabilities Broadcast", () => {
     const consumer1 = await connectTestConsumer(port, sessionId);
     await waitForMessageType(consumer1, "session_init");
     cli.send(JSON.stringify(mockSystemInit(sessionId)));
+    const initReq = (await waitForMessage(
+      cli,
+      (m) =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type?: string }).type === "control_request" &&
+        (m as { request?: { subtype?: string } }).request?.subtype === "initialize",
+      5000,
+    )) as { request_id: string };
+    cli.send(
+      JSON.stringify({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: initReq.request_id,
+          response: { commands: [], models: [], account: null },
+        },
+      }),
+    );
     await waitForMessageType(consumer1, "capabilities_ready", 10_000);
 
     const consumer2 = await connectTestConsumer(port, sessionId);

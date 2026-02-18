@@ -11,14 +11,28 @@ BeamCode has three test layers, all powered by [Vitest](https://vitest.dev/):
 ## Quick start
 
 ```bash
-# Run all backend + e2e tests
+# Run backend unit/integration tests
 pnpm test
 
 # Run frontend tests
 cd web && pnpm test
 
-# Run everything
+# Run backend + frontend
 pnpm test && cd web && pnpm test
+```
+
+### Full local suite (including real CLI e2e)
+
+```bash
+# Prereq once per machine: Claude CLI installed and authenticated
+# claude login
+
+pnpm install
+pnpm typecheck
+pnpm -r --include-workspace-root test
+pnpm test:e2e:deterministic
+pnpm test:e2e:realcli:smoke
+pnpm test:e2e:realcli:full
 ```
 
 ## Backend tests

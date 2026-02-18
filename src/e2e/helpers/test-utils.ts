@@ -11,6 +11,23 @@ import type { ProviderConfig } from "../../types/config.js";
 import { isClaudeAvailable } from "../../utils/claude-detection.js";
 import { getE2EProfile, isRealCliProfile } from "./e2e-profile.js";
 
+const PREBUFFER_KEY = Symbol("e2ePrebuffer");
+
+type BufferedWebSocket = WebSocket & { [PREBUFFER_KEY]?: string[] };
+
+function toBuffered(ws: WebSocket): BufferedWebSocket {
+  return ws as BufferedWebSocket;
+}
+
+function getPrebuffer(ws: WebSocket): string[] {
+  return toBuffered(ws)[PREBUFFER_KEY] ?? [];
+}
+
+function removeFirstRaw(prebuffer: string[], raw: string): void {
+  const idx = prebuffer.indexOf(raw);
+  if (idx >= 0) prebuffer.splice(idx, 1);
+}
+
 // ── Adaptive Process Manager ────────────────────────────────────────────────
 
 /**
@@ -93,12 +110,21 @@ export function createTestSession(testManager: TestSessionManager): TestSession 
 
 type ClientRole = "cli" | "consumer";
 
-function connectWebSocket(port: number, role: ClientRole, sessionId: string): Promise<WebSocket> {
+function connectWebSocketUrl(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}/ws/${role}/${sessionId}`);
+    const ws = new WebSocket(url);
+    const buffered = toBuffered(ws);
+    buffered[PREBUFFER_KEY] = [];
+    ws.on("message", (data: Buffer | string) => {
+      buffered[PREBUFFER_KEY]?.push(data.toString());
+    });
     ws.on("open", () => resolve(ws));
     ws.on("error", reject);
   });
+}
+
+function connectWebSocket(port: number, role: ClientRole, sessionId: string): Promise<WebSocket> {
+  return connectWebSocketUrl(`ws://localhost:${port}/ws/${role}/${sessionId}`);
 }
 
 export function connectTestConsumer(port: number, sessionId: string): Promise<WebSocket> {
@@ -109,18 +135,41 @@ export function connectTestCLI(port: number, sessionId: string): Promise<WebSock
   return connectWebSocket(port, "cli", sessionId);
 }
 
+export function connectTestConsumerWithQuery(
+  port: number,
+  sessionId: string,
+  query: Record<string, string>,
+): Promise<WebSocket> {
+  const params = new URLSearchParams(query);
+  return connectWebSocketUrl(
+    `ws://localhost:${port}/ws/consumer/${sessionId}?${params.toString()}`,
+  );
+}
+
 // ── Message Collection ───────────────────────────────────────────────────────
 
 export function collectMessages(ws: WebSocket, count: number, timeoutMs = 2000): Promise<string[]> {
   return new Promise((resolve) => {
+    const prebuffer = getPrebuffer(ws);
     const messages: string[] = [];
+    while (messages.length < count && prebuffer.length > 0) {
+      const next = prebuffer.shift();
+      if (next !== undefined) messages.push(next);
+    }
+    if (messages.length >= count) {
+      resolve(messages);
+      return;
+    }
+
     const timer = setTimeout(() => {
       ws.removeListener("message", handler);
       resolve(messages);
     }, timeoutMs);
 
     const handler = (data: Buffer | string) => {
-      messages.push(data.toString());
+      const raw = data.toString();
+      removeFirstRaw(prebuffer, raw);
+      messages.push(raw);
       if (messages.length >= count) {
         clearTimeout(timer);
         ws.removeListener("message", handler);
@@ -138,6 +187,20 @@ export function waitForMessage(
   timeoutMs = 2000,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const prebuffer = getPrebuffer(ws);
+    for (let i = 0; i < prebuffer.length; i += 1) {
+      try {
+        const parsed = JSON.parse(prebuffer[i]);
+        if (predicate(parsed)) {
+          prebuffer.splice(i, 1);
+          resolve(parsed);
+          return;
+        }
+      } catch {
+        // Ignore parse errors, keep waiting.
+      }
+    }
+
     const timer = setTimeout(() => {
       ws.removeListener("message", handler);
       reject(new Error(`Timeout waiting for message after ${timeoutMs}ms`));
@@ -145,8 +208,10 @@ export function waitForMessage(
 
     const handler = (data: Buffer | string) => {
       try {
-        const parsed = JSON.parse(data.toString());
+        const raw = data.toString();
+        const parsed = JSON.parse(raw);
         if (predicate(parsed)) {
+          removeFirstRaw(prebuffer, raw);
           clearTimeout(timer);
           ws.removeListener("message", handler);
           resolve(parsed);
@@ -268,18 +333,22 @@ export function mockSystemInit(
   sessionId: string,
   options?: {
     model?: string;
-    slashCommands?: Array<{ name: string; description: string; argumentHint?: string }>;
+    slashCommands?: string[] | Array<{ name: string; description: string; argumentHint?: string }>;
     skills?: string[];
     tools?: string[];
   },
 ) {
+  const slashCommands = (options?.slashCommands ?? []).map((cmd) =>
+    typeof cmd === "string" ? cmd : cmd.name,
+  );
+
   return {
     type: "system",
     subtype: "init",
     model: options?.model ?? "claude-sonnet-4-5-20250929",
     session_id: sessionId,
     cwd: "/tmp/test",
-    slash_commands: options?.slashCommands ?? [],
+    slash_commands: slashCommands,
     skills: options?.skills ?? [],
     tools: options?.tools ?? ["Bash", "Read", "Write", "Edit"],
   };
