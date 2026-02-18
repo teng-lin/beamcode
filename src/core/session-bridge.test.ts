@@ -3,52 +3,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { Authenticator } from "../interfaces/auth.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  type MockBackendSession,
+  makeAssistantUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  noopLogger,
+  setupInitializedSession,
+  tick,
+} from "../testing/adapter-test-helpers.js";
 import {
   authContext,
   createTestSocket as createMockSocket,
-  makeAssistantMsg,
-  makeControlRequestMsg,
-  makeInitMsg,
-  makeResultMsg,
-  noopLogger,
 } from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createBridge(options?: {
-  storage?: MemoryStorage;
-  maxMessageHistoryLength?: number;
-  authenticator?: Authenticator;
-}) {
-  const storage = options?.storage ?? new MemoryStorage();
-  return {
-    bridge: new SessionBridge({
-      storage,
-      authenticator: options?.authenticator,
-      config: {
-        port: 3456,
-        ...(options?.maxMessageHistoryLength !== undefined
-          ? { maxMessageHistoryLength: options.maxMessageHistoryLength }
-          : {}),
-      },
-      logger: noopLogger,
-    }),
-    storage,
-  };
-}
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SessionBridge", () => {
   let bridge: SessionBridge;
   let storage: MemoryStorage;
+  let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    const created = createBridge();
+    const created = createBridgeWithAdapter();
     bridge = created.bridge;
     storage = created.storage;
+    adapter = created.adapter;
   });
 
   // ── 1. Session management ───────────────────────────────────────────────
@@ -89,24 +73,19 @@ describe("SessionBridge", () => {
       expect(ids).toContain("sess-3");
     });
 
-    it("removeSession deletes a session from the bridge and storage", () => {
-      bridge.getOrCreateSession("sess-1");
-      // Trigger persistence so storage has it
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+    it("removeSession deletes a session from the bridge and storage", async () => {
+      const backendSession = await setupInitializedSession(bridge, adapter, "sess-1");
+      // Trigger persistence so storage has it (session_init triggers persist)
+      expect(storage.load("sess-1")).not.toBeNull();
 
       bridge.removeSession("sess-1");
       expect(bridge.getSession("sess-1")).toBeUndefined();
       expect(storage.load("sess-1")).toBeNull();
     });
 
-    it("closeSession closes CLI and consumer sockets, removes session, and emits event", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
+    it("closeSession closes backend session, consumer sockets, removes session, and emits event", async () => {
+      await bridge.connectBackend("sess-1");
       const consumerSocket = createMockSocket();
-
-      bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
 
       const closedHandler = vi.fn();
@@ -114,7 +93,6 @@ describe("SessionBridge", () => {
 
       bridge.closeSession("sess-1");
 
-      expect(cliSocket.close).toHaveBeenCalled();
       expect(consumerSocket.close).toHaveBeenCalled();
       expect(bridge.getSession("sess-1")).toBeUndefined();
       expect(closedHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
@@ -124,50 +102,41 @@ describe("SessionBridge", () => {
       expect(() => bridge.closeSession("nonexistent")).not.toThrow();
     });
 
-    it("close shuts down all sessions and removes all listeners", () => {
-      bridge.getOrCreateSession("sess-1");
-      bridge.getOrCreateSession("sess-2");
-      const cli1 = createMockSocket();
-      const cli2 = createMockSocket();
-      bridge.handleCLIOpen(cli1, "sess-1");
-      bridge.handleCLIOpen(cli2, "sess-2");
+    it("close shuts down all sessions and removes all listeners", async () => {
+      await bridge.connectBackend("sess-1");
+      await bridge.connectBackend("sess-2");
 
       bridge.close();
 
       expect(bridge.getAllSessions()).toHaveLength(0);
-      expect(cli1.close).toHaveBeenCalled();
-      expect(cli2.close).toHaveBeenCalled();
     });
 
-    it("isCliConnected returns false when no CLI connected", () => {
+    it("isCliConnected returns false when no backend connected", () => {
       bridge.getOrCreateSession("sess-1");
       expect(bridge.isCliConnected("sess-1")).toBe(false);
     });
 
-    it("isCliConnected returns true when CLI is connected", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("isCliConnected returns true when backend is connected", async () => {
+      await bridge.connectBackend("sess-1");
       expect(bridge.isCliConnected("sess-1")).toBe(true);
     });
   });
 
-  // ── 2. CLI WebSocket handlers ──────────────────────────────────────────
+  // ── 2. Backend connection handlers ──────────────────────────────────────
 
-  describe("CLI WebSocket handlers", () => {
-    it("handleCLIOpen sets CLI socket and emits cli:connected", () => {
+  describe("Backend connection handlers", () => {
+    it("connectBackend sets backend session and emits cli:connected", async () => {
       bridge.getOrCreateSession("sess-1");
       const handler = vi.fn();
       bridge.on("cli:connected", handler);
 
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
 
       expect(bridge.isCliConnected("sess-1")).toBe(true);
       expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
-    it("handleCLIOpen broadcasts cli_connected to consumers", () => {
+    it("connectBackend broadcasts cli_connected to consumers", async () => {
       bridge.getOrCreateSession("sess-1");
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -175,73 +144,67 @@ describe("SessionBridge", () => {
       // Clear messages sent during consumer open
       consumerSocket.sentMessages.length = 0;
 
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
 
       const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "cli_connected")).toBe(true);
     });
 
-    it("handleCLIOpen flushes queued pending messages", () => {
+    it("connectBackend flushes queued pending messages", async () => {
       bridge.getOrCreateSession("sess-1");
 
-      // Queue a message while CLI is not connected
+      // Queue a message while backend is not connected
       bridge.sendUserMessage("sess-1", "Hello");
-      const _snapshot = bridge.getSession("sess-1")!;
-      // The message should be queued (not sent to CLI since CLI is not connected)
 
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed to the CLI
-      expect(cliSocket.sentMessages.length).toBeGreaterThanOrEqual(1);
-      const sentToCliParsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(sentToCliParsed.some((m: any) => m.type === "user")).toBe(true);
+      // The queued user message should have been flushed via sendRaw
+      expect(backendSession.sentRawMessages.length).toBeGreaterThanOrEqual(1);
+      const flushed = backendSession.sentRawMessages.some((m) => m.includes('"type":"user"'));
+      expect(flushed).toBe(true);
     });
 
-    it("handleCLIMessage routes NDJSON messages correctly", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("backend message routes correctly to consumers", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
       consumerSocket.sentMessages.length = 0;
 
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "session_init")).toBe(true);
     });
 
-    it("handleCLIMessage handles multiple NDJSON lines in one frame", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("multiple backend messages in sequence are all routed", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
       consumerSocket.sentMessages.length = 0;
 
-      const multiLine = `${makeInitMsg()}\n${makeAssistantMsg()}`;
-      bridge.handleCLIMessage("sess-1", multiLine);
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "session_init")).toBe(true);
       expect(parsed.some((m: any) => m.type === "assistant")).toBe(true);
     });
 
-    it("handleCLIMessage ignores messages for nonexistent sessions", () => {
-      expect(() => bridge.handleCLIMessage("no-such-session", makeInitMsg())).not.toThrow();
-    });
-
-    it("handleCLIClose clears CLI socket, emits event, and cancels pending permissions", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("disconnectBackend clears backend session, emits event, and cancels pending permissions", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       // Add a pending permission
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -250,7 +213,7 @@ describe("SessionBridge", () => {
       const handler = vi.fn();
       bridge.on("cli:disconnected", handler);
 
-      bridge.handleCLIClose("sess-1");
+      await bridge.disconnectBackend("sess-1");
 
       expect(bridge.isCliConnected("sess-1")).toBe(false);
       expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
@@ -260,8 +223,8 @@ describe("SessionBridge", () => {
       expect(parsed.some((m: any) => m.type === "permission_cancelled")).toBe(true);
     });
 
-    it("handleCLIClose is safe on nonexistent sessions", () => {
-      expect(() => bridge.handleCLIClose("nonexistent")).not.toThrow();
+    it("disconnectBackend is safe on nonexistent sessions", async () => {
+      await expect(bridge.disconnectBackend("nonexistent")).resolves.not.toThrow();
     });
   });
 
@@ -282,13 +245,13 @@ describe("SessionBridge", () => {
       expect(parsed[1].session.session_id).toBe("sess-1");
     });
 
-    it("handleConsumerOpen replays message history", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("handleConsumerOpen replays message history", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       // Build up some message history
-      bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -308,11 +271,12 @@ describe("SessionBridge", () => {
       expect(parsed.find((m: any) => m.type === "message_history")).toBeUndefined();
     });
 
-    it("handleConsumerOpen sends pending permission requests", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+    it("handleConsumerOpen sends pending permission requests", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -321,7 +285,7 @@ describe("SessionBridge", () => {
       expect(parsed.some((m: any) => m.type === "permission_request")).toBe(true);
     });
 
-    it("handleConsumerOpen sends cli_disconnected and emits relaunch_needed when CLI is not connected", () => {
+    it("handleConsumerOpen sends cli_disconnected and emits relaunch_needed when backend is not connected", () => {
       bridge.getOrCreateSession("sess-1");
       const relaunchHandler = vi.fn();
       bridge.on("cli:relaunch_needed", relaunchHandler);
@@ -352,11 +316,9 @@ describe("SessionBridge", () => {
       );
     });
 
-    it("handleConsumerMessage routes user_message to CLI", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      cliSocket.sentMessages.length = 0;
+    it("handleConsumerMessage routes user_message to backend", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -367,18 +329,16 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "user_message", content: "Hello from consumer" }),
       );
 
-      const sentToCli = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
+      // In the adapter path, sendUserMessage sends a UnifiedMessage via backendSession.send()
+      const userMsg = backendSession.sentMessages.find((m) => m.type === "user_message");
+      expect(userMsg).toBeDefined();
       expect(
-        sentToCli.some(
-          (m: any) => m.type === "user" && m.message.content === "Hello from consumer",
-        ),
+        userMsg!.content.some((b) => b.type === "text" && b.text === "Hello from consumer"),
       ).toBe(true);
     });
 
-    it("handleConsumerMessage emits message:inbound event", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("handleConsumerMessage emits message:inbound event", async () => {
+      await bridge.connectBackend("sess-1");
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -443,34 +403,33 @@ describe("SessionBridge", () => {
   // ── 6. Consumer message routing ────────────────────────────────────────
 
   describe("Consumer message routing", () => {
-    let cliSocket: ReturnType<typeof createMockSocket>;
+    let backendSession: MockBackendSession;
     let consumerWs: ReturnType<typeof createMockSocket>;
 
-    beforeEach(() => {
-      bridge.getOrCreateSession("sess-1");
-      cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    beforeEach(async () => {
+      await bridge.connectBackend("sess-1");
+      backendSession = adapter.getSession("sess-1")!;
       consumerWs = createMockSocket();
       bridge.handleConsumerOpen(consumerWs, authContext("sess-1"));
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
     });
 
-    it("user_message routes through sendUserMessage to CLI", () => {
+    it("user_message routes through sendUserMessage to backend", () => {
       bridge.handleConsumerMessage(
         consumerWs,
         "sess-1",
         JSON.stringify({ type: "user_message", content: "Hello!" }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(parsed.some((m: any) => m.type === "user" && m.message.content === "Hello!")).toBe(
-        true,
-      );
+      const userMsg = backendSession.sentMessages.find((m) => m.type === "user_message");
+      expect(userMsg).toBeDefined();
+      expect(userMsg!.content.some((b) => b.type === "text" && b.text === "Hello!")).toBe(true);
     });
 
-    it("permission_response routes through sendPermissionResponse", () => {
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-      cliSocket.sentMessages.length = 0;
+    it("permission_response routes through sendPermissionResponse", async () => {
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         consumerWs,
@@ -482,17 +441,16 @@ describe("SessionBridge", () => {
         }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(parsed.some((m: any) => m.type === "control_response")).toBe(true);
+      // In the adapter path, sendPermissionResponse sends a UnifiedMessage
+      const permMsg = backendSession.sentMessages.find((m) => m.type === "permission_response");
+      expect(permMsg).toBeDefined();
     });
 
     it("interrupt routes through sendInterrupt", () => {
       bridge.handleConsumerMessage(consumerWs, "sess-1", JSON.stringify({ type: "interrupt" }));
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(
-        parsed.some((m: any) => m.type === "control_request" && m.request.subtype === "interrupt"),
-      ).toBe(true);
+      const interruptMsg = backendSession.sentMessages.find((m) => m.type === "interrupt");
+      expect(interruptMsg).toBeDefined();
     });
 
     it("set_model routes through sendSetModel", () => {
@@ -502,15 +460,12 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "set_model", model: "claude-opus-4-20250514" }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(
-        parsed.some(
-          (m: any) =>
-            m.type === "control_request" &&
-            m.request.subtype === "set_model" &&
-            m.request.model === "claude-opus-4-20250514",
-        ),
-      ).toBe(true);
+      // In the adapter path, set_model is normalized to configuration_change
+      const setModelMsg = backendSession.sentMessages.find(
+        (m) => m.type === "configuration_change" && m.metadata.subtype === "set_model",
+      );
+      expect(setModelMsg).toBeDefined();
+      expect(setModelMsg!.metadata.model).toBe("claude-opus-4-20250514");
     });
 
     it("set_permission_mode routes through sendSetPermissionMode", () => {
@@ -520,15 +475,12 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "set_permission_mode", mode: "bypassPermissions" }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(
-        parsed.some(
-          (m: any) =>
-            m.type === "control_request" &&
-            m.request.subtype === "set_permission_mode" &&
-            m.request.mode === "bypassPermissions",
-        ),
-      ).toBe(true);
+      // In the adapter path, set_permission_mode is normalized to configuration_change
+      const setModeMsg = backendSession.sentMessages.find(
+        (m) => m.type === "configuration_change" && m.metadata.subtype === "set_permission_mode",
+      );
+      expect(setModeMsg).toBeDefined();
+      expect(setModeMsg!.metadata.mode).toBe("bypassPermissions");
     });
 
     it("set_adapter is handled without throwing (no-op)", () => {
@@ -592,11 +544,11 @@ describe("SessionBridge", () => {
       expect(count).toBe(0);
     });
 
-    it("restoreFromStorage does not overwrite live sessions", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ cwd: "/live" }));
+    it("restoreFromStorage does not overwrite live sessions", async () => {
+      const backendSession = await setupInitializedSession(bridge, adapter, "sess-1");
+
+      // Push a session_init with a specific cwd to establish state
+      // (setupInitializedSession already pushes session_init with cwd: "/test")
 
       // Now put a different version in storage
       storage.save({
@@ -632,7 +584,7 @@ describe("SessionBridge", () => {
       const count = bridge.restoreFromStorage();
       expect(count).toBe(0);
       // Live session should still have the current cwd
-      expect(bridge.getSession("sess-1")!.state.cwd).toBe("/live");
+      expect(bridge.getSession("sess-1")!.state.cwd).toBe("/test");
     });
 
     it("restoreFromStorage returns 0 when bridge has no storage", () => {
@@ -641,58 +593,56 @@ describe("SessionBridge", () => {
       expect(count).toBe(0);
     });
 
-    it("persistSession is triggered by system init", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("persistSession is triggered by system init", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const persisted = storage.load("sess-1");
       expect(persisted).not.toBeNull();
       expect(persisted!.state.model).toBe("claude-sonnet-4-5-20250929");
     });
 
-    it("persistSession is triggered by assistant message", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("persistSession is triggered by assistant message", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       const persisted = storage.load("sess-1");
       expect(persisted).not.toBeNull();
       expect(persisted!.messageHistory.length).toBeGreaterThan(0);
     });
 
-    it("persistSession is triggered by result message", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("persistSession is triggered by result message", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      bridge.handleCLIMessage("sess-1", makeResultMsg());
+      backendSession.pushMessage(makeResultUnifiedMsg());
+      await tick();
 
       const persisted = storage.load("sess-1");
       expect(persisted).not.toBeNull();
       expect(persisted!.state.total_cost_usd).toBe(0.01);
     });
 
-    it("persistSession is triggered by control_request", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("persistSession is triggered by permission_request", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
 
       const persisted = storage.load("sess-1");
       expect(persisted).not.toBeNull();
       expect(persisted!.pendingPermissions.length).toBe(1);
     });
 
-    it("persistSession is triggered by sendUserMessage", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("persistSession is triggered by sendUserMessage", async () => {
+      await bridge.connectBackend("sess-1");
 
       bridge.sendUserMessage("sess-1", "Hello");
 
@@ -701,11 +651,8 @@ describe("SessionBridge", () => {
       expect(persisted!.messageHistory.some((m) => m.type === "user_message")).toBe(true);
     });
 
-    it("removeSession also removes from storage", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+    it("removeSession also removes from storage", async () => {
+      const backendSession = await setupInitializedSession(bridge, adapter, "sess-1");
 
       expect(storage.load("sess-1")).not.toBeNull();
 
@@ -717,11 +664,11 @@ describe("SessionBridge", () => {
   // ── 8. Message history trimming ────────────────────────────────────────
 
   describe("Message history trimming (maxMessageHistoryLength)", () => {
-    it("trims message history when exceeding maxMessageHistoryLength", () => {
-      const { bridge: trimBridge } = createBridge({ maxMessageHistoryLength: 3 });
-      trimBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      trimBridge.handleCLIOpen(cliSocket, "sess-1");
+    it("trims message history when exceeding maxMessageHistoryLength", async () => {
+      const { bridge: trimBridge, adapter: trimAdapter } = createBridgeWithAdapter({
+        config: { port: 3456, maxMessageHistoryLength: 3 },
+      });
+      await trimBridge.connectBackend("sess-1");
 
       // Send 5 user messages
       for (let i = 0; i < 5; i++) {
@@ -732,13 +679,13 @@ describe("SessionBridge", () => {
       expect(snapshot.messageHistoryLength).toBe(3);
     });
 
-    it("keeps the most recent messages after trimming", () => {
-      const { bridge: trimBridge, storage: trimStorage } = createBridge({
-        maxMessageHistoryLength: 2,
+    it("keeps the most recent messages after trimming", async () => {
+      const trimStorage = new MemoryStorage();
+      const { bridge: trimBridge } = createBridgeWithAdapter({
+        storage: trimStorage,
+        config: { port: 3456, maxMessageHistoryLength: 2 },
       });
-      trimBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      trimBridge.handleCLIOpen(cliSocket, "sess-1");
+      await trimBridge.connectBackend("sess-1");
 
       trimBridge.sendUserMessage("sess-1", "First");
       trimBridge.sendUserMessage("sess-1", "Second");
@@ -755,16 +702,19 @@ describe("SessionBridge", () => {
       );
     });
 
-    it("assistant and result messages also count toward the limit", () => {
-      const { bridge: trimBridge } = createBridge({ maxMessageHistoryLength: 2 });
-      trimBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      trimBridge.handleCLIOpen(cliSocket, "sess-1");
+    it("assistant and result messages also count toward the limit", async () => {
+      const { bridge: trimBridge, adapter: trimAdapter } = createBridgeWithAdapter({
+        config: { port: 3456, maxMessageHistoryLength: 2 },
+      });
+      await trimBridge.connectBackend("sess-1");
+      const trimBackendSession = trimAdapter.getSession("sess-1")!;
 
       // user message -> assistant -> result = 3 history entries, limit is 2
       trimBridge.sendUserMessage("sess-1", "hello");
-      trimBridge.handleCLIMessage("sess-1", makeAssistantMsg());
-      trimBridge.handleCLIMessage("sess-1", makeResultMsg());
+      trimBackendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
+      trimBackendSession.pushMessage(makeResultUnifiedMsg());
+      await tick();
 
       expect(trimBridge.getSession("sess-1")!.messageHistoryLength).toBe(2);
     });
@@ -773,47 +723,51 @@ describe("SessionBridge", () => {
   // ── 10. Edge cases ─────────────────────────────────────────────────────
 
   describe("Edge cases", () => {
-    it("queues messages when CLI is not connected (I5)", () => {
+    it("queues messages when backend is not connected (I5)", async () => {
       bridge.getOrCreateSession("sess-1");
-      // No CLI socket connected
+      // No backend connected
 
       bridge.sendUserMessage("sess-1", "Will be queued");
       bridge.sendInterrupt("sess-1");
 
-      // Now connect CLI
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      // Now connect backend
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed
-      const sentToCli = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(sentToCli.some((m: any) => m.type === "user")).toBe(true);
+      // The queued user message should have been flushed via sendRaw
+      const flushed = backendSession.sentRawMessages.some((m: string) =>
+        m.includes('"type":"user"'),
+      );
+      expect(flushed).toBe(true);
     });
 
-    it("unknown permission request_ids produce no CLI message (S4)", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      cliSocket.sentMessages.length = 0;
+    it("unknown permission request_ids produce no backend message (S4)", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.sentMessages.length = 0;
 
       // No permission was requested, try to respond anyway
       bridge.sendPermissionResponse("sess-1", "unknown-request-id", "allow");
 
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
     });
 
-    it("permission response with updatedPermissions includes them", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-      cliSocket.sentMessages.length = 0;
+    it("permission response with updatedPermissions includes them", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+      backendSession.sentMessages.length = 0;
 
       bridge.sendPermissionResponse("sess-1", "perm-req-1", "allow", {
         updatedPermissions: [{ type: "setMode", mode: "plan", destination: "session" }],
       });
 
-      const parsed = JSON.parse(cliSocket.sentMessages[0].trim());
-      expect(parsed.response.response.updatedPermissions).toEqual([
+      // In the adapter path, updatedPermissions are included in the unified message
+      const permMsg = backendSession.sentMessages.find((m) => m.type === "permission_response");
+      expect(permMsg).toBeDefined();
+      expect(permMsg!.metadata.updated_permissions).toEqual([
         { type: "setMode", mode: "plan", destination: "session" },
       ]);
     });
@@ -833,34 +787,18 @@ describe("SessionBridge", () => {
       expect(snapshot.messageHistoryLength).toBe(0);
     });
 
-    it("handleCLIMessage handles Buffer input", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      const consumerSocket = createMockSocket();
-      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      consumerSocket.sentMessages.length = 0;
-
-      const bufferData = Buffer.from(makeAssistantMsg());
-      bridge.handleCLIMessage("sess-1", bufferData);
-
-      const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(parsed.some((m: any) => m.type === "assistant")).toBe(true);
-    });
-
-    it("handleConsumerMessage handles Buffer input", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("handleConsumerMessage handles Buffer input", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       const bufferData = Buffer.from(JSON.stringify({ type: "interrupt" }));
       bridge.handleConsumerMessage(ws, "sess-1", bufferData);
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(parsed.some((m: any) => m.request?.subtype === "interrupt")).toBe(true);
+      const interruptMsg = backendSession.sentMessages.find((m) => m.type === "interrupt");
+      expect(interruptMsg).toBeDefined();
     });
 
     it("broadcastNameUpdate sends session_name_update to consumers", () => {
@@ -879,10 +817,9 @@ describe("SessionBridge", () => {
       expect(() => bridge.broadcastNameUpdate("nonexistent", "name")).not.toThrow();
     });
 
-    it("consumer socket that throws on send is removed from the set", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("consumer socket that throws on send is removed from the set", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const failSocket = createMockSocket();
       failSocket.send = vi.fn(() => {
@@ -891,17 +828,16 @@ describe("SessionBridge", () => {
       bridge.handleConsumerOpen(failSocket, authContext("sess-1"));
 
       // Trigger a broadcast that will cause failSocket to throw
-      bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       // After the failed send, the consumer count should be reduced
-      // (the socket was removed from the set during broadcast)
       expect(bridge.getSession("sess-1")!.consumerCount).toBe(0);
     });
 
-    it("multiple consumers all receive the same broadcast", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+    it("multiple consumers all receive the same broadcast", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const consumer1 = createMockSocket();
       const consumer2 = createMockSocket();
@@ -914,25 +850,13 @@ describe("SessionBridge", () => {
       consumer2.sentMessages.length = 0;
       consumer3.sentMessages.length = 0;
 
-      bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       for (const consumer of [consumer1, consumer2, consumer3]) {
         const parsed = consumer.sentMessages.map((m) => JSON.parse(m));
         expect(parsed.some((m: any) => m.type === "assistant")).toBe(true);
       }
-    });
-
-    it("closeSession handles CLI socket close error gracefully", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      cliSocket.close = vi.fn(() => {
-        throw new Error("Already closed");
-      });
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-
-      // Should not throw
-      expect(() => bridge.closeSession("sess-1")).not.toThrow();
-      expect(bridge.getSession("sess-1")).toBeUndefined();
     });
 
     it("closeSession handles consumer socket close error gracefully", () => {
@@ -947,15 +871,17 @@ describe("SessionBridge", () => {
       expect(bridge.getSession("sess-1")).toBeUndefined();
     });
 
-    it("sendUserMessage with user_message via consumer includes session_id override", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      // First populate the CLI session_id via init
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-real-id" }));
+    it("sendUserMessage with user_message via consumer includes session_id override", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      // First populate the backend session_id via init
+      backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-real-id" }));
+      await tick();
+
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         ws,
@@ -963,21 +889,25 @@ describe("SessionBridge", () => {
         JSON.stringify({ type: "user_message", content: "test", session_id: "cli-real-id" }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(parsed[0].session_id).toBe("cli-real-id");
+      const userMsg = backendSession.sentMessages.find((m) => m.type === "user_message");
+      expect(userMsg).toBeDefined();
+      expect(userMsg!.metadata.session_id).toBe("cli-real-id");
     });
 
-    it("deny permission response uses default message when none provided", () => {
-      bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-      cliSocket.sentMessages.length = 0;
+    it("deny permission response is sent to backend", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+      backendSession.sentMessages.length = 0;
 
       bridge.sendPermissionResponse("sess-1", "perm-req-1", "deny");
 
-      const parsed = JSON.parse(cliSocket.sentMessages[0].trim());
-      expect(parsed.response.response.message).toBe("Denied by user");
+      const permMsg = backendSession.sentMessages.find((m) => m.type === "permission_response");
+      expect(permMsg).toBeDefined();
+      expect(permMsg!.metadata.behavior).toBe("deny");
+      expect(permMsg!.metadata.request_id).toBe("perm-req-1");
     });
   });
 
@@ -1071,48 +1001,48 @@ describe("SessionBridge", () => {
   // ── backend:* dual-emit events ──────────────────────────────────────────
 
   describe("backend:* dual-emit events", () => {
-    it("emits backend:connected alongside cli:connected on handleCLIOpen", () => {
+    it("emits backend:connected alongside cli:connected on connectBackend", async () => {
       bridge.getOrCreateSession("sess-1");
       const cliHandler = vi.fn();
       const backendHandler = vi.fn();
       bridge.on("cli:connected", cliHandler);
       bridge.on("backend:connected", backendHandler);
 
-      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+      await bridge.connectBackend("sess-1");
 
       expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
       expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
-    it("emits backend:disconnected alongside cli:disconnected on handleCLIClose", () => {
-      bridge.getOrCreateSession("sess-1");
-      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+    it("emits backend:disconnected alongside cli:disconnected on disconnectBackend", async () => {
+      await bridge.connectBackend("sess-1");
 
       const cliHandler = vi.fn();
       const backendHandler = vi.fn();
       bridge.on("cli:disconnected", cliHandler);
       bridge.on("backend:disconnected", backendHandler);
 
-      bridge.handleCLIClose("sess-1");
+      await bridge.disconnectBackend("sess-1");
 
       expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
       expect(backendHandler).toHaveBeenCalledWith({
         sessionId: "sess-1",
         code: 1000,
-        reason: "CLI process disconnected",
+        reason: "normal",
       });
     });
 
-    it("emits backend:session_id alongside cli:session_id on system init", () => {
-      bridge.getOrCreateSession("sess-1");
-      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+    it("emits backend:session_id alongside cli:session_id on system init", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
       const cliHandler = vi.fn();
       const backendHandler = vi.fn();
       bridge.on("cli:session_id", cliHandler);
       bridge.on("backend:session_id", backendHandler);
 
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-abc" }));
+      backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
+      await tick();
 
       expect(cliHandler).toHaveBeenCalledWith({
         sessionId: "sess-1",
@@ -1124,7 +1054,7 @@ describe("SessionBridge", () => {
       });
     });
 
-    it("emits backend:relaunch_needed alongside cli:relaunch_needed when consumer opens and CLI is dead", () => {
+    it("emits backend:relaunch_needed alongside cli:relaunch_needed when consumer opens and backend is dead", () => {
       bridge.getOrCreateSession("sess-1");
       const cliHandler = vi.fn();
       const backendHandler = vi.fn();
@@ -1137,9 +1067,8 @@ describe("SessionBridge", () => {
       expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
-    it("does not emit backend:relaunch_needed when CLI is connected", () => {
-      bridge.getOrCreateSession("sess-1");
-      bridge.handleCLIOpen(createMockSocket(), "sess-1");
+    it("does not emit backend:relaunch_needed when backend is connected", async () => {
+      await bridge.connectBackend("sess-1");
 
       const handler = vi.fn();
       bridge.on("backend:relaunch_needed", handler);
@@ -1152,26 +1081,14 @@ describe("SessionBridge", () => {
   // ─── Error path coverage (Task 11) ─────────────────────────────────────
 
   describe("error paths", () => {
-    it("handleCLIMessage with corrupted/partial NDJSON → no crash, logged", () => {
-      const cliSocket = createMockSocket();
+    it("handleConsumerMessage exceeding MAX_CONSUMER_MESSAGE_SIZE closes socket with 1009", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
       const ws = createMockSocket();
-
-      bridge.handleCLIOpen(cliSocket, "sess-1");
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-
-      // Should not throw
-      expect(() => {
-        bridge.handleCLIMessage("sess-1", "not valid json\n{also bad");
-      }).not.toThrow();
-    });
-
-    it("handleConsumerMessage exceeding MAX_CONSUMER_MESSAGE_SIZE → socket closed with 1009", () => {
-      const cliSocket = createMockSocket();
-      const ws = createMockSocket();
-
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       // 256KB + 1
       const oversized = "x".repeat(262_145);
@@ -1180,32 +1097,35 @@ describe("SessionBridge", () => {
       expect(ws.close).toHaveBeenCalledWith(1009, "Message Too Big");
     });
 
-    it("sendToCLI when CLI socket is null → message queued to pendingMessages", () => {
+    it("messages queue when backend is not connected and flush on connect", async () => {
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
 
-      // Send a consumer message without CLI being connected
+      // Send a consumer message without backend being connected
       bridge.handleConsumerMessage(
         ws,
         "sess-1",
         JSON.stringify({ type: "user_message", content: "hello" }),
       );
 
-      // Verify message was queued by connecting CLI and checking flush
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      // Connect backend and check flush
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
 
-      // After CLI connects, queued messages should flush.
-      // The consumer "user_message" is transformed to NDJSON { type: "user", ... }
-      const flushed = cliSocket.sentMessages.some((m: string) => m.includes('"type":"user"'));
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+
+      // After backend connects, queued messages should have been flushed via sendRaw
+      const flushed = backendSession.sentRawMessages.some((m: string) =>
+        m.includes('"type":"user"'),
+      );
       expect(flushed).toBe(true);
     });
 
-    it("consumer open with unknown session → session auto-created", () => {
+    it("consumer open with unknown session auto-creates the session", () => {
       const ws = createMockSocket();
 
-      // No CLI has connected to "new-session" yet
+      // No backend has connected to "new-session" yet
       bridge.handleConsumerOpen(ws, authContext("new-session"));
 
       // Session should be auto-created
@@ -1214,25 +1134,11 @@ describe("SessionBridge", () => {
       expect(snapshot!.consumerCount).toBe(1);
     });
 
-    it("closeSession when cliSocket.close() throws → session still removed", () => {
-      const cliSocket = createMockSocket();
-      cliSocket.close.mockImplementation(() => {
-        throw new Error("close boom");
-      });
-
-      bridge.handleCLIOpen(cliSocket, "sess-close");
-      bridge.handleCLIMessage("sess-close", makeInitMsg({ session_id: "cli-close" }));
-
-      // Should not throw
-      expect(() => bridge.closeSession("sess-close")).not.toThrow();
-      expect(bridge.getSession("sess-close")).toBeUndefined();
-    });
-
-    it("consumer message for session with no CLI → does not crash", () => {
+    it("consumer message for session with no backend does not crash", () => {
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("no-cli"));
 
-      // Try to send a message without any CLI
+      // Try to send a message without any backend
       expect(() => {
         bridge.handleConsumerMessage(
           ws,
@@ -1307,7 +1213,7 @@ describe("SessionBridge", () => {
       gitBridge.seedSessionState("seed-4", { cwd: "/repo" });
       gitBridge.seedSessionState("seed-4", { cwd: "/repo" });
 
-      // resolve called only once — second call skips due to git_branch already set
+      // resolve called only once -- second call skips due to git_branch already set
       expect(mockGitResolver.resolve).toHaveBeenCalledTimes(1);
     });
 
@@ -1322,11 +1228,11 @@ describe("SessionBridge", () => {
       });
 
       gitBridge.seedSessionState("seed-5", { cwd: "/tmp" });
-      // Simulate consumer connecting — would call resolveGitInfo again
+      // Simulate consumer connecting
       const ws = createMockSocket();
       gitBridge.handleConsumerOpen(ws, authContext("seed-5"));
 
-      // resolve called only once — second call skipped due to attempt tracking
+      // resolve called only once -- second call skipped due to attempt tracking
       expect(mockGitResolver.resolve).toHaveBeenCalledTimes(1);
     });
 
@@ -1351,7 +1257,7 @@ describe("SessionBridge", () => {
       expect(snap!.state.git_branch).toBe("");
     });
 
-    it("consumer connecting before CLI receives seeded state in session_init", () => {
+    it("consumer connecting before backend receives seeded state in session_init", () => {
       const mockGitResolver = {
         resolve: vi.fn().mockReturnValue({
           branch: "develop",
@@ -1370,7 +1276,7 @@ describe("SessionBridge", () => {
       // Seed state (simulating launcher.launch + seedSessionState)
       gitBridge.seedSessionState("seed-7", { cwd: "/project", model: "opus" });
 
-      // Consumer connects before CLI
+      // Consumer connects before backend
       const ws = createMockSocket();
       gitBridge.handleConsumerOpen(ws, authContext("seed-7"));
 

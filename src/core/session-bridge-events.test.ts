@@ -3,44 +3,44 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  type MockBackendSession,
+  makeAssistantUnifiedMsg,
+  makeAuthStatusUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  makeStreamEventUnifiedMsg,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
   authContext,
   createTestSocket as createMockSocket,
-  makeAssistantMsg,
-  makeAuthStatusMsg,
-  makeControlRequestMsg,
-  makeInitMsg,
-  makeResultMsg,
-  noopLogger,
 } from "../testing/cli-message-factories.js";
-import { SessionBridge } from "./session-bridge.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createBridge() {
-  return new SessionBridge({
-    config: { port: 3456 },
-    logger: noopLogger,
-  });
-}
+import type { SessionBridge } from "./session-bridge.js";
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SessionBridge — Event emission", () => {
   let bridge: SessionBridge;
+  let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    bridge = createBridge();
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    adapter = created.adapter;
   });
 
-  it("emits cli:session_id on system init", () => {
-    bridge.getOrCreateSession("sess-1");
-    const cliSocket = createMockSocket();
-    bridge.handleCLIOpen(cliSocket, "sess-1");
+  it("emits cli:session_id on system init", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
 
     const handler = vi.fn();
     bridge.on("cli:session_id", handler);
 
-    bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-xyz" }));
+    backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-xyz" }));
+    await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
@@ -48,23 +48,21 @@ describe("SessionBridge — Event emission", () => {
     });
   });
 
-  it("emits cli:connected on handleCLIOpen", () => {
-    bridge.getOrCreateSession("sess-1");
+  it("emits cli:connected on connectBackend", async () => {
     const handler = vi.fn();
     bridge.on("cli:connected", handler);
 
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+    await bridge.connectBackend("sess-1");
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
-  it("emits cli:disconnected on handleCLIClose", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits cli:disconnected on disconnectBackend", async () => {
+    await bridge.connectBackend("sess-1");
 
     const handler = vi.fn();
     bridge.on("cli:disconnected", handler);
 
-    bridge.handleCLIClose("sess-1");
+    await bridge.disconnectBackend("sess-1");
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
@@ -77,9 +75,8 @@ describe("SessionBridge — Event emission", () => {
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
-  it("does not emit cli:relaunch_needed when CLI is connected", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("does not emit cli:relaunch_needed when CLI is connected", async () => {
+    await bridge.connectBackend("sess-1");
 
     const handler = vi.fn();
     bridge.on("cli:relaunch_needed", handler);
@@ -88,9 +85,8 @@ describe("SessionBridge — Event emission", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("emits consumer:connected with correct count", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits consumer:connected with correct count", async () => {
+    await bridge.connectBackend("sess-1");
 
     const handler = vi.fn();
     bridge.on("consumer:connected", handler);
@@ -127,16 +123,16 @@ describe("SessionBridge — Event emission", () => {
     );
   });
 
-  it("emits message:outbound for every consumer broadcast", () => {
-    bridge.getOrCreateSession("sess-1");
-    const cliSocket = createMockSocket();
-    bridge.handleCLIOpen(cliSocket, "sess-1");
+  it("emits message:outbound for every consumer broadcast", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
     bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
 
     const handler = vi.fn();
     bridge.on("message:outbound", handler);
 
-    bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+    backendSession.pushMessage(makeAssistantUnifiedMsg());
+    await tick();
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -146,9 +142,8 @@ describe("SessionBridge — Event emission", () => {
     );
   });
 
-  it("emits message:inbound for every consumer message", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits message:inbound for every consumer message", async () => {
+    await bridge.connectBackend("sess-1");
     const ws = createMockSocket();
     bridge.handleConsumerOpen(ws, authContext("sess-1"));
 
@@ -165,14 +160,15 @@ describe("SessionBridge — Event emission", () => {
     );
   });
 
-  it("emits permission:requested on control_request", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits permission:requested on permission_request", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
 
     const handler = vi.fn();
     bridge.on("permission:requested", handler);
 
-    bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+    backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+    await tick();
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -185,10 +181,12 @@ describe("SessionBridge — Event emission", () => {
     );
   });
 
-  it("emits permission:resolved when permission response is sent", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
-    bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+  it("emits permission:resolved when permission response is sent", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
+
+    backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+    await tick();
 
     const handler = vi.fn();
     bridge.on("permission:resolved", handler);
@@ -202,15 +200,16 @@ describe("SessionBridge — Event emission", () => {
     });
   });
 
-  it("emits session:first_turn_completed on successful first turn", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits session:first_turn_completed on successful first turn", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
     bridge.sendUserMessage("sess-1", "Explain monads");
 
     const handler = vi.fn();
     bridge.on("session:first_turn_completed", handler);
 
-    bridge.handleCLIMessage("sess-1", makeResultMsg({ num_turns: 1, is_error: false }));
+    backendSession.pushMessage(makeResultUnifiedMsg({ num_turns: 1, is_error: false }));
+    await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
@@ -227,17 +226,17 @@ describe("SessionBridge — Event emission", () => {
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
-  it("emits auth_status on auth_status CLI message", () => {
-    bridge.getOrCreateSession("sess-1");
-    bridge.handleCLIOpen(createMockSocket(), "sess-1");
+  it("emits auth_status on auth_status message", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
 
     const handler = vi.fn();
     bridge.on("auth_status", handler);
 
-    bridge.handleCLIMessage(
-      "sess-1",
-      makeAuthStatusMsg({ isAuthenticating: false, error: "Auth failed" }),
+    backendSession.pushMessage(
+      makeAuthStatusUnifiedMsg({ isAuthenticating: false, error: "Auth failed" }),
     );
+    await tick();
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -248,22 +247,24 @@ describe("SessionBridge — Event emission", () => {
     );
   });
 
-  it("emits error when sendToCLI fails", () => {
-    bridge.getOrCreateSession("sess-1");
-    const failSocket = createMockSocket();
-    failSocket.send = vi.fn(() => {
-      throw new Error("Socket write failed");
-    });
-    bridge.handleCLIOpen(failSocket, "sess-1");
+  it("emits error when sendToBackend fails", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
+
+    // Make the backend session's send throw
+    backendSession.send = () => {
+      throw new Error("Backend write failed");
+    };
 
     const handler = vi.fn();
     bridge.on("error", handler);
 
-    bridge.sendInterrupt("sess-1");
+    // Use sendToBackend which routes through BackendLifecycleManager (try/catch + error emit)
+    bridge.sendToBackend("sess-1", makeAssistantUnifiedMsg());
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
-        source: "sendToCLI",
+        source: "sendToBackend",
         error: expect.any(Error),
         sessionId: "sess-1",
       }),

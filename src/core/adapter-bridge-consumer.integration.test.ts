@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { WebSocketLike } from "../interfaces/transport.js";
-import { SessionBridge } from "./session-bridge.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  type MockBackendSession,
+  makeAssistantUnifiedMsg,
+  makeResultUnifiedMsg,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import type { SessionBridge } from "./session-bridge.js";
 
 // ── Mock WebSocket ───────────────────────────────────────────────────────────
 
@@ -37,10 +45,11 @@ function sentOfType(socket: MockSocket, type: string): unknown[] {
 
 describe("Adapter → SessionBridge → Consumer Integration", () => {
   let bridge: SessionBridge;
+  let adapter: MockBackendAdapter;
   const sessionId = "integration-session-1";
 
   beforeEach(() => {
-    bridge = new SessionBridge({
+    const created = createBridgeWithAdapter({
       config: {
         port: 3456,
         consumerMessageRateLimit: {
@@ -49,6 +58,8 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
         },
       },
     });
+    bridge = created.bridge;
+    adapter = created.adapter;
   });
 
   // ── 1. Basic flow ────────────────────────────────────────────────────────
@@ -117,7 +128,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
   // ── 2. Multiple consumers on one session ─────────────────────────────────
 
   describe("multiple consumers on one session", () => {
-    it("broadcasts CLI messages to all connected consumers", () => {
+    it("broadcasts backend messages to all connected consumers", async () => {
       const socket1 = createMockSocket();
       const socket2 = createMockSocket();
 
@@ -125,34 +136,22 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
       bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
       bridge.handleConsumerOpen(socket2, { sessionId, transport: {} });
 
-      // Connect a CLI socket so we can simulate CLI messages
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, sessionId);
+      // Connect backend (replaces handleCLIOpen)
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
 
-      // Clear sent messages to focus on CLI broadcast
+      // Clear sent messages to focus on backend broadcast
       socket1.sentMessages.length = 0;
       socket2.sentMessages.length = 0;
 
-      // Simulate CLI sending an assistant message (NDJSON)
-      const assistantMsg = JSON.stringify({
-        type: "assistant",
-        message: {
-          id: "msg-1",
-          type: "message",
-          role: "assistant",
+      // Simulate backend sending an assistant message via adapter path
+      backendSession.pushMessage(
+        makeAssistantUnifiedMsg({
+          message_id: "msg-1",
           model: "claude-sonnet-4-5-20250929",
-          content: [{ type: "text", text: "Hello from assistant" }],
-          stop_reason: null,
-          usage: {
-            input_tokens: 10,
-            output_tokens: 5,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
-        },
-        parent_tool_use_id: null,
-      });
-      bridge.handleCLIMessage(sessionId, assistantMsg);
+        }),
+      );
+      await tick();
 
       // Both consumers should receive the assistant message
       const s1Assistant = sentOfType(socket1, "assistant");
@@ -338,7 +337,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
   describe("session isolation", () => {
     const sessionId2 = "integration-session-2";
 
-    it("messages do not leak between sessions", () => {
+    it("messages do not leak between sessions", async () => {
       const socket1 = createMockSocket();
       const socket2 = createMockSocket();
 
@@ -346,38 +345,23 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
       bridge.handleConsumerOpen(socket1, { sessionId, transport: {} });
       bridge.handleConsumerOpen(socket2, { sessionId: sessionId2, transport: {} });
 
-      // Connect CLI sockets to both sessions
-      const cli1 = createMockSocket();
-      const cli2 = createMockSocket();
-      bridge.handleCLIOpen(cli1, sessionId);
-      bridge.handleCLIOpen(cli2, sessionId2);
+      // Connect backend sessions (replaces handleCLIOpen for both sessions)
+      await bridge.connectBackend(sessionId);
+      await bridge.connectBackend(sessionId2);
+      const backendSession1 = adapter.getSession(sessionId)!;
 
       // Clear all messages
       socket1.sentMessages.length = 0;
       socket2.sentMessages.length = 0;
 
-      // Simulate CLI message only on session 1
-      bridge.handleCLIMessage(
-        sessionId,
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            id: "msg-s1",
-            type: "message",
-            role: "assistant",
-            model: "claude-sonnet-4-5-20250929",
-            content: [{ type: "text", text: "Session 1 only" }],
-            stop_reason: null,
-            usage: {
-              input_tokens: 10,
-              output_tokens: 5,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-            },
-          },
-          parent_tool_use_id: null,
+      // Simulate backend message only on session 1 via adapter path
+      backendSession1.pushMessage(
+        makeAssistantUnifiedMsg({
+          message_id: "msg-s1",
+          model: "claude-sonnet-4-5-20250929",
         }),
       );
+      await tick();
 
       // socket1 should get the message
       expect(sentOfType(socket1, "assistant")).toHaveLength(1);
@@ -490,14 +474,14 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
 
   // ── Full round-trip flow ──────────────────────────────────────────────────
 
-  describe("full round-trip: consumer → CLI → consumer", () => {
-    it("consumer message reaches CLI socket and CLI response reaches consumer", () => {
+  describe("full round-trip: consumer → backend → consumer", () => {
+    it("consumer message is stored and backend response reaches consumer", async () => {
       const consumerSocket = createMockSocket();
-      const cliSocket = createMockSocket();
 
-      // Connect consumer, then CLI
+      // Connect consumer, then backend (replaces handleCLIOpen)
       bridge.handleConsumerOpen(consumerSocket, { sessionId, transport: {} });
-      bridge.handleCLIOpen(cliSocket, sessionId);
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
 
       // Consumer sends a user_message
       bridge.handleConsumerMessage(
@@ -506,59 +490,50 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
         JSON.stringify({ type: "user_message", content: "What is 2+2?" }),
       );
 
-      // CLI socket should have received the message (as NDJSON)
-      expect(cliSocket.sentMessages.length).toBeGreaterThan(0);
-      const cliReceived = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      const userMsg = cliReceived.find((m: unknown) => (m as { type: string }).type === "user");
-      expect(userMsg).toBeDefined();
+      // Backend session should have received the message via send()
+      expect(backendSession.sentMessages.length).toBeGreaterThan(0);
+      const sentMsg = backendSession.sentMessages[0];
+      expect(sentMsg.type).toBe("user_message");
 
       // Clear consumer messages
       consumerSocket.sentMessages.length = 0;
 
-      // Simulate CLI responding with a result
-      bridge.handleCLIMessage(
-        sessionId,
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
+      // Simulate backend responding with a result via adapter path
+      backendSession.pushMessage(
+        makeResultUnifiedMsg({
           result: "4",
           duration_ms: 100,
           duration_api_ms: 80,
           num_turns: 1,
           total_cost_usd: 0.01,
-          stop_reason: "end_turn",
-          usage: {
-            input_tokens: 10,
-            output_tokens: 5,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
         }),
       );
+      await tick();
 
       // Consumer should receive the result
       const results = sentOfType(consumerSocket, "result");
       expect(results).toHaveLength(1);
     });
 
-    it("queues consumer messages when CLI is not yet connected", () => {
+    it("queues consumer messages when backend is not yet connected", async () => {
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, { sessionId, transport: {} });
 
-      // Send message before CLI connects
+      // Send message before backend connects
       bridge.handleConsumerMessage(
         consumerSocket,
         sessionId,
         JSON.stringify({ type: "user_message", content: "queued message" }),
       );
 
-      // Now connect CLI
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, sessionId);
+      // Now connect backend (replaces handleCLIOpen)
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
 
-      // CLI should have received the queued message
-      expect(cliSocket.sentMessages.length).toBeGreaterThan(0);
+      // Backend session should have received the queued message
+      // In the adapter path, pending messages are flushed via sendToCLI (legacy),
+      // but with an adapter the backendSession.sendRaw receives them
+      expect(backendSession.sentRawMessages.length).toBeGreaterThan(0);
     });
   });
 });

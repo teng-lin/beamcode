@@ -2,10 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
-import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { AuthContext } from "../interfaces/auth.js";
+import type { MemoryStorage } from "../adapters/memory-storage.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
-import { makeControlRequestMsg } from "../testing/cli-message-factories.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  makeAssistantUnifiedMsg,
+  makeAuthStatusUnifiedMsg,
+  makeControlResponseUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  makeStatusChangeMsg,
+  makeStreamEventUnifiedMsg,
+  makeToolProgressUnifiedMsg,
+  makeToolUseSummaryUnifiedMsg,
+  noopLogger,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import { authContext } from "../testing/cli-message-factories.js";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -16,123 +31,7 @@ import { SessionBridge } from "./session-bridge.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 import { createUnifiedMessage } from "./types/unified-message.js";
 
-// ─── Mock BackendSession with controllable message channel ───────────────────
-
-function createMessageChannel() {
-  const queue: UnifiedMessage[] = [];
-  let resolve: ((value: IteratorResult<UnifiedMessage>) => void) | null = null;
-  let done = false;
-
-  return {
-    push(msg: UnifiedMessage) {
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r({ value: msg, done: false });
-      } else {
-        queue.push(msg);
-      }
-    },
-    close() {
-      done = true;
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r({ value: undefined, done: true });
-      }
-    },
-    [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
-      return {
-        next(): Promise<IteratorResult<UnifiedMessage>> {
-          if (queue.length > 0) {
-            return Promise.resolve({ value: queue.shift()!, done: false });
-          }
-          if (done) {
-            return Promise.resolve({
-              value: undefined,
-              done: true,
-            });
-          }
-          return new Promise((r) => {
-            resolve = r;
-          });
-        },
-      };
-    },
-  };
-}
-
-class MockBackendSession implements BackendSession {
-  readonly sessionId: string;
-  readonly channel = createMessageChannel();
-  readonly sentMessages: UnifiedMessage[] = [];
-  private _closed = false;
-
-  constructor(sessionId: string) {
-    this.sessionId = sessionId;
-  }
-
-  send(message: UnifiedMessage): void {
-    if (this._closed) throw new Error("Session is closed");
-    this.sentMessages.push(message);
-  }
-
-  readonly sentRawMessages: string[] = [];
-
-  sendRaw(ndjson: string): void {
-    if (this._closed) throw new Error("Session is closed");
-    this.sentRawMessages.push(ndjson);
-  }
-
-  get messages(): AsyncIterable<UnifiedMessage> {
-    return this.channel;
-  }
-
-  async close(): Promise<void> {
-    this._closed = true;
-    this.channel.close();
-  }
-
-  get closed() {
-    return this._closed;
-  }
-
-  /** Push a message into the channel (simulating backend → bridge). */
-  pushMessage(msg: UnifiedMessage) {
-    this.channel.push(msg);
-  }
-}
-
-class MockBackendAdapter implements BackendAdapter {
-  readonly name = "mock";
-  readonly capabilities: BackendCapabilities = {
-    streaming: true,
-    permissions: true,
-    slashCommands: false,
-    availability: "local",
-    teams: false,
-  };
-
-  private sessions = new Map<string, MockBackendSession>();
-  private _shouldFail = false;
-
-  setShouldFail(fail: boolean) {
-    this._shouldFail = fail;
-  }
-
-  async connect(options: ConnectOptions): Promise<BackendSession> {
-    if (this._shouldFail) {
-      throw new Error("Connection failed");
-    }
-    const session = new MockBackendSession(options.sessionId);
-    this.sessions.set(options.sessionId, session);
-    return session;
-  }
-
-  getSession(id: string): MockBackendSession | undefined {
-    return this.sessions.get(id);
-  }
-}
+// ─── Test-local helpers (not in shared module) ──────────────────────────────
 
 /**
  * A session whose async iterator rejects immediately — used for stream error tests.
@@ -172,8 +71,11 @@ class ErrorBackendAdapter implements BackendAdapter {
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
+/**
+ * A mock socket using vi.fn() so tests can mutate sentMessages.length = 0.
+ * (The shared createMockSocket uses a getter-based approach that doesn't
+ * support direct array mutation, which many tests here rely on.)
+ */
 function createMockSocket(): WebSocketLike & {
   sentMessages: string[];
   send: ReturnType<typeof vi.fn>;
@@ -185,187 +87,6 @@ function createMockSocket(): WebSocketLike & {
     close: vi.fn(),
     sentMessages,
   };
-}
-
-const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
-
-function authContext(sessionId: string): AuthContext {
-  return { sessionId, transport: {} };
-}
-
-function createBridgeWithAdapter(options?: { storage?: MemoryStorage; adapter?: BackendAdapter }) {
-  const storage = options?.storage ?? new MemoryStorage();
-  const adapter = options?.adapter ?? new MockBackendAdapter();
-  const bridge = new SessionBridge({
-    storage,
-    config: { port: 3456 },
-    logger: noopLogger,
-    adapter,
-  });
-  return { bridge, storage, adapter: adapter as MockBackendAdapter };
-}
-
-// ─── UnifiedMessage factory helpers ──────────────────────────────────────────
-
-function makeSessionInitMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "session_init",
-    role: "system",
-    metadata: {
-      session_id: "backend-123",
-      model: "claude-sonnet-4-5-20250929",
-      cwd: "/test",
-      tools: ["Bash", "Read"],
-      permissionMode: "default",
-      claude_code_version: "1.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      ...overrides,
-    },
-  });
-}
-
-function makeStatusChangeMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "status_change",
-    role: "system",
-    metadata: {
-      status: null,
-      ...overrides,
-    },
-  });
-}
-
-function makeAssistantMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "assistant",
-    role: "assistant",
-    content: [{ type: "text", text: "Hello world" }],
-    metadata: {
-      message_id: "msg-1",
-      model: "claude-sonnet-4-5-20250929",
-      stop_reason: "end_turn",
-      parent_tool_use_id: null,
-      usage: {
-        input_tokens: 10,
-        output_tokens: 20,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-      ...overrides,
-    },
-  });
-}
-
-function makeResultMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "result",
-    role: "system",
-    metadata: {
-      subtype: "success",
-      is_error: false,
-      result: "Done",
-      duration_ms: 1000,
-      duration_api_ms: 800,
-      num_turns: 1,
-      total_cost_usd: 0.01,
-      stop_reason: "end_turn",
-      usage: {
-        input_tokens: 100,
-        output_tokens: 200,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-      ...overrides,
-    },
-  });
-}
-
-function makeStreamEventMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "stream_event",
-    role: "system",
-    metadata: {
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "hi" } },
-      parent_tool_use_id: null,
-      ...overrides,
-    },
-  });
-}
-
-function makePermissionRequestMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "permission_request",
-    role: "system",
-    metadata: {
-      request_id: "perm-req-1",
-      tool_name: "Bash",
-      input: { command: "ls" },
-      tool_use_id: "tu-1",
-      ...overrides,
-    },
-  });
-}
-
-function makeToolProgressMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "tool_progress",
-    role: "system",
-    metadata: {
-      tool_use_id: "tu-1",
-      tool_name: "Bash",
-      elapsed_time_seconds: 5,
-      ...overrides,
-    },
-  });
-}
-
-function makeToolUseSummaryMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "tool_use_summary",
-    role: "system",
-    metadata: {
-      summary: "Ran bash command",
-      tool_use_ids: ["tu-1", "tu-2"],
-      ...overrides,
-    },
-  });
-}
-
-function makeAuthStatusMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "auth_status",
-    role: "system",
-    metadata: {
-      isAuthenticating: true,
-      output: ["Authenticating..."],
-      ...overrides,
-    },
-  });
-}
-
-function makeControlResponseMsg(overrides: Record<string, unknown> = {}): UnifiedMessage {
-  return createUnifiedMessage({
-    type: "control_response",
-    role: "system",
-    metadata: {
-      request_id: "test-uuid",
-      subtype: "success",
-      response: {
-        commands: [{ name: "/help", description: "Get help" }],
-        models: [{ value: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" }],
-        account: { email: "test@example.com" },
-      },
-      ...overrides,
-    },
-  });
-}
-
-/** Wait for async operations (message channel push → for-await → handlers). */
-function tick(ms = 10): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -493,7 +214,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       await bridge.connectBackend("sess-1");
 
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makePermissionRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       consumer.sentMessages.length = 0;
@@ -651,7 +372,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -666,7 +387,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
     it("stores assistant message in history", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
       await tick();
 
       const snapshot = bridge.getSession("sess-1");
@@ -730,7 +451,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeResultMsg());
+      backendSession.pushMessage(makeResultUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -747,7 +468,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
     it("updates session state with cost and turns", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeResultMsg({ total_cost_usd: 0.05, num_turns: 3 }));
+      backendSession.pushMessage(makeResultUnifiedMsg({ total_cost_usd: 0.05, num_turns: 3 }));
       await tick();
 
       const snapshot = bridge.getSession("sess-1");
@@ -776,7 +497,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
         }),
       );
 
-      backendSession.pushMessage(makeResultMsg({ num_turns: 1, is_error: false }));
+      backendSession.pushMessage(makeResultUnifiedMsg({ num_turns: 1, is_error: false }));
       await tick();
 
       expect(handler).toHaveBeenCalledWith({
@@ -791,7 +512,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeResultMsg({ num_turns: 1, is_error: true }));
+      backendSession.pushMessage(makeResultUnifiedMsg({ num_turns: 1, is_error: true }));
       await tick();
 
       expect(handler).not.toHaveBeenCalled();
@@ -801,7 +522,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
       backendSession.pushMessage(
-        makeResultMsg({
+        makeResultUnifiedMsg({
           modelUsage: {
             "claude-sonnet-4-5-20250929": {
               inputTokens: 4000,
@@ -831,7 +552,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeStreamEventMsg());
+      backendSession.pushMessage(makeStreamEventUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -851,7 +572,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makePermissionRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -868,7 +589,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makePermissionRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       expect(handler).toHaveBeenCalledWith(
@@ -885,7 +606,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
     it("tracks permission in session snapshot", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makePermissionRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       const snapshot = bridge.getSession("sess-1");
@@ -903,7 +624,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeToolProgressMsg());
+      backendSession.pushMessage(makeToolProgressUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -924,7 +645,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeToolUseSummaryMsg());
+      backendSession.pushMessage(makeToolUseSummaryUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -947,7 +668,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       consumer.sentMessages.length = 0;
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeAuthStatusMsg());
+      backendSession.pushMessage(makeAuthStatusUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -991,7 +712,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      backendSession.pushMessage(makeControlResponseMsg());
+      backendSession.pushMessage(makeControlResponseUnifiedMsg());
       await tick();
 
       expect(capHandler).toHaveBeenCalledWith(
@@ -1014,7 +735,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       const backendSession = adapter.getSession("sess-1")!;
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
-      backendSession.pushMessage(makeControlResponseMsg());
+      backendSession.pushMessage(makeControlResponseUnifiedMsg());
       await tick();
 
       const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
@@ -1034,7 +755,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      backendSession.pushMessage(makeControlResponseMsg({ request_id: "wrong-id" }));
+      backendSession.pushMessage(makeControlResponseUnifiedMsg({ request_id: "wrong-id" }));
       await tick();
 
       expect(capHandler).not.toHaveBeenCalled();
@@ -1086,7 +807,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       await bridge.connectBackend("sess-1");
 
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makePermissionRequestMsg());
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       consumer.sentMessages.length = 0;
@@ -1151,7 +872,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       c2.sentMessages.length = 0;
 
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
       await tick();
 
       const c1Msgs = c1.sentMessages.map((s) => JSON.parse(s));
@@ -1184,7 +905,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
       backendSession.pushMessage(
-        makeResultMsg({
+        makeResultUnifiedMsg({
           total_cost_usd: 0.15,
           num_turns: 5,
           total_lines_added: 42,
@@ -1228,7 +949,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       handler.mockClear();
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
       await tick();
 
       expect(handler).toHaveBeenCalledWith(
@@ -1254,7 +975,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
     it("persists on assistant message", async () => {
       await bridge.connectBackend("sess-1");
-      adapter.getSession("sess-1")!.pushMessage(makeAssistantMsg());
+      adapter.getSession("sess-1")!.pushMessage(makeAssistantUnifiedMsg());
       await tick();
 
       const saved = storage.loadAll();
@@ -1263,7 +984,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
     it("persists on result message", async () => {
       await bridge.connectBackend("sess-1");
-      adapter.getSession("sess-1")!.pushMessage(makeResultMsg());
+      adapter.getSession("sess-1")!.pushMessage(makeResultUnifiedMsg());
       await tick();
 
       const saved = storage.loadAll();
@@ -1272,7 +993,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
     it("persists on permission_request", async () => {
       await bridge.connectBackend("sess-1");
-      adapter.getSession("sess-1")!.pushMessage(makePermissionRequestMsg());
+      adapter.getSession("sess-1")!.pushMessage(makePermissionRequestUnifiedMsg());
       await tick();
 
       const saved = storage.loadAll();
@@ -1280,23 +1001,17 @@ describe("SessionBridge (BackendAdapter path)", () => {
     });
   });
 
-  // ── 13. Coexistence: both paths active ─────────────────────────────────
+  // ── 13. Multiple adapter sessions ──────────────────────────────────────
 
-  describe("coexistence: CLI and adapter paths", () => {
-    it("supports separate sessions using different paths", async () => {
-      // CLI-based session
-      bridge.getOrCreateSession("cli-sess");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "cli-sess");
+  describe("multiple adapter sessions", () => {
+    it("supports separate sessions via adapter", async () => {
+      await bridge.connectBackend("sess-a");
+      await bridge.connectBackend("sess-b");
 
-      // Adapter-based session
-      await bridge.connectBackend("adapter-sess");
-
-      expect(bridge.isCliConnected("cli-sess")).toBe(true);
-      expect(bridge.isBackendConnected("adapter-sess")).toBe(true);
-      // isCliConnected now returns true for adapter sessions too (backendSession counts)
-      expect(bridge.isCliConnected("adapter-sess")).toBe(true);
-      expect(bridge.isBackendConnected("cli-sess")).toBe(false);
+      expect(bridge.isBackendConnected("sess-a")).toBe(true);
+      expect(bridge.isBackendConnected("sess-b")).toBe(true);
+      expect(bridge.isCliConnected("sess-a")).toBe(true);
+      expect(bridge.isCliConnected("sess-b")).toBe(true);
     });
   });
 
@@ -1334,22 +1049,14 @@ describe("SessionBridge (BackendAdapter path)", () => {
         expect(textBlock!.type === "text" && textBlock!.text).toBe("Hello via adapter");
       });
 
-      it("does NOT send to CLI socket when adapter is active", async () => {
-        bridge.getOrCreateSession("sess-1");
-        const cliSocket = createMockSocket();
-        bridge.handleCLIOpen(cliSocket, "sess-1");
-        cliSocket.sentMessages.length = 0;
-
-        // Connect backend (this attaches backendSession)
+      it("routes exclusively through backendSession (no legacy path)", async () => {
         await bridge.connectBackend("sess-1");
         const backendSession = adapter.getSession("sess-1")!;
 
         bridge.sendUserMessage("sess-1", "Hello via adapter");
 
-        // CLI socket should NOT receive the message
-        expect(cliSocket.sentMessages).toHaveLength(0);
-        // Backend session should have received it
         expect(backendSession.sentMessages).toHaveLength(1);
+        expect(backendSession.sentMessages[0].type).toBe("user_message");
       });
 
       it("preserves message history and broadcast when adapter active", async () => {
@@ -1408,41 +1115,28 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
     describe("sendPermissionResponse", () => {
       it("routes through backendSession.send() when adapter active", async () => {
-        bridge.getOrCreateSession("sess-1");
-        const cliSocket = createMockSocket();
-        bridge.handleCLIOpen(cliSocket, "sess-1");
-
-        // Create a pending permission request via CLI message
-        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-        cliSocket.sentMessages.length = 0;
-
-        // Connect backend adapter
         await bridge.connectBackend("sess-1");
         const backendSession = adapter.getSession("sess-1")!;
 
+        // Register pending permission via adapter path
+        backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+        await tick();
+
         bridge.sendPermissionResponse("sess-1", "perm-req-1", "allow");
 
-        // backendSession.send() should have been called
         expect(backendSession.sentMessages).toHaveLength(1);
         const msg = backendSession.sentMessages[0];
         expect(msg.type).toBe("permission_response");
         expect(msg.metadata.request_id).toBe("perm-req-1");
         expect(msg.metadata.behavior).toBe("allow");
-
-        // CLI socket should NOT have received the message
-        expect(cliSocket.sentMessages).toHaveLength(0);
       });
 
       it("routes deny through backendSession.send() when adapter active", async () => {
-        bridge.getOrCreateSession("sess-1");
-        const cliSocket = createMockSocket();
-        bridge.handleCLIOpen(cliSocket, "sess-1");
-
-        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-        cliSocket.sentMessages.length = 0;
-
         await bridge.connectBackend("sess-1");
         const backendSession = adapter.getSession("sess-1")!;
+
+        backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+        await tick();
 
         bridge.sendPermissionResponse("sess-1", "perm-req-1", "deny", { message: "No thanks" });
 
@@ -1454,13 +1148,11 @@ describe("SessionBridge (BackendAdapter path)", () => {
       });
 
       it("still emits permission:resolved event when adapter active", async () => {
-        bridge.getOrCreateSession("sess-1");
-        const cliSocket = createMockSocket();
-        bridge.handleCLIOpen(cliSocket, "sess-1");
-
-        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
-
         await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+        await tick();
 
         const resolvedHandler = vi.fn();
         bridge.on("permission:resolved", resolvedHandler);
@@ -1524,19 +1216,14 @@ describe("SessionBridge (BackendAdapter path)", () => {
         expect(msg.metadata.mode).toBe("plan");
       });
 
-      it("does NOT send to CLI socket when adapter is active for interrupt", async () => {
-        bridge.getOrCreateSession("sess-1");
-        const cliSocket = createMockSocket();
-        bridge.handleCLIOpen(cliSocket, "sess-1");
-        cliSocket.sentMessages.length = 0;
-
+      it("routes interrupt exclusively through backendSession", async () => {
         await bridge.connectBackend("sess-1");
         const backendSession = adapter.getSession("sess-1")!;
 
         bridge.sendInterrupt("sess-1");
 
-        expect(cliSocket.sentMessages).toHaveLength(0);
         expect(backendSession.sentMessages).toHaveLength(1);
+        expect(backendSession.sentMessages[0].type).toBe("interrupt");
       });
     });
   });

@@ -2,89 +2,34 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
-import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { AuthContext } from "../interfaces/auth.js";
-import type { WebSocketLike } from "../interfaces/transport.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendSession,
+  makeControlResponseUnifiedMsg,
+  makeSessionInitMsg,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
+  authContext,
+  createTestSocket as createMockSocket,
+} from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createMockSocket(): WebSocketLike & {
-  sentMessages: string[];
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-} {
-  const sentMessages: string[] = [];
-  return {
-    send: vi.fn((data: string) => sentMessages.push(data)),
-    close: vi.fn(),
-    sentMessages,
-  };
-}
-
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
-
-function createBridge() {
-  const storage = new MemoryStorage();
-  return {
-    bridge: new SessionBridge({
-      storage,
-      config: { port: 3456 },
-      logger: noopLogger,
-    }),
-    storage,
-  };
-}
-
-function authContext(sessionId: string): AuthContext {
-  return { sessionId, transport: {} };
-}
-
-/** Flush microtask queue deterministically (no wall-clock dependency). */
-const tick = () => new Promise<void>((r) => setTimeout(r, 10));
-
-function makeInitMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "system",
-    subtype: "init",
-    session_id: "cli-123",
-    model: "claude-sonnet-4-5-20250929",
-    cwd: "/test",
-    tools: ["Bash", "Read"],
-    permissionMode: "default",
-    claude_code_version: "1.0",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    output_style: "normal",
-    uuid: "uuid-1",
-    apiKeySource: "env",
-    ...overrides,
-  });
-}
-
-function makeControlResponse(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "control_response",
-    response: {
-      subtype: "success",
-      request_id: "test-uuid",
-      response: {
-        commands: [
-          { name: "/compact", description: "Compact conversation history" },
-          { name: "/model", description: "Show or switch model", argumentHint: "[model]" },
-        ],
-        models: [{ value: "claude-sonnet-4-5-20250929", displayName: "Sonnet" }],
-        account: null,
-        ...overrides,
-      },
-    },
-  });
-}
 
 function parseSent(socket: { sentMessages: string[] }): any[] {
   return socket.sentMessages.map((m) => JSON.parse(m));
+}
+
+/** Check whether the backend received a user_message with the given text content. */
+function backendReceivedUserMessage(backendSession: MockBackendSession, text: string): boolean {
+  return backendSession.sentMessages.some(
+    (m) =>
+      m.type === "user_message" &&
+      m.content.some((c) => c.type === "text" && "text" in c && c.text === text),
+  );
 }
 
 // ─── Integration Tests ────────────────────────────────────────────────────────
@@ -92,23 +37,35 @@ function parseSent(socket: { sentMessages: string[] }): any[] {
 describe("Slash command integration", () => {
   describe("end-to-end: CLI reports skills → consumer invokes skill → forwarded to CLI", () => {
     it("full lifecycle: init with skills → capabilities_ready → invoke skill → CLI receives", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      // 1. CLI connects and sends init with skills
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      // 1. Backend connects and sends init with skills
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           slash_commands: ["/compact", "/files"],
           skills: ["commit", "review-pr"],
         }),
       );
+      await tick();
 
-      // 2. CLI sends capabilities response
-      bridge.handleCLIMessage("sess-1", makeControlResponse());
+      // 2. Backend sends capabilities response
+      backendSession.pushMessage(
+        makeControlResponseUnifiedMsg({
+          response: {
+            commands: [
+              { name: "/compact", description: "Compact conversation history" },
+              { name: "/model", description: "Show or switch model", argumentHint: "[model]" },
+            ],
+            models: [{ value: "claude-sonnet-4-5-20250929", displayName: "Sonnet" }],
+            account: null,
+          },
+        }),
+      );
+      await tick();
 
       // 3. Verify capabilities_ready includes skills
       const capMsg = parseSent(consumerSocket).find((m) => m.type === "capabilities_ready");
@@ -117,26 +74,26 @@ describe("Slash command integration", () => {
       expect(capMsg.commands).toHaveLength(2);
 
       // 4. Consumer invokes /commit skill
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
       bridge.handleConsumerMessage(
         consumerSocket,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/commit" }),
       );
 
-      // 5. CLI should receive a user message with "/commit"
-      const cliMsgs = parseSent(cliSocket);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
+      // 5. Backend should receive a user_message with "/commit"
+      expect(backendReceivedUserMessage(backendSession, "/commit")).toBe(true);
     });
 
     it("skill commands appear in /help output", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "tdd"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit", "tdd"] }));
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
 
@@ -155,16 +112,17 @@ describe("Slash command integration", () => {
       expect(result.source).toBe("emulated");
     });
 
-    it("multiple skills can be invoked independently", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("multiple skills can be invoked independently", async () => {
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit", "review-pr"] }));
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       // Invoke /commit
       bridge.handleConsumerMessage(
@@ -180,29 +138,26 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/review-pr" }),
       );
 
-      const cliMsgs = parseSent(cliSocket);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/review-pr")).toBe(
-        true,
-      );
+      expect(backendReceivedUserMessage(backendSession, "/commit")).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, "/review-pr")).toBe(true);
     });
   });
 
   describe("end-to-end: emulated commands still work with registry", () => {
     it("/status returns emulated result", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           model: "claude-opus-4-6",
           skills: ["commit"],
         }),
       );
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
 
@@ -222,19 +177,19 @@ describe("Slash command integration", () => {
     });
 
     it("/model returns current model even when skills are registered", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           model: "claude-sonnet-4-5-20250929",
           skills: ["commit"],
         }),
       );
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
 
@@ -255,19 +210,19 @@ describe("Slash command integration", () => {
     it.each([
       "/cost",
       "/context",
-    ])("%s is forwarded to CLI as passthrough (not emulated)", (command) => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    ])("%s is forwarded to CLI as passthrough (not emulated)", async (command) => {
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ slash_commands: ["/cost", "/context"], skills: ["commit"] }),
+      backendSession.pushMessage(
+        makeSessionInitMsg({ slash_commands: ["/cost", "/context"], skills: ["commit"] }),
       );
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
       consumerSocket.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
@@ -276,8 +231,7 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command }),
       );
 
-      const cliMsgs = parseSent(cliSocket);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === command)).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, command)).toBe(true);
 
       // Should NOT produce a local slash_command_result (forwarded, not emulated)
       const consumerMsgs = parseSent(consumerSocket);
@@ -287,17 +241,15 @@ describe("Slash command integration", () => {
 
   describe("end-to-end: unknown commands produce errors when PTY unavailable", () => {
     it("returns slash_command_error for unknown commands without PTY", async () => {
-      // SessionBridge created without commandRunner → no PTY fallback
-      const bridge = new SessionBridge({
-        config: { port: 3456 },
-        logger: noopLogger,
-      });
-      const cliSocket = createMockSocket();
+      // SessionBridge created with adapter but without commandRunner → no PTY fallback
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
 
@@ -319,29 +271,29 @@ describe("Slash command integration", () => {
 
   describe("registry lifecycle across re-init", () => {
     it("skills from first init are cleared when CLI re-inits without them", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
 
       // First init with skills
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit", "review-pr"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit", "review-pr"] }));
+      await tick();
 
       // Verify /commit is forwarded as skill
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
       bridge.handleConsumerMessage(
         consumerSocket,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/commit" }),
       );
-      expect(
-        parseSent(cliSocket).some((m) => m.type === "user" && m.message.content === "/commit"),
-      ).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, "/commit")).toBe(true);
 
       // Re-init without skills (simulates CLI restart)
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: [] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: [] }));
+      await tick();
 
       // Now /commit should no longer appear in /help
       consumerSocket.sentMessages.length = 0;
@@ -360,33 +312,37 @@ describe("Slash command integration", () => {
     });
 
     it("capabilities enrichment adds descriptions to registry commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           slash_commands: ["/compact"],
           skills: ["commit"],
         }),
       );
+      await tick();
 
       // Capabilities arrive with rich descriptions
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeControlResponse({
-          commands: [
-            {
-              name: "/compact",
-              description: "Compact conversation history",
-              argumentHint: "[strategy]",
-            },
-          ],
+      backendSession.pushMessage(
+        makeControlResponseUnifiedMsg({
+          response: {
+            commands: [
+              {
+                name: "/compact",
+                description: "Compact conversation history",
+                argumentHint: "[strategy]",
+              },
+            ],
+            models: [],
+            account: null,
+          },
         }),
       );
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
 
@@ -410,22 +366,22 @@ describe("Slash command integration", () => {
 
   describe("dispatch priority", () => {
     it("emulated commands take priority over same-name CLI commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           // /model is both emulatable AND in CLI's slash_commands
           slash_commands: ["/model", "/compact"],
         }),
       );
+      await tick();
 
       consumerSocket.sentMessages.length = 0;
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       // /model should be emulated, not forwarded to CLI
       bridge.handleConsumerMessage(
@@ -441,23 +397,21 @@ describe("Slash command integration", () => {
       expect(result).toBeDefined();
       expect(result.source).toBe("emulated");
 
-      // CLI should NOT have received a user message for /model
-      const cliUserMsgs = parseSent(cliSocket).filter(
-        (m) => m.type === "user" && m.message?.content === "/model",
-      );
-      expect(cliUserMsgs).toHaveLength(0);
+      // Backend should NOT have received a user_message for /model
+      expect(backendReceivedUserMessage(backendSession, "/model")).toBe(false);
     });
 
-    it("native (CLI) commands are forwarded, not emulated", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("native (CLI) commands are forwarded, not emulated", async () => {
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ slash_commands: ["/compact", "/files"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ slash_commands: ["/compact", "/files"] }));
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       // /compact is a native command — should be forwarded to CLI
       bridge.handleConsumerMessage(
@@ -466,20 +420,20 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/compact" }),
       );
 
-      const cliMsgs = parseSent(cliSocket);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/compact")).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
 
-    it("skill commands are forwarded to CLI, not emulated", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("skill commands are forwarded to CLI, not emulated", async () => {
+      const { bridge, adapter } = createBridgeWithAdapter();
       const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit"] }));
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         consumerSocket,
@@ -487,8 +441,7 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/commit" }),
       );
 
-      const cliMsgs = parseSent(cliSocket);
-      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/commit")).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, "/commit")).toBe(true);
     });
   });
 });

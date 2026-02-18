@@ -8,6 +8,7 @@ import type WebSocket from "ws";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
+import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -575,26 +576,22 @@ describe("SessionManager", () => {
     });
 
     it("closes sessions with no connections that exceed the idle timeout", async () => {
+      const idleAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
         processManager: pm,
         storage,
         logger: noopLogger,
+        adapter: idleAdapter,
       });
       idleMgr.start();
 
       // Spy on closeSession to verify the reaper actually calls it
       const closeSpy = vi.spyOn(idleMgr.bridge, "closeSession");
 
-      // Create a session in the bridge (simulate a session that was created)
-      const mockSocket = {
-        send: vi.fn(),
-        close: vi.fn(),
-        on: vi.fn(),
-      };
-      idleMgr.bridge.handleCLIOpen(mockSocket as any, "idle-session");
-      // Now disconnect the CLI so the session has no connections
-      idleMgr.bridge.handleCLIClose("idle-session");
+      // Connect backend (replaces handleCLIOpen), then disconnect
+      await idleMgr.bridge.connectBackend("idle-session");
+      await idleMgr.bridge.disconnectBackend("idle-session");
 
       // Verify session exists and CLI is disconnected
       const snap1 = idleMgr.bridge.getSession("idle-session");
@@ -612,30 +609,27 @@ describe("SessionManager", () => {
       await idleMgr.stop();
     });
 
-    it("skips sessions with active CLI connections", async () => {
+    it("skips sessions with active backend connections", async () => {
+      const activeAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
         processManager: pm,
         storage,
         logger: noopLogger,
+        adapter: activeAdapter,
       });
       idleMgr.start();
 
-      // Create a session with an active CLI connection
-      const mockSocket = {
-        send: vi.fn(),
-        close: vi.fn(),
-        on: vi.fn(),
-      };
-      idleMgr.bridge.handleCLIOpen(mockSocket as any, "active-session");
+      // Connect backend (replaces handleCLIOpen)
+      await idleMgr.bridge.connectBackend("active-session");
 
-      // Verify CLI is connected
+      // Verify backend is connected (isCliConnected checks both cliSocket and backendSession)
       expect(idleMgr.bridge.isCliConnected("active-session")).toBe(true);
 
       // Advance well past idle timeout
       await vi.advanceTimersByTimeAsync(2000);
 
-      // Session should still exist since CLI is connected
+      // Session should still exist since backend is connected
       const snap = idleMgr.bridge.getSession("active-session");
       expect(snap).toBeDefined();
       expect(snap!.cliConnected).toBe(true);
