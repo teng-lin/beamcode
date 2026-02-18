@@ -195,9 +195,9 @@ E2E tests use explicit profiles via `E2E_PROFILE`:
 
 Current real CLI inventory in `src/e2e/realcli/`:
 
-- 4 suites / 20 total tests
-- 15 tests execute real `claude` processes in smoke mode (`prereqs.ok`)
-- 17 tests execute real `claude` processes in full mode (includes 2 live prompt/response tests)
+- 4 suites / 31 total tests
+- 23 tests execute real `claude` processes in smoke mode (`prereqs.ok` + localhost-bind capable SessionManager tests)
+- 28 tests execute real `claude` processes in full mode (adds 5 live turn/control/multi-consumer tests)
 
 The helper in `src/e2e/helpers/test-utils.ts` resolves process manager selection in this order:
 
