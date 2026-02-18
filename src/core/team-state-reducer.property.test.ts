@@ -17,7 +17,7 @@ function arbTeamState(): fc.Arbitrary<TeamState> {
       }),
       { maxLength: 5 },
     ),
-    tasks: fc.array(
+    tasks: fc.uniqueArray(
       fc.record({
         id: fc.string({ minLength: 1 }),
         subject: fc.string(),
@@ -25,7 +25,7 @@ function arbTeamState(): fc.Arbitrary<TeamState> {
         blockedBy: fc.array(fc.string({ minLength: 1 }), { maxLength: 3 }),
         blocks: fc.array(fc.string({ minLength: 1 }), { maxLength: 3 }),
       }),
-      { maxLength: 5 },
+      { maxLength: 5, selector: (t) => t.id },
     ),
   });
 }
