@@ -63,8 +63,14 @@ function extractPassthroughContent(msg: { message?: { content: unknown } }): str
     text = raw;
   } else if (Array.isArray(raw)) {
     text = raw
-      .filter((b: { type?: string }) => b.type === "text")
-      .map((b: { text?: string }) => b.text ?? "")
+      .filter(
+        (b: unknown): b is { type: string; text: string } =>
+          b != null &&
+          typeof b === "object" &&
+          (b as { type?: unknown }).type === "text" &&
+          typeof (b as { text?: unknown }).text === "string",
+      )
+      .map((b) => b.text)
       .join("\n");
   } else {
     return "";
