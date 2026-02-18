@@ -72,6 +72,7 @@ function mockSessionManager(
     },
     bridge: {
       broadcastNameUpdate: vi.fn(),
+      seedSessionState: vi.fn(),
     },
   } as unknown as SessionManager;
 }

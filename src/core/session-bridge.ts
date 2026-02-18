@@ -112,6 +112,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return session;
   }
 
+  /**
+   * Seed a session's state with known launch parameters (cwd, model, etc.)
+   * and eagerly resolve git info. Call this right after launcher.launch()
+   * so consumers connecting before the CLI's system.init see useful state.
+   */
+  seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
+    const session = this.getOrCreateSession(sessionId);
+    if (params.cwd) session.state.cwd = params.cwd;
+    if (params.model) session.state.model = params.model;
+    this.resolveGitInfo(session);
+  }
+
   /** Get a read-only snapshot of a session's state. */
   getSession(sessionId: string): SessionSnapshot | undefined {
     return this.store.getSnapshot(sessionId);
@@ -338,6 +350,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       displayName: identity.displayName,
       role: identity.role,
     });
+
+    // Eagerly resolve git info if cwd is known but git info is missing
+    // (e.g. resumed session where CLI hasn't reconnected yet)
+    this.resolveGitInfo(session);
 
     // Send current session state as snapshot
     this.broadcaster.sendTo(ws, {
@@ -1500,6 +1516,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     // Re-resolve git info — the CLI may have committed, switched branches, etc.
     this.refreshGitInfo(session);
+  }
+
+  /** Resolve git info from cwd if not already populated (no broadcast). */
+  private resolveGitInfo(session: Session): void {
+    if (!session.state.cwd || session.state.git_branch || !this.gitResolver) return;
+    const gitInfo = this.gitResolver.resolve(session.state.cwd);
+    if (!gitInfo) return;
+    session.state.git_branch = gitInfo.branch;
+    session.state.is_worktree = gitInfo.isWorktree;
+    session.state.repo_root = gitInfo.repoRoot;
+    session.state.git_ahead = gitInfo.ahead ?? 0;
+    session.state.git_behind = gitInfo.behind ?? 0;
   }
 
   /** Re-resolve git info and broadcast session_update if anything changed. */
