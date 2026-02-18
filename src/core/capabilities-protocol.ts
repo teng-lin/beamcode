@@ -52,7 +52,14 @@ export class CapabilitiesProtocol {
     });
 
     if (session.backendSession) {
-      session.backendSession.sendRaw(ndjson);
+      try {
+        session.backendSession.sendRaw(ndjson);
+      } catch {
+        // Adapter doesn't support raw NDJSON (e.g. Codex) — skip control_request.
+        // Capabilities should be provided via the adapter's init response instead.
+        clearTimeout(timer);
+        session.pendingInitialize = null;
+      }
     }
   }
 
