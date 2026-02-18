@@ -312,6 +312,55 @@ describe("Composer", () => {
     });
   });
 
+  // ── Image upload error toasts ────────────────────────────────────
+
+  describe("image upload error toasts", () => {
+    function renderComposer() {
+      store().ensureSessionData(SESSION);
+      return render(<Composer sessionId={SESSION} />);
+    }
+
+    it("shows toast when image exceeds size limit", () => {
+      const addToast = vi.spyOn(store(), "addToast");
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      // Create a file that reports > 10MB size
+      const bigFile = new File(["x"], "huge.png", { type: "image/png" });
+      Object.defineProperty(bigFile, "size", { value: 11 * 1024 * 1024 });
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files: [bigFile], types: ["Files"] },
+      });
+
+      expect(addToast).toHaveBeenCalledWith(expect.stringContaining("too large"), "error");
+    });
+
+    it("shows toast when max images reached", () => {
+      const addToast = vi.spyOn(store(), "addToast");
+      const { container } = renderComposer();
+      const composer = container.firstChild as HTMLElement;
+
+      // Fill up the image slots by repeatedly dropping files
+      // We'll use a mock FileReader approach — but for this test, we just
+      // need processFiles to detect the limit. The images state must be full.
+      // Easiest: drop 10 images first, then try to drop one more.
+      // Since processFiles uses imagesRef.current, we can set the state directly.
+      // Instead, let's verify via the addToast call when slots are full.
+      // The simplest approach: mock imagesRef by dropping once with > MAX files.
+      const files: File[] = [];
+      for (let i = 0; i < 11; i++) {
+        files.push(new File(["x"], `img${i}.png`, { type: "image/png" }));
+      }
+
+      fireEvent.drop(composer, {
+        dataTransfer: { files, types: ["Files"] },
+      });
+
+      expect(addToast).toHaveBeenCalledWith(expect.stringContaining("Maximum"), "error");
+    });
+  });
+
   // ── Observer mode ──────────────────────────────────────────────────
 
   describe("observer mode", () => {

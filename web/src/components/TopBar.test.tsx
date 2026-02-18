@@ -306,6 +306,64 @@ describe("TopBar", () => {
     });
   });
 
+  // ── Encryption indicator ──────────────────────────────────────────
+
+  describe("encryption indicator", () => {
+    it("shows nothing when no session", () => {
+      render(<TopBar />);
+      expect(screen.queryByText("Encrypted")).not.toBeInTheDocument();
+      expect(screen.queryByText("Unencrypted")).not.toBeInTheDocument();
+    });
+
+    it("shows 'Encrypted' when paired", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        encryption: { isActive: true, isPaired: true },
+      });
+      render(<TopBar />);
+      expect(screen.getByText("Encrypted")).toBeInTheDocument();
+    });
+
+    it("shows 'Unencrypted' warning when encryption not active", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        encryption: { isActive: false, isPaired: false },
+      });
+      render(<TopBar />);
+      expect(screen.getByText("Unencrypted")).toBeInTheDocument();
+    });
+
+    it("shows 'Pairing...' when active but not yet paired", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: "claude-sonnet-4-20250514",
+        cwd: "/tmp",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        encryption: { isActive: true, isPaired: false },
+      });
+      render(<TopBar />);
+      expect(screen.getByText("Pairing...")).toBeInTheDocument();
+    });
+  });
+
   // Permission mode badge is rendered in StatusBar, not TopBar.
   // Verify TopBar does NOT render permission mode content.
   describe("permission mode badge (rendered in StatusBar)", () => {

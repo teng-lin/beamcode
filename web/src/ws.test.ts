@@ -122,6 +122,23 @@ describe("ws multi-connection manager", () => {
     expect(MockWebSocket.instances[2].url).toContain("/ws/consumer/s1");
   });
 
+  it("onclose clears authStatus to avoid stale banner on reconnect", () => {
+    connectToSession("s1");
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // Set authStatus as if mid-authentication
+    useStore.getState().setAuthStatus("s1", {
+      isAuthenticating: true,
+      output: ["Opening browser..."],
+    });
+    expect(useStore.getState().sessionData.s1?.authStatus).not.toBeNull();
+
+    ws.simulateClose();
+
+    expect(useStore.getState().sessionData.s1?.authStatus).toBeNull();
+  });
+
   // ── disconnectSession ────────────────────────────────────────────────────
 
   it("disconnectSession closes only the targeted connection", () => {
@@ -893,6 +910,45 @@ describe("handleMessage", () => {
 
     expect(getSessionData()?.presence).toHaveLength(2);
     expect(getSessionData()?.presence[0].userId).toBe("u1");
+  });
+
+  // ── auth_status ────────────────────────────────────────────────────────
+
+  it("auth_status: sets authStatus in session data", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "auth_status",
+        isAuthenticating: true,
+        output: ["Opening browser for authentication..."],
+      }),
+    );
+
+    expect(getSessionData()?.authStatus).toEqual({
+      isAuthenticating: true,
+      output: ["Opening browser for authentication..."],
+      error: undefined,
+    });
+  });
+
+  it("auth_status with error: sets error in authStatus", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "auth_status",
+        isAuthenticating: false,
+        output: [],
+        error: "Token expired",
+      }),
+    );
+
+    expect(getSessionData()?.authStatus).toEqual({
+      isAuthenticating: false,
+      output: [],
+      error: "Token expired",
+    });
   });
 
   // ── resume_failed ───────────────────────────────────────────────────────

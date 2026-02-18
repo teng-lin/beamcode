@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { SessionData } from "../store";
 import { useStore } from "../store";
 import { AgentPane } from "./AgentPane";
+import { AuthBanner } from "./AuthBanner";
 import { Composer } from "./Composer";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { EmptyState } from "./EmptyState";
@@ -37,6 +38,8 @@ function MainChatContent({
         <ConnectionBanner reconnectAttempt={sessionData.reconnectAttempt} />
       )}
 
+      <AuthBanner sessionId={sessionId} />
+
       {messages.length === 0 ? (
         <EmptyState />
       ) : (
@@ -45,7 +48,7 @@ function MainChatContent({
 
       <StreamingIndicator sessionId={sessionId} />
 
-      {hasPendingPermissions && <PermissionBanner sessionId={sessionId} />}
+      {hasPendingPermissions && !isObserver && <PermissionBanner sessionId={sessionId} />}
 
       <Composer sessionId={sessionId} />
       <StatusBar />

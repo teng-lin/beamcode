@@ -10,6 +10,7 @@ import {
 } from "../test/factories";
 import { ChatView } from "./ChatView";
 
+vi.mock("./AuthBanner", () => ({ AuthBanner: () => null }));
 vi.mock("./EmptyState", () => ({ EmptyState: () => <div data-testid="empty-state" /> }));
 vi.mock("./MessageFeed", () => ({ MessageFeed: () => <div data-testid="message-feed" /> }));
 vi.mock("./Composer", () => ({ Composer: () => <div data-testid="composer" /> }));
@@ -121,6 +122,16 @@ describe("ChatView", () => {
     useStore.setState({ currentSessionId: SESSION });
     render(<ChatView />);
     expect(screen.getByTestId("permission-banner")).toBeInTheDocument();
+  });
+
+  it("does not render PermissionBanner for observers even with pending permissions", () => {
+    store().ensureSessionData(SESSION);
+    store().addPermission(SESSION, makePermission());
+    store().setIdentity(SESSION, { userId: "u1", displayName: "Observer", role: "observer" });
+    addUserMessage();
+    useStore.setState({ currentSessionId: SESSION });
+    render(<ChatView />);
+    expect(screen.queryByTestId("permission-banner")).not.toBeInTheDocument();
   });
 
   // Grid mode disabled — background/team agents don't stream through parent NDJSON.

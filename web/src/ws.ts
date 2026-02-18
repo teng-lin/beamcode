@@ -273,6 +273,14 @@ function handleMessage(sessionId: string, data: string): void {
       store.setPresence(sessionId, msg.consumers);
       break;
 
+    case "auth_status":
+      store.setAuthStatus(sessionId, {
+        isAuthenticating: msg.isAuthenticating,
+        output: msg.output,
+        error: msg.error,
+      });
+      break;
+
     case "resume_failed":
       store.addToast("Could not resume previous session — starting fresh", "error");
       break;
@@ -335,6 +343,7 @@ export function connectToSession(sessionId: string): void {
     store.setIdentity(sessionId, null);
     store.setPresence(sessionId, []);
     store.clearPendingPermissions(sessionId);
+    store.setAuthStatus(sessionId, null);
     connections.delete(sessionId);
     scheduleReconnect(sessionId);
   };

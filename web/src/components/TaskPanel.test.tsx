@@ -1,8 +1,14 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
 import { makeTeamMember, makeTeamState, makeTeamTask, resetStore, store } from "../test/factories";
 import { TaskPanel } from "./TaskPanel";
+
+vi.mock("../utils/export", () => ({
+  exportAsJson: vi.fn(() => "[]"),
+  exportAsMarkdown: vi.fn(() => "# Export"),
+  downloadFile: vi.fn(),
+}));
 
 const SESSION = "task-panel-test";
 
@@ -559,6 +565,42 @@ describe("TaskPanel", () => {
       expect(details).not.toBeNull();
       expect(details).toHaveAttribute("open");
       expect(screen.getByText("context7")).toBeInTheDocument();
+    });
+  });
+
+  // ── Export ───────────────────────────────────────────────────────────
+
+  describe("export", () => {
+    it("shows success toast after Markdown export", () => {
+      store().ensureSessionData(SESSION);
+      store().addMessage(SESSION, {
+        type: "user_message",
+        content: "hello",
+        timestamp: Date.now(),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      fireEvent.click(screen.getByText("Markdown"));
+
+      const toasts = useStore.getState().toasts;
+      expect(toasts.some((t) => t.message.includes("Markdown"))).toBe(true);
+    });
+
+    it("shows success toast after JSON export", () => {
+      store().ensureSessionData(SESSION);
+      store().addMessage(SESSION, {
+        type: "user_message",
+        content: "hello",
+        timestamp: Date.now(),
+      });
+      useStore.setState({ currentSessionId: SESSION });
+      render(<TaskPanel />);
+
+      fireEvent.click(screen.getByText("JSON"));
+
+      const toasts = useStore.getState().toasts;
+      expect(toasts.some((t) => t.message.includes("JSON"))).toBe(true);
     });
   });
 });

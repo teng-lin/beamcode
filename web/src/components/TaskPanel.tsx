@@ -233,6 +233,7 @@ export function TaskPanel() {
     const ext = isJson ? "json" : "md";
     const mime = isJson ? "application/json" : "text/markdown";
     downloadFile(content, `beamcode-session-${currentSessionId}.${ext}`, mime);
+    useStore.getState().addToast(`Exported as ${isJson ? "JSON" : "Markdown"}`, "success");
   };
 
   return (

@@ -70,6 +70,7 @@ export interface SessionData {
   isEditingQueue: boolean;
   /** FLIP animation origin: captured bounding rect of the queued message before it's removed. */
   flipOrigin: { top: number; left: number; width: number } | null;
+  authStatus: { isAuthenticating: boolean; output: string[]; error?: string } | null;
 }
 
 export interface Toast {
@@ -157,6 +158,7 @@ export interface AppState {
   setQueuedMessage: (sessionId: string, msg: SessionData["queuedMessage"]) => void;
   setEditingQueue: (sessionId: string, editing: boolean) => void;
   setFlipOrigin: (sessionId: string, origin: SessionData["flipOrigin"]) => void;
+  setAuthStatus: (sessionId: string, status: SessionData["authStatus"]) => void;
 
   // Session list actions
   setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
@@ -194,6 +196,7 @@ function emptySessionData(): SessionData {
     queuedMessage: null,
     isEditingQueue: false,
     flipOrigin: null,
+    authStatus: null,
   };
 }
 
@@ -466,6 +469,9 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setFlipOrigin: (sessionId, origin) =>
     set((s) => patchSession(s, sessionId, { flipOrigin: origin })),
+
+  setAuthStatus: (sessionId, status) =>
+    set((s) => patchSession(s, sessionId, { authStatus: status })),
 
   setSessions: (sessions) => set({ sessions }),
   updateSession: (id, update) =>

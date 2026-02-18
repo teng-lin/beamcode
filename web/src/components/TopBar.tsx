@@ -10,6 +10,47 @@ const CONNECTION_DOT_STYLES: Record<string, string> = {
 };
 const CONNECTION_DOT_DEFAULT = "bg-bc-text-muted";
 
+interface EncryptionState {
+  isActive: boolean;
+  isPaired: boolean;
+}
+
+function EncryptionBadge({ encryption }: { encryption: EncryptionState }) {
+  if (!encryption.isActive) {
+    return (
+      <span
+        className="flex items-center gap-1 rounded-md bg-bc-warning/10 px-2 py-0.5 text-[11px] text-bc-warning"
+        title="Connection is not encrypted — messages sent in plaintext"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+          <rect x="2.5" y="5" width="7" height="5.5" rx="1" opacity="0.5" />
+          <path d="M4 5V3.5a2 2 0 014 0" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+        <span>Unencrypted</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 text-[11px] text-bc-text-muted"
+      title={encryption.isPaired ? "E2E encrypted" : "Encryption active — not yet paired"}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+        <rect x="2.5" y="5" width="7" height="5.5" rx="1" />
+        <path
+          d={encryption.isPaired ? "M4 5V3.5a2 2 0 014 0V5" : "M4 5V3.5a2 2 0 014 0"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+      </svg>
+      <span>{encryption.isPaired ? "Encrypted" : "Pairing..."}</span>
+    </span>
+  );
+}
+
 export function TopBar() {
   const connectionStatus = useStore((s) => currentData(s)?.connectionStatus ?? "disconnected");
   const model = useStore((s) => currentData(s)?.state?.model ?? "");
@@ -94,30 +135,7 @@ export function TopBar() {
       )}
 
       {/* Encryption status */}
-      {encryption?.isActive && (
-        <span
-          className="flex items-center gap-1 rounded-md bg-bc-surface-2 px-2 py-0.5 text-[11px] text-bc-text-muted"
-          title={encryption.isPaired ? "E2E encrypted" : "Encryption active — not yet paired"}
-        >
-          {encryption.isPaired ? (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <rect x="2.5" y="5" width="7" height="5.5" rx="1" />
-              <path
-                d="M4 5V3.5a2 2 0 014 0V5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-            </svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <rect x="2.5" y="5" width="7" height="5.5" rx="1" />
-              <path d="M4 5V3.5a2 2 0 014 0" fill="none" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          )}
-          <span>{encryption.isPaired ? "Encrypted" : "Pairing..."}</span>
-        </span>
-      )}
+      {encryption && <EncryptionBadge encryption={encryption} />}
 
       {/* Model badge / picker */}
       {model && (
