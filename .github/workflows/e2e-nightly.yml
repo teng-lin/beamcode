@@ -33,29 +33,45 @@ jobs:
   e2e-realcli-full-process:
     name: E2E Real CLI Full (Process)
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Real CLI prerequisites
+        id: realcli
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "${ANTHROPIC_API_KEY}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping real CLI shard: ANTHROPIC_API_KEY is not configured."
+          fi
+
       - name: Install pnpm
+        if: steps.realcli.outputs.enabled == 'true'
         uses: pnpm/action-setup@v2
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.realcli.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.realcli.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Claude CLI
+        if: steps.realcli.outputs.enabled == 'true'
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
       - name: Run real CLI full process shard
+        if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pnpm test:e2e:realcli:full:process
@@ -63,29 +79,45 @@ jobs:
   e2e-realcli-full-session:
     name: E2E Real CLI Full (Session)
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Real CLI prerequisites
+        id: realcli
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "${ANTHROPIC_API_KEY}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping real CLI shard: ANTHROPIC_API_KEY is not configured."
+          fi
+
       - name: Install pnpm
+        if: steps.realcli.outputs.enabled == 'true'
         uses: pnpm/action-setup@v2
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.realcli.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.realcli.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Claude CLI
+        if: steps.realcli.outputs.enabled == 'true'
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
       - name: Run real CLI full session shard
+        if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pnpm test:e2e:realcli:full:session

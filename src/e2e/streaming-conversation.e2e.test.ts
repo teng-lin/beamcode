@@ -76,9 +76,9 @@ describe("E2E: Streaming Conversation", () => {
     };
     expect(assistant1.message.content[0].text).toBe("Answer 1");
     const result1 = (await waitForMessageType(consumer, "result")) as {
-      data: { result?: string };
+      result?: string;
     };
-    expect(result1.data.result).toBe("done-1");
+    expect(result1.result).toBe("done-1");
 
     // Turn 2
     consumer.send(JSON.stringify({ type: "user_message", content: "Turn 2?" }));
@@ -99,9 +99,9 @@ describe("E2E: Streaming Conversation", () => {
     };
     expect(assistant2.message.content[0].text).toBe("Answer 2");
     const result2 = (await waitForMessageType(consumer, "result")) as {
-      data: { result?: string };
+      result?: string;
     };
-    expect(result2.data.result).toBe("done-2");
+    expect(result2.result).toBe("done-2");
 
     await closeWebSockets(cli, consumer);
   });
