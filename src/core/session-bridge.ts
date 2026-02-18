@@ -20,6 +20,7 @@ import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { ConsumerMessage, ConsumerPermissionRequest } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
+import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
@@ -426,13 +427,23 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       return;
     }
 
-    let msg: InboundMessage;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch {
       this.logger.warn(`Failed to parse consumer message: ${raw.substring(0, 200)}`);
       return;
     }
+
+    const result = inboundMessageSchema.safeParse(parsed);
+    if (!result.success) {
+      this.logger.warn(`Invalid consumer message`, {
+        error: result.error.message,
+        raw: raw.substring(0, 200),
+      });
+      return;
+    }
+    const msg: InboundMessage = result.data;
 
     // Reject messages from unregistered sockets (not yet authenticated or already removed)
     const identity = session.consumerSockets.get(ws);
