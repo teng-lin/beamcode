@@ -6,6 +6,7 @@ import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
@@ -171,6 +172,7 @@ async function main(): Promise<void> {
     logger,
     metrics,
     gitResolver: new DefaultGitResolver(),
+    adapter: new SdkUrlAdapter(),
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server
