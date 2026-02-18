@@ -134,10 +134,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
       this.sendUserMessage(sessionId, content, opts),
     );
-    this.slashCommandExecutor = new SlashCommandExecutor({
-      commandRunner: options?.commandRunner,
-      config: this.config,
-    });
+    this.slashCommandExecutor = new SlashCommandExecutor();
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
       logger: this.logger,

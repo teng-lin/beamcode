@@ -1,5 +1,3 @@
-import type { CommandRunner } from "../interfaces/command-runner.js";
-import type { ResolvedConfig } from "../types/config.js";
 import type { SessionState } from "../types/session-state.js";
 import type { RegisteredCommand, SlashCommandRegistry } from "./slash-command-registry.js";
 
@@ -9,99 +7,39 @@ export interface SlashCommandResult {
   durationMs: number;
 }
 
-type EmulatorFn = (state: SessionState) => string;
-
 /** Extract the command name (e.g. "/help") from a full command string (e.g. "/help foo"). */
 function commandName(command: string): string {
   return command.trim().split(/\s+/)[0];
 }
 
-/**
- * Derive the set of backend-supported commands from SessionState.
- * Three-tier fallback:
- *   1. capabilities.commands (preferred — rich metadata, authoritative)
- *   2. slash_commands from system/init (available immediately)
- *   3. Empty set (before CLI connects — only emulated commands work)
- */
-function getBackendCommands(state: SessionState): Set<string> {
-  const capCmds = state.capabilities?.commands;
-  if (capCmds && capCmds.length > 0) {
-    return new Set(capCmds.map((c) => (c.name.startsWith("/") ? c.name : `/${c.name}`)));
-  }
-  if (state.slash_commands.length > 0) {
-    return new Set(state.slash_commands.map((n) => (n.startsWith("/") ? n : `/${n}`)));
-  }
-  return new Set();
-}
-
-/** Commands we can emulate from SessionState without the CLI. */
-const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
-  "/help": (state) => {
-    const capCmds = state.capabilities?.commands;
-    if (capCmds && capCmds.length > 0) {
-      const formatted = capCmds.map((cmd) => {
-        const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
-        return `  ${cmd.name}${hint} — ${cmd.description}`;
-      });
-      return ["Available commands:", ...formatted].join("\n");
-    }
-
-    // Fallback: list backend + emulated commands when capabilities are unavailable
-    const backendNames = getBackendCommands(state);
-    const allNames = [
-      ...backendNames,
-      ...Object.keys(EMULATABLE_COMMANDS).filter(
-        (name) => name !== "/help" && !backendNames.has(name),
-      ),
-    ].sort();
-    return ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
-  },
-
-  "/model": (state) => state.model || "unknown",
-
-  "/status": (state) => {
-    const lines = [
-      `Model: ${state.model || "unknown"}`,
-      `CWD: ${state.cwd || "unknown"}`,
-      `Permission mode: ${state.permissionMode || "default"}`,
-      `Version: ${state.claude_code_version || "unknown"}`,
-      `Turns: ${state.num_turns}`,
-      `Cost: $${state.total_cost_usd.toFixed(4)}`,
-      `Context used: ${state.context_used_percent}%`,
-    ];
-    if (state.git_branch) lines.push(`Git branch: ${state.git_branch}`);
-    if (state.tools.length > 0) lines.push(`Tools: ${state.tools.join(", ")}`);
-    return lines.join("\n");
-  },
-
-  "/config": (state) => {
-    const lines = [
-      `Model: ${state.model || "unknown"}`,
-      `Permission mode: ${state.permissionMode || "default"}`,
-      `CWD: ${state.cwd || "unknown"}`,
-      `Version: ${state.claude_code_version || "unknown"}`,
-    ];
-    if (state.mcp_servers.length > 0) {
-      lines.push(
-        `MCP servers: ${state.mcp_servers.map((s) => `${s.name} (${s.status})`).join(", ")}`,
-      );
-    }
-    return lines.join("\n");
-  },
-};
-
 export class SlashCommandExecutor {
-  private commandRunner: CommandRunner | null;
-  private config: ResolvedConfig;
-  /** Per-session serialization queues to prevent --resume conflicts. */
-  private ptyQueues = new Map<string, Promise<void>>();
+  /** True if this command should go to the CLI (everything except /help, /clear). */
+  shouldForwardToCLI(
+    command: string,
+    _session: { state: SessionState; registry: SlashCommandRegistry | null },
+  ): boolean {
+    const name = commandName(command);
+    return name !== "/help" && name !== "/clear";
+  }
 
-  constructor(options: {
-    commandRunner?: CommandRunner;
-    config: ResolvedConfig;
-  }) {
-    this.commandRunner = options.commandRunner ?? null;
-    this.config = options.config;
+  /**
+   * Execute /help locally. Everything else should be forwarded, not executed here.
+   * @throws if the command is not /help
+   */
+  async executeLocal(
+    state: SessionState,
+    command: string,
+    registry?: SlashCommandRegistry | null,
+  ): Promise<SlashCommandResult> {
+    const name = commandName(command);
+    if (name === "/help") {
+      return {
+        content: this.buildHelp(state, registry ?? null),
+        source: "emulated",
+        durationMs: 0,
+      };
+    }
+    throw new Error(`Command "${name}" must be forwarded to CLI`);
   }
 
   /** Returns true if the command is a skill command in the registry. */
@@ -125,89 +63,32 @@ export class SlashCommandExecutor {
     return cmd !== undefined && predicate(cmd);
   }
 
-  /** Returns true if the command is supported by the backend AND not emulatable locally. */
-  isNativeCommand(command: string, state: SessionState): boolean {
-    const name = commandName(command);
-    if (name in EMULATABLE_COMMANDS) return false;
-    return getBackendCommands(state).has(name);
-  }
+  /** Build /help output from capabilities, slash_commands, and registry. */
+  private buildHelp(state: SessionState, registry: SlashCommandRegistry | null): string {
+    const capCmds = state.capabilities?.commands;
+    let content: string;
 
-  /** Returns true if we can handle this command (emulation, backend-known, or PTY). */
-  canHandle(command: string, state: SessionState): boolean {
-    const name = commandName(command);
-    return (
-      name in EMULATABLE_COMMANDS ||
-      getBackendCommands(state).has(name) ||
-      (this.commandRunner !== null && this.config.slashCommand.ptyEnabled)
-    );
-  }
-
-  /** Execute a slash command — tries emulation first, falls back to PTY. */
-  async execute(
-    state: SessionState,
-    command: string,
-    cliSessionId: string,
-    registry?: SlashCommandRegistry | null,
-  ): Promise<SlashCommandResult> {
-    const name = commandName(command);
-    const start = Date.now();
-
-    // Try emulation first
-    const emulator = EMULATABLE_COMMANDS[name];
-    if (emulator) {
-      let content = emulator(state);
-      // Augment /help with registry commands (skills, CLI-registered)
-      if (name === "/help" && registry) {
-        content = this.augmentHelp(content, state, registry);
-      }
-      return {
-        content,
-        source: "emulated",
-        durationMs: Date.now() - start,
-      };
+    if (capCmds && capCmds.length > 0) {
+      const formatted = capCmds.map((cmd) => {
+        const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
+        return `  ${cmd.name}${hint} — ${cmd.description}`;
+      });
+      content = ["Available commands:", ...formatted].join("\n");
+    } else {
+      // Fallback: list backend slash_commands when capabilities are unavailable
+      const backendNames = new Set(
+        state.slash_commands.map((n) => (n.startsWith("/") ? n : `/${n}`)),
+      );
+      const allNames = [...backendNames].sort();
+      content = ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
     }
 
-    // Fall back to PTY
-    if (!this.commandRunner) {
-      throw new Error(`Command "${name}" cannot be emulated and no PTY runner is available`);
+    // Augment with registry commands not already listed
+    if (registry) {
+      content = this.augmentHelp(content, state, registry);
     }
 
-    if (!this.config.slashCommand.ptyEnabled) {
-      throw new Error(`PTY execution is disabled for command "${name}"`);
-    }
-
-    // Serialize PTY commands per session to prevent --resume conflicts
-    const runner = this.commandRunner;
-    const result = await this.enqueue(cliSessionId, () =>
-      runner.execute(cliSessionId, command, {
-        cwd: state.cwd,
-        timeoutMs: this.config.slashCommand.ptyTimeoutMs,
-        silenceThresholdMs: this.config.slashCommand.ptySilenceThresholdMs,
-      }),
-    );
-
-    return {
-      content: result.output,
-      source: "pty",
-      durationMs: result.durationMs,
-    };
-  }
-
-  /** Enqueue a PTY operation per session to prevent --resume conflicts. */
-  private async enqueue<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
-    const prev = this.ptyQueues.get(sessionId) ?? Promise.resolve();
-    let resolve: (() => void) | undefined;
-    const next = new Promise<void>((r) => {
-      resolve = r;
-    });
-    this.ptyQueues.set(sessionId, next);
-
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      resolve?.();
-    }
+    return content;
   }
 
   /** Augment /help output with registry commands not already listed. */
@@ -242,7 +123,6 @@ export class SlashCommandExecutor {
   }
 
   dispose(): void {
-    this.commandRunner?.dispose();
-    this.ptyQueues.clear();
+    // No-op — no resources to clean up
   }
 }
