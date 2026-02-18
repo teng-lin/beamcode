@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 
 export interface DaemonState {
@@ -12,7 +13,7 @@ export interface DaemonState {
  * Atomically write daemon state to disk (temp file + rename).
  */
 export async function writeState(statePath: string, state: DaemonState): Promise<void> {
-  const tmpPath = `${statePath}.tmp`;
+  const tmpPath = `${statePath}.${randomBytes(4).toString("hex")}.tmp`;
   try {
     await writeFile(tmpPath, JSON.stringify(state), "utf-8");
     await rename(tmpPath, statePath);
