@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
