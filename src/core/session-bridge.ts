@@ -2,7 +2,6 @@ import { ConsoleLogger } from "../adapters/console-logger.js";
 import { normalizeInbound } from "../adapters/sdk-url/inbound-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
-import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
@@ -71,7 +70,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     logger?: Logger;
     config?: ProviderConfig;
     metrics?: MetricsCollector;
-    commandRunner?: CommandRunner;
     /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
   }) {
@@ -100,10 +98,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
       this.sendUserMessage(sessionId, content, opts),
     );
-    this.slashCommandExecutor = new SlashCommandExecutor({
-      commandRunner: options?.commandRunner,
-      config: this.config,
-    });
+    this.slashCommandExecutor = new SlashCommandExecutor();
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
       logger: this.logger,
@@ -706,7 +701,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   async executeSlashCommand(
     sessionId: string,
     command: string,
-  ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
+  ): Promise<{ content: string; source: "emulated" } | null> {
     const session = this.store.get(sessionId);
     if (!session) return null;
     return this.slashCommandHandler.executeSlashCommand(session, command);

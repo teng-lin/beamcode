@@ -115,7 +115,7 @@ describe("SessionBridge — slash commands", () => {
       expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
 
-    it("emulates /model command and broadcasts result", async () => {
+    it("forwards /model command to CLI with pendingPassthrough", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -124,7 +124,7 @@ describe("SessionBridge — slash commands", () => {
       backendSession.pushMessage(makeSessionInitMsg({ model: "claude-opus-4-6" }));
       await tick();
 
-      ws.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         ws,
@@ -132,20 +132,11 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/model", request_id: "req-1" }),
       );
 
-      // Wait for async execution
-      await tick();
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      const result = msgs.find((m: any) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.command).toBe("/model");
-      expect(result.request_id).toBe("req-1");
-      expect(result.content).toBe("claude-opus-4-6");
-      expect(result.source).toBe("emulated");
+      // Backend should receive a user_message with the command text
+      expect(backendReceivedUserMessage(backendSession, "/model")).toBe(true);
     });
 
-    it("broadcasts error for unknown commands", async () => {
-      // Bridge with adapter but without commandRunner → no PTY fallback
+    it("forwards unknown commands to CLI (no local error)", async () => {
       const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter();
       const ws = createMockSocket();
 
@@ -155,7 +146,7 @@ describe("SessionBridge — slash commands", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      ws.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       noPtyBridge.handleConsumerMessage(
         ws,
@@ -163,18 +154,11 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/nonexistent", request_id: "req-2" }),
       );
 
-      // Wait for async execution
-      await tick();
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      const errorMsg = msgs.find((m: any) => m.type === "slash_command_error");
-      expect(errorMsg).toBeDefined();
-      expect(errorMsg.command).toBe("/nonexistent");
-      expect(errorMsg.request_id).toBe("req-2");
-      expect(errorMsg.error).toContain("Unknown slash command");
+      // Backend should receive a user_message — the CLI will report unknown commands
+      expect(backendReceivedUserMessage(backendSession, "/nonexistent")).toBe(true);
     });
 
-    it("echoes request_id in results", async () => {
+    it("echoes request_id in results for local commands", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -188,7 +172,7 @@ describe("SessionBridge — slash commands", () => {
       bridge.handleConsumerMessage(
         ws,
         "sess-1",
-        JSON.stringify({ type: "slash_command", command: "/status", request_id: "my-req" }),
+        JSON.stringify({ type: "slash_command", command: "/help", request_id: "my-req" }),
       );
 
       await tick();
@@ -199,7 +183,7 @@ describe("SessionBridge — slash commands", () => {
       expect(result.request_id).toBe("my-req");
     });
 
-    it("emits slash_command:executed event", async () => {
+    it("emits slash_command:executed event for local commands", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -214,14 +198,14 @@ describe("SessionBridge — slash commands", () => {
       bridge.handleConsumerMessage(
         ws,
         "sess-1",
-        JSON.stringify({ type: "slash_command", command: "/model" }),
+        JSON.stringify({ type: "slash_command", command: "/help" }),
       );
 
       await tick();
 
       expect(events).toHaveLength(1);
       expect(events[0].sessionId).toBe("sess-1");
-      expect(events[0].command).toBe("/model");
+      expect(events[0].command).toBe("/help");
       expect(events[0].source).toBe("emulated");
     });
 
@@ -265,15 +249,15 @@ describe("SessionBridge — slash commands", () => {
       expect(snapshot?.state.last_duration_api_ms).toBe(2500);
     });
 
-    it("programmatic executeSlashCommand returns emulated result", async () => {
+    it("programmatic executeSlashCommand returns emulated result for /help", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
-      backendSession.pushMessage(makeSessionInitMsg({ model: "claude-opus-4-6" }));
+      backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      const result = await bridge.executeSlashCommand("sess-1", "/model");
+      const result = await bridge.executeSlashCommand("sess-1", "/help");
       expect(result).toBeDefined();
-      expect(result!.content).toBe("claude-opus-4-6");
+      expect(result!.content).toContain("Available commands:");
       expect(result!.source).toBe("emulated");
     });
 
@@ -492,7 +476,7 @@ describe("SessionBridge — slash commands", () => {
       expect(backendReceivedUserMessage(backendSession, "/cost")).toBe(true);
     });
 
-    it("native commands are forwarded without passthrough interception", async () => {
+    it("sets pending passthrough for all forwarded commands (including /vim)", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -504,19 +488,15 @@ describe("SessionBridge — slash commands", () => {
       backendSession.sentMessages.length = 0;
       ws.sentMessages.length = 0;
 
-      // Send native command /vim (not passthrough — it's a regular CLI command)
+      // Send /vim — all forwarded commands get echo interception
       bridge.handleConsumerMessage(
         ws,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/vim" }),
       );
 
-      // Command should be forwarded
+      // Command should be forwarded to backend
       expect(backendReceivedUserMessage(backendSession, "/vim")).toBe(true);
-
-      // Consumer should NOT receive a slash_command_result (forwarded to backend)
-      const consumerMsgs = ws.sentMessages.map((m) => JSON.parse(m));
-      expect(consumerMsgs.some((m: any) => m.type === "slash_command_result")).toBe(false);
     });
   });
 });
