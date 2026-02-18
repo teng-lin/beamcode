@@ -137,7 +137,12 @@ describe("Composer", () => {
   describe("image handling", () => {
     function renderComposer() {
       store().ensureSessionData(SESSION);
-      return render(<Composer sessionId={SESSION} />);
+      const result = render(<Composer sessionId={SESSION} />);
+      // Drag handlers are on the inner div (child of the <section> wrapper)
+      const dropZone = result.container.querySelector(
+        "section > div",
+      ) as HTMLElement;
+      return { ...result, dropZone };
     }
 
     /** Create a mock FileReader that captures onload and exposes it for triggering. */
@@ -176,10 +181,9 @@ describe("Composer", () => {
     }
 
     it("renders a drop zone indicator on dragover", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
-      fireEvent.dragOver(composer, {
+      fireEvent.dragOver(dropZone, {
         dataTransfer: { types: ["Files"] },
       });
 
@@ -187,26 +191,24 @@ describe("Composer", () => {
     });
 
     it("hides drop zone on dragleave", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
-      fireEvent.dragOver(composer, {
+      fireEvent.dragOver(dropZone, {
         dataTransfer: { types: ["Files"] },
       });
       expect(screen.getByText(/drop image/i)).toBeInTheDocument();
 
-      fireEvent.dragLeave(composer);
+      fireEvent.dragLeave(dropZone);
       expect(screen.queryByText(/drop image/i)).not.toBeInTheDocument();
     });
 
     it("shows image preview after dropping an image file", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["(binary)"], "screenshot.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,iVBOR");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -216,13 +218,12 @@ describe("Composer", () => {
     });
 
     it("ignores non-image files on drop", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["text"], "readme.txt", { type: "text/plain" });
       const mock = mockFileReader("data:text/plain;base64,dGV4dA==");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       mock.restore();
@@ -231,13 +232,12 @@ describe("Composer", () => {
     });
 
     it("removes image preview when clicking the remove button", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["(binary)"], "photo.jpg", { type: "image/jpeg" });
       const mock = mockFileReader("data:image/jpeg;base64,/9j/4");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -251,13 +251,12 @@ describe("Composer", () => {
 
     it("sends images array with user_message on submit", async () => {
       const user = userEvent.setup();
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,abc123");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -277,13 +276,12 @@ describe("Composer", () => {
 
     it("clears image previews after sending", async () => {
       const user = userEvent.setup();
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,xyz");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -297,13 +295,12 @@ describe("Composer", () => {
     });
 
     it("enables send button when images are attached even with empty text", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,abc");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -318,19 +315,22 @@ describe("Composer", () => {
   describe("image upload error toasts", () => {
     function renderComposer() {
       store().ensureSessionData(SESSION);
-      return render(<Composer sessionId={SESSION} />);
+      const result = render(<Composer sessionId={SESSION} />);
+      const dropZone = result.container.querySelector(
+        "section > div",
+      ) as HTMLElement;
+      return { ...result, dropZone };
     }
 
     it("shows toast when image exceeds size limit", () => {
       const addToast = vi.spyOn(store(), "addToast");
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
       // Create a file that reports > 10MB size
       const bigFile = new File(["x"], "huge.png", { type: "image/png" });
       Object.defineProperty(bigFile, "size", { value: 11 * 1024 * 1024 });
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [bigFile], types: ["Files"] },
       });
 
@@ -339,22 +339,15 @@ describe("Composer", () => {
 
     it("shows toast when max images reached", () => {
       const addToast = vi.spyOn(store(), "addToast");
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposer();
 
-      // Fill up the image slots by repeatedly dropping files
-      // We'll use a mock FileReader approach — but for this test, we just
-      // need processFiles to detect the limit. The images state must be full.
-      // Easiest: drop 10 images first, then try to drop one more.
-      // Since processFiles uses imagesRef.current, we can set the state directly.
-      // Instead, let's verify via the addToast call when slots are full.
-      // The simplest approach: mock imagesRef by dropping once with > MAX files.
+      // Drop 11 images at once — exceeds MAX_IMAGES (10)
       const files: File[] = [];
       for (let i = 0; i < 11; i++) {
         files.push(new File(["x"], `img${i}.png`, { type: "image/png" }));
       }
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files, types: ["Files"] },
       });
 
