@@ -5,7 +5,10 @@ import { AcpAdapter } from "./acp/acp-adapter.js";
 import { CodexAdapter } from "./codex/codex-adapter.js";
 import { SdkUrlAdapter } from "./sdk-url/sdk-url-adapter.js";
 
-export type AdapterName = "sdk-url" | "codex" | "acp" | "agent-sdk";
+export type CliAdapterName = "sdk-url" | "codex" | "acp";
+export type AdapterName = CliAdapterName | "agent-sdk";
+
+export const CLI_ADAPTER_NAMES: readonly CliAdapterName[] = ["sdk-url", "codex", "acp"];
 
 export interface CreateAdapterDeps {
   processManager: ProcessManager;

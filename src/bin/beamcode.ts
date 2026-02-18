@@ -2,7 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
-import { type AdapterName, createAdapter } from "../adapters/create-adapter.js";
+import {
+  CLI_ADAPTER_NAMES,
+  type CliAdapterName,
+  createAdapter,
+} from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
@@ -29,7 +33,7 @@ interface CliConfig {
   cwd: string;
   claudeBinary: string;
   verbose: boolean;
-  adapter?: AdapterName;
+  adapter?: CliAdapterName;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -92,9 +96,15 @@ function parseArgs(argv: string[]): CliConfig {
       case "--claude-binary":
         config.claudeBinary = argv[++i];
         break;
-      case "--adapter":
-        config.adapter = argv[++i] as AdapterName;
+      case "--adapter": {
+        const value = argv[++i];
+        if (!CLI_ADAPTER_NAMES.includes(value as CliAdapterName)) {
+          console.error(`Error: --adapter must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
+          process.exit(1);
+        }
+        config.adapter = value as CliAdapterName;
         break;
+      }
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -111,7 +121,12 @@ function parseArgs(argv: string[]): CliConfig {
   }
 
   if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
-    config.adapter = process.env.BEAMCODE_ADAPTER as AdapterName;
+    const envValue = process.env.BEAMCODE_ADAPTER;
+    if (!CLI_ADAPTER_NAMES.includes(envValue as CliAdapterName)) {
+      console.error(`Error: BEAMCODE_ADAPTER must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
+      process.exit(1);
+    }
+    config.adapter = envValue as CliAdapterName;
   }
 
   return config;
@@ -254,7 +269,7 @@ async function main(): Promise<void> {
   Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
 
   Session: ${activeSessionId}
-  Adapter: ${config.adapter ?? "sdk-url"}
+  Adapter: ${adapter.name}
   CWD:     ${config.cwd}
   API Key: ${apiKey}
 
