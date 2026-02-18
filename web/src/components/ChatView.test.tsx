@@ -123,6 +123,16 @@ describe("ChatView", () => {
     expect(screen.getByTestId("permission-banner")).toBeInTheDocument();
   });
 
+  it("does not render PermissionBanner for observers even with pending permissions", () => {
+    store().ensureSessionData(SESSION);
+    store().addPermission(SESSION, makePermission());
+    store().setIdentity(SESSION, { userId: "u1", displayName: "Observer", role: "observer" });
+    addUserMessage();
+    useStore.setState({ currentSessionId: SESSION });
+    render(<ChatView />);
+    expect(screen.queryByTestId("permission-banner")).not.toBeInTheDocument();
+  });
+
   // Grid mode disabled — background/team agents don't stream through parent NDJSON.
   // Re-enable when Anthropic adds --sdk-url propagation to child agents.
   it("does not render AgentGridView (feature disabled)", () => {

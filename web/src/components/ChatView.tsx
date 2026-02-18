@@ -45,7 +45,7 @@ function MainChatContent({
 
       <StreamingIndicator sessionId={sessionId} />
 
-      {hasPendingPermissions && <PermissionBanner sessionId={sessionId} />}
+      {hasPendingPermissions && !isObserver && <PermissionBanner sessionId={sessionId} />}
 
       <Composer sessionId={sessionId} />
       <StatusBar />
