@@ -42,10 +42,7 @@ export class MessageReader {
       const result = await Promise.race([
         this.iter.next(),
         new Promise<IteratorResult<UnifiedMessage>>((r) =>
-          setTimeout(
-            () => r({ value: undefined as unknown as UnifiedMessage, done: true }),
-            timeoutMs,
-          ),
+          setTimeout(() => r({ value: undefined, done: true }), timeoutMs),
         ),
       ]);
       if (result.done) break;
@@ -65,10 +62,7 @@ export class MessageReader {
       const result = await Promise.race([
         this.iter.next(),
         new Promise<IteratorResult<UnifiedMessage>>((r) =>
-          setTimeout(
-            () => r({ value: undefined as unknown as UnifiedMessage, done: true }),
-            timeoutMs,
-          ),
+          setTimeout(() => r({ value: undefined, done: true }), timeoutMs),
         ),
       ]);
 

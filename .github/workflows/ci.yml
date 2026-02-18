@@ -32,9 +32,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install web dependencies
-        run: cd web && npm ci
-
       - name: Run tests
         run: pnpm test
 

@@ -37,7 +37,7 @@ function createMessageChannel() {
       if (resolve) {
         const r = resolve;
         resolve = null;
-        r({ value: undefined as unknown as UnifiedMessage, done: true });
+        r({ value: undefined, done: true });
       }
     },
     [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
@@ -48,7 +48,7 @@ function createMessageChannel() {
           }
           if (done) {
             return Promise.resolve({
-              value: undefined as unknown as UnifiedMessage,
+              value: undefined,
               done: true,
             });
           }

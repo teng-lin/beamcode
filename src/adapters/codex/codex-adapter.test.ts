@@ -35,18 +35,24 @@ class MockWebSocket extends EventEmitter {
 // The factory returns a constructor fn whose behavior is set per-test.
 // ---------------------------------------------------------------------------
 
-const mockWsConstructor = vi.hoisted(() => {
-  const fn = vi.fn();
-  // Preserve the WebSocket constants used by CodexSession
-  fn.OPEN = 1;
-  fn.CLOSED = 3;
-  fn.CONNECTING = 0;
-  fn.CLOSING = 2;
-  return fn;
+// Factory fn whose behavior is set per-test via mockWsFactory.
+// Vitest 4 requires class-like constructors for `new` calls.
+let mockWsFactory: (...args: any[]) => MockWebSocket;
+
+const MockWsClass = vi.hoisted(() => {
+  // Wrap in a real function so it can be called with `new`
+  function WsConstructor(this: any, ...args: any[]) {
+    return mockWsFactory(...args);
+  }
+  WsConstructor.OPEN = 1;
+  WsConstructor.CLOSED = 3;
+  WsConstructor.CONNECTING = 0;
+  WsConstructor.CLOSING = 2;
+  return WsConstructor;
 });
 
 vi.mock("ws", () => ({
-  default: mockWsConstructor,
+  default: MockWsClass,
   __esModule: true,
 }));
 
@@ -436,16 +442,15 @@ describe("CodexAdapter", () => {
 
     afterEach(() => {
       launchSpy.mockRestore();
-      mockWsConstructor.mockReset();
     });
 
-    /** Configure mockWsConstructor to return a MockWebSocket that emits "open". */
+    /** Configure mockWsFactory to return a MockWebSocket that emits "open". */
     function setupOpenableWs(): MockWebSocket {
       const ws = new MockWebSocket();
-      mockWsConstructor.mockImplementation(() => {
+      mockWsFactory = () => {
         queueMicrotask(() => ws.emit("open"));
         return ws;
-      });
+      };
       return ws;
     }
 
@@ -487,10 +492,10 @@ describe("CodexAdapter", () => {
 
     it("rejects when WebSocket emits error during connection", async () => {
       const ws = new MockWebSocket();
-      mockWsConstructor.mockImplementation(() => {
+      mockWsFactory = () => {
         queueMicrotask(() => ws.emit("error", new Error("Connection refused")));
         return ws;
-      });
+      };
 
       await expect(adapter.connect({ sessionId: "err-session" })).rejects.toThrow(
         "Failed to connect to codex app-server",

@@ -174,7 +174,7 @@ export class AcpSession implements BackendSession {
           if (resolve) {
             const r = resolve;
             resolve = null;
-            r({ value: undefined as unknown as UnifiedMessage, done: true });
+            r({ value: undefined, done: true } as IteratorResult<UnifiedMessage>);
           }
         };
 
@@ -186,18 +186,18 @@ export class AcpSession implements BackendSession {
             if (session.closed) {
               done = true;
               return Promise.resolve({
-                value: undefined as unknown as UnifiedMessage,
+                value: undefined,
                 done: true,
-              });
+              } as IteratorResult<UnifiedMessage>);
             }
             if (queue.length > 0) {
               return Promise.resolve({ value: queue.shift()!, done: false });
             }
             if (done) {
               return Promise.resolve({
-                value: undefined as unknown as UnifiedMessage,
+                value: undefined,
                 done: true,
-              });
+              } as IteratorResult<UnifiedMessage>);
             }
             return new Promise<IteratorResult<UnifiedMessage>>((r) => {
               resolve = r;
@@ -208,9 +208,9 @@ export class AcpSession implements BackendSession {
             child.stdout?.removeListener("close", onClose);
             done = true;
             return Promise.resolve({
-              value: undefined as unknown as UnifiedMessage,
+              value: undefined,
               done: true,
-            });
+            } as IteratorResult<UnifiedMessage>);
           },
         };
       },

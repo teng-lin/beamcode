@@ -1,7 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import { AcpSession } from "./acp-session.js";
 import type { JsonRpcCodec } from "./json-rpc.js";
@@ -368,7 +367,7 @@ describe("AcpSession", () => {
       const iter = session.messages[Symbol.asyncIterator]();
       await iter.next(); // init
 
-      const returnResult = await iter.return!(undefined as unknown as UnifiedMessage);
+      const returnResult = await iter.return!(undefined!);
       expect(returnResult.done).toBe(true);
 
       // After return, next should also be done

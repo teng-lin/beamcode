@@ -1276,7 +1276,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // Diff and emit events
     const events = diffTeamState(session.id, prevTeam, currentTeam);
     for (const event of events) {
-      this.emit(event.type, event.payload as any);
+      this.emit(event.type, event.payload as BridgeEventMap[typeof event.type]);
     }
   }
 

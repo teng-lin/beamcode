@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { ConsumerIdentity } from "../interfaces/auth.js";
 import {
   authContext,
   createTestSocket as createMockSocket,
@@ -74,7 +73,7 @@ function findMessage(socket: ReturnType<typeof createMockSocket>, type: string) 
 }
 
 /** Find all messages of a given type in a socket's sent messages. */
-function findMessages(socket: ReturnType<typeof createMockSocket>, type: string) {
+function _findMessages(socket: ReturnType<typeof createMockSocket>, type: string) {
   return parseSent(socket).filter((m: { type: string }) => m.type === type);
 }
 

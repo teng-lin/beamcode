@@ -73,11 +73,13 @@ describe("consumer-html", () => {
       const { readFileSync } = await import("node:fs");
       const { loadConsumerHtml } = await import("./consumer-html.js");
 
+      // First call populates the cache
       loadConsumerHtml();
-      loadConsumerHtml();
+      const callsAfterFirst = vi.mocked(readFileSync).mock.calls.length;
 
-      // readFileSync should only be called once due to caching
-      expect(readFileSync).toHaveBeenCalledTimes(1);
+      // Second call should hit cache — no additional readFileSync
+      loadConsumerHtml();
+      expect(vi.mocked(readFileSync).mock.calls.length).toBe(callsAfterFirst);
     });
 
     it("resolves path relative to module at web/dist/index.html", async () => {

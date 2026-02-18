@@ -65,11 +65,7 @@ export function makeToolUseMessage(
  * Create a UnifiedMessage containing a single tool_result content block.
  * Reduces boilerplate in tests that construct tool result messages.
  */
-export function makeToolResultMessage(
-  toolUseId: string,
-  content: string,
-  isError = false,
-) {
+export function makeToolResultMessage(toolUseId: string, content: string, isError = false) {
   return createUnifiedMessage({
     type: "assistant",
     role: "assistant",

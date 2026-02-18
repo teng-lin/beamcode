@@ -31,7 +31,7 @@ export function createTestSocket(opts?: { bufferedAmount?: number }): WebSocketL
   const sentMessages: string[] = [];
   const socket: ReturnType<typeof createTestSocket> = {
     send: vi.fn((data: string) => sentMessages.push(data)),
-    close: vi.fn(),
+    close: vi.fn<(code?: number, reason?: string) => void>(),
     sentMessages,
   };
   if (opts?.bufferedAmount !== undefined) {

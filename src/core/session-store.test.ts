@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionStorage } from "../interfaces/storage.js";
-import { createMockSession, noopLogger } from "../testing/cli-message-factories.js";
 import type { PersistedSession } from "../types/session-state.js";
 import {
   makeDefaultState,
@@ -35,7 +34,7 @@ function createFactories(): SessionStoreFactories {
   };
 }
 
-function createStore(storage?: SessionStorage | null) {
+function _createStore(storage?: SessionStorage | null) {
   return new SessionStore(storage ?? createMockStorage(), createFactories());
 }
 

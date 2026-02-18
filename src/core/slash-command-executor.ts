@@ -255,7 +255,7 @@ export class SlashCommandExecutor {
       return `  ${cmd.name}`;
     });
 
-    return baseContent + "\n" + formatted.join("\n");
+    return `${baseContent}\n${formatted.join("\n")}`;
   }
 
   dispose(): void {
