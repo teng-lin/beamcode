@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDropdown } from "../hooks/useDropdown";
 import { currentData, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
@@ -234,6 +234,12 @@ export function PermissionModePicker({ disabled }: { disabled?: boolean } = {}) 
 
 // ── Model Picker ─────────────────────────────────────────────────────────────
 
+const FALLBACK_MODELS: { value: string; displayName: string }[] = [
+  { value: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
+  { value: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
+  { value: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
+];
+
 /** Extract a display name with version ("Opus 4.6", "Sonnet 4.5") from the model identifier. */
 export function abbreviateModelName(
   model: string,
@@ -250,12 +256,25 @@ export function abbreviateModelName(
 
 export function ModelPicker({ disabled }: { disabled?: boolean } = {}) {
   const model = useStore((s) => currentData(s)?.state?.model ?? "");
-  const models = useStore((s) => currentData(s)?.capabilities?.models ?? null);
+  const backendModels = useStore((s) => currentData(s)?.capabilities?.models ?? null);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
   const isObserver = disabled ?? identityRole === "observer";
   const { open, toggle, close, ref } = useDropdown(currentSessionId);
   const [pendingModel, setPendingModel] = useState<string | null>(null);
+
+  // Use backend models if multiple are reported, otherwise fall back to known Claude models.
+  // Ensure the current model always appears in the list.
+  const models = useMemo(() => {
+    if (backendModels && backendModels.length > 1) return backendModels;
+    const list = [...FALLBACK_MODELS];
+    if (model && !list.some((m) => m.value === model)) {
+      const name = abbreviateModelName(model, backendModels);
+      const displayName = /claude/i.test(model) ? `Claude ${name}` : name;
+      list.unshift({ value: model, displayName });
+    }
+    return list;
+  }, [backendModels, model]);
 
   // Reset pending state on session change
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset
@@ -270,7 +289,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean } = {}) {
     }
   }, [model, pendingModel]);
 
-  const canSwitch = models && models.length > 1 && !isObserver;
+  const canSwitch = !isObserver;
   const displayModel = pendingModel ?? model;
 
   const handleSelect = useCallback(
@@ -297,7 +316,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean } = {}) {
         {shortName}
         {canSwitch && <ChevronDown />}
       </button>
-      {open && models && (
+      {open && (
         <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[180px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
           {models.map((m) => (
             <button
@@ -362,7 +381,7 @@ export function StatusBar() {
   const isWorktree = useStore((s) => currentData(s)?.state?.is_worktree ?? false);
 
   return (
-    <footer className="flex items-center gap-2 px-3 py-1">
+    <footer className="mx-auto flex max-w-3xl items-center gap-2 px-1 py-1">
       {/* Left: project + branch pill */}
       <div className="flex items-center gap-1.5 rounded-full border border-bc-border/50 px-2.5 py-0.5 text-[11px] text-bc-text-muted">
         <span
