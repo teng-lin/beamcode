@@ -13,8 +13,10 @@ import type { CodexLauncher } from "./codex-launcher.js";
 import type {
   CodexApprovalRequest,
   CodexContentPart,
-  CodexItem,
   CodexInitResponse,
+  CodexItem,
+  CodexItemContent,
+  CodexRefusalPart,
   CodexResponse,
   CodexTurnEvent,
 } from "./codex-message-translator.js";
@@ -325,13 +327,14 @@ export class CodexSession implements BackendSession {
     }
     this.pendingApprovalMethods.delete(requestId);
 
-    const id: number | string = /^\d+$/.test(requestId) ? Number.parseInt(requestId, 10) : requestId;
+    const id: number | string = /^\d+$/.test(requestId)
+      ? Number.parseInt(requestId, 10)
+      : requestId;
 
-    if (method === "item/commandExecution/requestApproval") {
-      this.sendRpcResult(id, { decision: approve ? "accept" : "decline" });
-      return;
-    }
-    if (method === "item/fileChange/requestApproval") {
+    if (
+      method === "item/commandExecution/requestApproval" ||
+      method === "item/fileChange/requestApproval"
+    ) {
       this.sendRpcResult(id, { decision: approve ? "accept" : "decline" });
       return;
     }
@@ -609,10 +612,7 @@ export class CodexSession implements BackendSession {
     if (typeof withThread.thread?.id === "string" && withThread.thread.id.length > 0) {
       return withThread.thread.id;
     }
-    if (
-      typeof withThread.conversationId === "string" &&
-      withThread.conversationId.length > 0
-    ) {
+    if (typeof withThread.conversationId === "string" && withThread.conversationId.length > 0) {
       return withThread.conversationId;
     }
     return null;
@@ -664,12 +664,12 @@ export class CodexSession implements BackendSession {
   private itemToText(item: CodexItem): string {
     if (!Array.isArray(item.content)) return "";
     return item.content
-      .map((part): string => {
-        if ((part as CodexContentPart).type === "output_text") {
+      .map((part: CodexItemContent): string => {
+        if (part.type === "output_text") {
           return (part as CodexContentPart).text ?? "";
         }
-        if ((part as { type: string; refusal?: string }).type === "refusal") {
-          return (part as { refusal?: string }).refusal ?? "";
+        if (part.type === "refusal") {
+          return (part as CodexRefusalPart).refusal ?? "";
         }
         return "";
       })

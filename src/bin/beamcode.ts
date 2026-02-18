@@ -1,5 +1,4 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
 import {
@@ -19,25 +18,13 @@ import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
 import { createBeamcodeServer } from "../http/server.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
 import { OriginValidator } from "../server/origin-validator.js";
+import { resolvePackageVersion } from "../utils/resolve-package-version.js";
 
-const requireFromHere = createRequire(import.meta.url);
-
-function resolvePackageVersion(): string {
-  const candidates = ["../../package.json", "../../../package.json", "../package.json"];
-  for (const candidate of candidates) {
-    try {
-      const pkg = requireFromHere(candidate) as { version?: unknown };
-      if (typeof pkg.version === "string" && pkg.version.length > 0) {
-        return pkg.version;
-      }
-    } catch {
-      // Try next path candidate.
-    }
-  }
-  return "unknown";
-}
-
-const version = resolvePackageVersion();
+const version = resolvePackageVersion(import.meta.url, [
+  "../../package.json",
+  "../../../package.json",
+  "../package.json",
+]);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
