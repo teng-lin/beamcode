@@ -525,7 +525,7 @@ describe("CodexAdapter", () => {
     expect(adapter.capabilities).toEqual({
       streaming: true,
       permissions: true,
-      slashCommands: false,
+      slashCommands: true,
       availability: "local",
       teams: false,
     });

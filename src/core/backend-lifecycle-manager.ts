@@ -112,6 +112,30 @@ export class BackendLifecycleManager {
     });
 
     session.backendSession = backendSession;
+
+    // Set up adapter-specific slash executor (e.g. Codex → JSON-RPC translation)
+    session.adapterSlashExecutor = null;
+    if (this.adapter.name === "codex") {
+      try {
+        // Dynamic imports to avoid static core/ → adapters/codex/ dependency.
+        // @ts-expect-error -- intentional cross-layer dynamic import
+        const codexSlashMod = await import("../../adapters/codex/codex-slash-executor.js");
+        // @ts-expect-error -- intentional cross-layer dynamic import
+        const codexSessionMod = await import("../../adapters/codex/codex-session.js");
+        if (backendSession instanceof codexSessionMod.CodexSession) {
+          const executor = new codexSlashMod.CodexSlashExecutor(backendSession);
+          session.adapterSlashExecutor = executor;
+          const commands = executor.supportedCommands();
+          session.state.slash_commands = commands;
+          session.registry.registerFromCLI(
+            commands.map((name: string) => ({ name, description: "" })),
+          );
+        }
+      } catch (err) {
+        this.logger.warn("Failed to set up Codex slash executor", { error: err });
+      }
+    }
+
     if (this.supportsPassthroughHandler(backendSession)) {
       backendSession.setPassthroughHandler((rawMsg) => {
         if (rawMsg.type !== "user") return false;

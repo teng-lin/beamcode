@@ -27,6 +27,13 @@ export interface QueuedMessage {
   queuedAt: number;
 }
 
+/** Duck-typed interface for adapter-specific slash command executors. */
+export interface AdapterSlashExecutor {
+  handles(command: string): boolean;
+  execute(command: string): Promise<{ content: string; source: "emulated"; durationMs: number }>;
+  supportedCommands(): string[];
+}
+
 export interface Session {
   id: string;
   cliSessionId?: string;
@@ -56,6 +63,8 @@ export interface Session {
   registry: SlashCommandRegistry;
   /** Tracks a passthrough slash command awaiting CLI response. */
   pendingPassthrough: { command: string; requestId?: string } | null;
+  /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */
+  adapterSlashExecutor: AdapterSlashExecutor | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -195,6 +204,7 @@ export class SessionStore {
       teamCorrelationBuffer: this.factories.createCorrelationBuffer(),
       registry: this.factories.createRegistry(),
       pendingPassthrough: null,
+      adapterSlashExecutor: null,
     };
   }
 
