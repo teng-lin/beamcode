@@ -33,10 +33,13 @@ describe("health-check", () => {
 
     timer = startHealthCheck(statePath, 50);
 
-    // Wait for at least one tick (generous for CI)
-    await new Promise((r) => setTimeout(r, 300));
-
-    const updated = await readState(statePath);
+    // Poll until heartbeat updates (tolerates slow CI runners)
+    let updated: DaemonState | null = null;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      updated = await readState(statePath);
+      if (updated && updated.heartbeat > 1000) break;
+    }
     expect(updated).not.toBeNull();
     expect(updated!.heartbeat).toBeGreaterThan(1000);
   });
