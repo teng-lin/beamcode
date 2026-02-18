@@ -133,6 +133,7 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isPassthroughCommand("/context", registry)).toBe(true);
       expect(executor.isPassthroughCommand("/compact", registry)).toBe(true);
       expect(executor.isPassthroughCommand("/files", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/release-notes", registry)).toBe(true);
     });
 
     it("rejects non-passthrough commands", () => {
@@ -382,6 +383,16 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/vim on", state)).toBe(true);
       expect(executor.isNativeCommand("/compact --force", state)).toBe(true);
       expect(executor.canHandle("/model gpt-4", state)).toBe(true);
+    });
+
+    it("handles commands with leading whitespace", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      expect(executor.isNativeCommand("  /compact", state)).toBe(true);
+      expect(executor.canHandle("  /model", state)).toBe(true);
+
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("  /cost", registry)).toBe(true);
     });
   });
 

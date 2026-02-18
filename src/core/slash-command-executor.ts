@@ -13,7 +13,7 @@ type EmulatorFn = (state: SessionState) => string;
 
 /** Extract the command name (e.g. "/help") from a full command string (e.g. "/help foo"). */
 function commandName(command: string): string {
-  return command.split(/\s+/)[0];
+  return command.trim().split(/\s+/)[0];
 }
 
 /**
