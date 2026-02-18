@@ -8,7 +8,7 @@ interface QueuedMessageProps {
 export function QueuedMessage({ content, displayName, isEditing, isOwn }: QueuedMessageProps) {
   return (
     <div
-      className="self-start max-w-[85%] opacity-50 transition-opacity duration-300"
+      className="self-end max-w-[85%] opacity-50 transition-opacity duration-300"
       data-queued-message
     >
       <div className="rounded-2xl bg-bc-user-bg px-4 py-2.5 text-sm border border-dashed border-bc-border/50">
