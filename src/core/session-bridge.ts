@@ -35,6 +35,7 @@ import {
   mapToolUseSummary,
 } from "./consumer-message-mapper.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import { MessageQueueHandler } from "./message-queue-handler.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
@@ -58,6 +59,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
   private slashCommandExecutor: SlashCommandExecutor;
+  private queueHandler: MessageQueueHandler;
   private adapter: BackendAdapter | null;
 
   constructor(options?: {
@@ -85,6 +87,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.gitResolver = options?.gitResolver ?? null;
     this.metrics = options?.metrics ?? null;
     this.adapter = options?.adapter ?? null;
+    this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
+      this.sendUserMessage(sessionId, content, opts),
+    );
     this.slashCommandExecutor = new SlashCommandExecutor({
       commandRunner: options?.commandRunner,
       config: this.config,
@@ -765,13 +770,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.handleSlashCommand(session, msg);
         break;
       case "queue_message":
-        this.handleQueueMessage(session, msg, ws);
+        this.queueHandler.handleQueueMessage(session, msg, ws);
         break;
       case "update_queued_message":
-        this.handleUpdateQueuedMessage(session, msg, ws);
+        this.queueHandler.handleUpdateQueuedMessage(session, msg, ws);
         break;
       case "cancel_queued_message":
-        this.handleCancelQueuedMessage(session, ws);
+        this.queueHandler.handleCancelQueuedMessage(session, ws);
         break;
       case "set_adapter":
         this.logger.info(
@@ -817,105 +822,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       updatedPermissions: msg.updated_permissions,
       message: msg.message,
     });
-  }
-
-  // ── Queue message handling ──────────────────────────────────────────────
-
-  private handleQueueMessage(
-    session: Session,
-    msg: {
-      type: "queue_message";
-      content: string;
-      images?: { media_type: string; data: string }[];
-    },
-    ws: WebSocketLike,
-  ): void {
-    // If session is idle or its status is unknown, send immediately as user_message.
-    // Otherwise (e.g. "running", "compacting"), proceed to queue it.
-    const status = session.lastStatus;
-    if (!status || status === "idle") {
-      this.handleUserMessage(session, {
-        type: "user_message",
-        content: msg.content,
-        images: msg.images,
-      });
-      return;
-    }
-
-    // Reject if a message is already queued
-    if (session.queuedMessage) {
-      this.broadcaster.sendTo(ws, {
-        type: "error",
-        message: "A message is already queued for this session",
-      });
-      return;
-    }
-
-    const identity = session.consumerSockets.get(ws);
-    if (!identity) return;
-
-    session.queuedMessage = {
-      consumerId: identity.userId,
-      displayName: identity.displayName,
-      content: msg.content,
-      images: msg.images,
-      queuedAt: Date.now(),
-    };
-
-    this.broadcaster.broadcast(session, {
-      type: "message_queued",
-      consumer_id: identity.userId,
-      display_name: identity.displayName,
-      content: msg.content,
-      images: msg.images,
-      queued_at: session.queuedMessage.queuedAt,
-    });
-  }
-
-  private handleUpdateQueuedMessage(
-    session: Session,
-    msg: {
-      type: "update_queued_message";
-      content: string;
-      images?: { media_type: string; data: string }[];
-    },
-    ws: WebSocketLike,
-  ): void {
-    if (!session.queuedMessage) return;
-
-    const identity = session.consumerSockets.get(ws);
-    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
-      this.broadcaster.sendTo(ws, {
-        type: "error",
-        message: "Only the message author can edit a queued message",
-      });
-      return;
-    }
-
-    session.queuedMessage.content = msg.content;
-    session.queuedMessage.images = msg.images;
-
-    this.broadcaster.broadcast(session, {
-      type: "queued_message_updated",
-      content: msg.content,
-      images: msg.images,
-    });
-  }
-
-  private handleCancelQueuedMessage(session: Session, ws: WebSocketLike): void {
-    if (!session.queuedMessage) return;
-
-    const identity = session.consumerSockets.get(ws);
-    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
-      this.broadcaster.sendTo(ws, {
-        type: "error",
-        message: "Only the message author can cancel a queued message",
-      });
-      return;
-    }
-
-    session.queuedMessage = null;
-    this.broadcaster.broadcast(session, { type: "queued_message_cancelled" });
   }
 
   // ── Slash command handling ───────────────────────────────────────────────
@@ -1364,16 +1270,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.sendInitializeRequest(session);
   }
 
-  private autoSendQueuedMessage(session: Session): void {
-    if (!session.queuedMessage) return;
-    const queued = session.queuedMessage;
-    session.queuedMessage = null;
-    this.broadcaster.broadcast(session, { type: "queued_message_sent" });
-    this.sendUserMessage(session.id, queued.content, {
-      images: queued.images,
-    });
-  }
-
   private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
@@ -1392,7 +1288,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     // Auto-send queued message when transitioning to idle
     if (status === "idle") {
-      this.autoSendQueuedMessage(session);
+      this.queueHandler.autoSendQueuedMessage(session);
     }
   }
 
@@ -1414,7 +1310,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // Mark session idle — the CLI only sends status_change for "compacting" | null,
     // so the bridge must infer "idle" from result messages (mirrors frontend logic).
     session.lastStatus = "idle";
-    this.autoSendQueuedMessage(session);
+    this.queueHandler.autoSendQueuedMessage(session);
 
     // Trigger auto-naming after first turn
     const m = msg.metadata;
