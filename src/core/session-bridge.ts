@@ -1020,6 +1020,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   async disconnectBackend(sessionId: string): Promise<void> {
     const session = this.store.get(sessionId);
     if (!session) return;
+    this.capabilitiesProtocol.cancelPendingInitialize(session);
     return this.backendLifecycle.disconnectBackend(session);
   }
 

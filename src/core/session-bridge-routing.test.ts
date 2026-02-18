@@ -3,53 +3,58 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import {
+  createBridgeWithAdapter,
+  MockBackendAdapter,
+  type MockBackendSession,
+  makeAssistantUnifiedMsg,
+  makeAuthStatusUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  makeStatusChangeMsg,
+  makeStreamEventUnifiedMsg,
+  makeToolProgressUnifiedMsg,
+  makeToolUseSummaryUnifiedMsg,
+  noopLogger,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
+  noopLogger as _cliNoopLogger,
   authContext,
   createTestSocket as createMockSocket,
-  makeAssistantMsg,
-  makeAuthStatusMsg,
-  makeControlRequestMsg,
-  makeInitMsg,
-  makeKeepAliveMsg,
-  makeResultMsg,
-  makeStatusMsg,
-  makeStreamEventMsg,
-  makeToolProgressMsg,
-  makeToolUseSummaryMsg,
-  noopLogger,
 } from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createBridge() {
-  return new SessionBridge({
-    config: { port: 3456 },
-    logger: noopLogger,
-  });
-}
+import { createUnifiedMessage } from "./types/unified-message.js";
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SessionBridge — CLI message routing", () => {
   let bridge: SessionBridge;
-  let cliSocket: ReturnType<typeof createMockSocket>;
+  let adapter: MockBackendAdapter;
+  let backendSession: MockBackendSession;
   let consumerSocket: ReturnType<typeof createMockSocket>;
 
-  beforeEach(() => {
-    bridge = createBridge();
-    bridge.getOrCreateSession("sess-1");
-    cliSocket = createMockSocket();
-    bridge.handleCLIOpen(cliSocket, "sess-1");
+  beforeEach(async () => {
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    adapter = created.adapter;
+
+    // Connect backend (replaces handleCLIOpen)
+    await bridge.connectBackend("sess-1");
+    backendSession = adapter.getSession("sess-1")!;
+
+    // Connect consumer
     consumerSocket = createMockSocket();
     bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
     consumerSocket.sentMessages.length = 0;
   });
 
-  it("system init updates session state and emits cli:session_id", () => {
+  it("system init updates session state and emits cli:session_id", async () => {
     const handler = vi.fn();
     bridge.on("cli:session_id", handler);
 
-    bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-abc" }));
+    backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
+    await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
@@ -64,8 +69,9 @@ describe("SessionBridge — CLI message routing", () => {
     expect(state.claude_code_version).toBe("1.0");
   });
 
-  it("system init broadcasts session_init to consumers", () => {
-    bridge.handleCLIMessage("sess-1", makeInitMsg());
+  it("system init broadcasts session_init to consumers", async () => {
+    backendSession.pushMessage(makeSessionInitMsg());
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const initMsg = parsed.find((m: any) => m.type === "session_init");
@@ -73,8 +79,9 @@ describe("SessionBridge — CLI message routing", () => {
     expect(initMsg.session.model).toBe("claude-sonnet-4-5-20250929");
   });
 
-  it("system status updates is_compacting and broadcasts status_change", () => {
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ status: "compacting" }));
+  it("system status updates is_compacting and broadcasts status_change", async () => {
+    backendSession.pushMessage(makeStatusChangeMsg({ status: "compacting" }));
+    await tick();
 
     const state = bridge.getSession("sess-1")!.state;
     expect(state.is_compacting).toBe(true);
@@ -85,23 +92,27 @@ describe("SessionBridge — CLI message routing", () => {
     );
   });
 
-  it("system status with null status clears is_compacting", () => {
+  it("system status with null status clears is_compacting", async () => {
     // First set compacting
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ status: "compacting" }));
+    backendSession.pushMessage(makeStatusChangeMsg({ status: "compacting" }));
+    await tick();
     expect(bridge.getSession("sess-1")!.state.is_compacting).toBe(true);
 
     // Then clear it
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ status: null }));
+    backendSession.pushMessage(makeStatusChangeMsg({ status: null }));
+    await tick();
     expect(bridge.getSession("sess-1")!.state.is_compacting).toBe(false);
   });
 
-  it("system status with permissionMode updates session state", () => {
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ permissionMode: "plan" }));
+  it("system status with permissionMode updates session state", async () => {
+    backendSession.pushMessage(makeStatusChangeMsg({ permissionMode: "plan" }));
+    await tick();
     expect(bridge.getSession("sess-1")!.state.permissionMode).toBe("plan");
   });
 
-  it("system status with permissionMode broadcasts session_update to consumers", () => {
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ permissionMode: "plan" }));
+  it("system status with permissionMode broadcasts session_update to consumers", async () => {
+    backendSession.pushMessage(makeStatusChangeMsg({ permissionMode: "plan" }));
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const updateMsg = parsed.find(
@@ -111,16 +122,18 @@ describe("SessionBridge — CLI message routing", () => {
     expect(updateMsg.session.permissionMode).toBe("plan");
   });
 
-  it("system status without permissionMode does not broadcast session_update", () => {
-    bridge.handleCLIMessage("sess-1", makeStatusMsg({ status: "idle" }));
+  it("system status without permissionMode does not broadcast session_update", async () => {
+    backendSession.pushMessage(makeStatusChangeMsg({ status: "idle" }));
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const updateMsg = parsed.find((m: any) => m.type === "session_update");
     expect(updateMsg).toBeUndefined();
   });
 
-  it("assistant message is stored in history and broadcast", () => {
-    bridge.handleCLIMessage("sess-1", makeAssistantMsg());
+  it("assistant message is stored in history and broadcast", async () => {
+    backendSession.pushMessage(makeAssistantUnifiedMsg());
+    await tick();
 
     const snapshot = bridge.getSession("sess-1")!;
     expect(snapshot.messageHistoryLength).toBe(1);
@@ -132,16 +145,16 @@ describe("SessionBridge — CLI message routing", () => {
     expect(assistantMsg.parent_tool_use_id).toBeNull();
   });
 
-  it("result message updates session cost/turns and broadcasts", () => {
-    bridge.handleCLIMessage(
-      "sess-1",
-      makeResultMsg({
+  it("result message updates session cost/turns and broadcasts", async () => {
+    backendSession.pushMessage(
+      makeResultUnifiedMsg({
         total_cost_usd: 0.05,
         num_turns: 3,
         total_lines_added: 10,
         total_lines_removed: 5,
       }),
     );
+    await tick();
 
     const state = bridge.getSession("sess-1")!.state;
     expect(state.total_cost_usd).toBe(0.05);
@@ -153,10 +166,9 @@ describe("SessionBridge — CLI message routing", () => {
     expect(parsed.some((m: any) => m.type === "result")).toBe(true);
   });
 
-  it("result message computes context_used_percent from modelUsage", () => {
-    bridge.handleCLIMessage(
-      "sess-1",
-      makeResultMsg({
+  it("result message computes context_used_percent from modelUsage", async () => {
+    backendSession.pushMessage(
+      makeResultUnifiedMsg({
         modelUsage: {
           "claude-sonnet-4-5-20250929": {
             inputTokens: 5000,
@@ -170,19 +182,21 @@ describe("SessionBridge — CLI message routing", () => {
         },
       }),
     );
+    await tick();
 
     const state = bridge.getSession("sess-1")!.state;
     expect(state.context_used_percent).toBe(5); // (5000+5000)/200000*100 = 5
   });
 
-  it("result with num_turns=1 and user message emits session:first_turn_completed", () => {
+  it("result with num_turns=1 and user message emits session:first_turn_completed", async () => {
     // First add a user message to history
     bridge.sendUserMessage("sess-1", "What is TypeScript?");
 
     const handler = vi.fn();
     bridge.on("session:first_turn_completed", handler);
 
-    bridge.handleCLIMessage("sess-1", makeResultMsg({ num_turns: 1, is_error: false }));
+    backendSession.pushMessage(makeResultUnifiedMsg({ num_turns: 1, is_error: false }));
+    await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
@@ -190,18 +204,19 @@ describe("SessionBridge — CLI message routing", () => {
     });
   });
 
-  it("result with is_error=true does not emit session:first_turn_completed", () => {
+  it("result with is_error=true does not emit session:first_turn_completed", async () => {
     bridge.sendUserMessage("sess-1", "test");
 
     const handler = vi.fn();
     bridge.on("session:first_turn_completed", handler);
 
-    bridge.handleCLIMessage("sess-1", makeResultMsg({ num_turns: 1, is_error: true }));
+    backendSession.pushMessage(makeResultUnifiedMsg({ num_turns: 1, is_error: true }));
+    await tick();
 
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("result message refreshes git info and broadcasts session_update if changed", () => {
+  it("result message refreshes git info and broadcasts session_update if changed", async () => {
     // Create a bridge with a mock gitResolver
     const mockGitResolver = {
       resolve: vi.fn().mockReturnValue({
@@ -212,20 +227,25 @@ describe("SessionBridge — CLI message routing", () => {
         behind: 0,
       }),
     };
+    const gitAdapter = new MockBackendAdapter();
     const gitBridge = new SessionBridge({
       gitResolver: mockGitResolver,
       config: { port: 3456 },
       logger: noopLogger,
+      adapter: gitAdapter,
     });
 
-    gitBridge.getOrCreateSession("sess-1");
-    const gitCliSocket = createMockSocket();
-    gitBridge.handleCLIOpen(gitCliSocket, "sess-1");
+    // Connect backend session
+    await gitBridge.connectBackend("sess-1");
+    const gitBackendSession = gitAdapter.getSession("sess-1")!;
+
+    // Connect consumer
     const gitConsumerSocket = createMockSocket();
     gitBridge.handleConsumerOpen(gitConsumerSocket, authContext("sess-1"));
 
     // Trigger session_init so git info is initially resolved
-    gitBridge.handleCLIMessage("sess-1", makeInitMsg());
+    gitBackendSession.pushMessage(makeSessionInitMsg());
+    await tick();
     gitConsumerSocket.sentMessages.length = 0;
 
     // Update the mock to return different git_ahead
@@ -238,7 +258,8 @@ describe("SessionBridge — CLI message routing", () => {
     });
 
     // Send a result message — should trigger refreshGitInfo
-    gitBridge.handleCLIMessage("sess-1", makeResultMsg());
+    gitBackendSession.pushMessage(makeResultUnifiedMsg());
+    await tick();
 
     // Should have broadcast a session_update with updated git_ahead
     const parsed = gitConsumerSocket.sentMessages.map((m: string) => JSON.parse(m));
@@ -254,7 +275,7 @@ describe("SessionBridge — CLI message routing", () => {
     expect(state.git_ahead).toBe(3);
   });
 
-  it("result message does not broadcast session_update when git info unchanged", () => {
+  it("result message does not broadcast session_update when git info unchanged", async () => {
     const mockGitResolver = {
       resolve: vi.fn().mockReturnValue({
         branch: "main",
@@ -264,24 +285,27 @@ describe("SessionBridge — CLI message routing", () => {
         behind: 0,
       }),
     };
+    const gitAdapter = new MockBackendAdapter();
     const gitBridge = new SessionBridge({
       gitResolver: mockGitResolver,
       config: { port: 3456 },
       logger: noopLogger,
+      adapter: gitAdapter,
     });
 
-    gitBridge.getOrCreateSession("sess-1");
-    const gitCliSocket = createMockSocket();
-    gitBridge.handleCLIOpen(gitCliSocket, "sess-1");
+    await gitBridge.connectBackend("sess-1");
+    const gitBackendSession = gitAdapter.getSession("sess-1")!;
     const gitConsumerSocket = createMockSocket();
     gitBridge.handleConsumerOpen(gitConsumerSocket, authContext("sess-1"));
 
     // Trigger session_init so git info is initially resolved
-    gitBridge.handleCLIMessage("sess-1", makeInitMsg());
+    gitBackendSession.pushMessage(makeSessionInitMsg());
+    await tick();
     gitConsumerSocket.sentMessages.length = 0;
 
     // Git resolver returns same values — no change
-    gitBridge.handleCLIMessage("sess-1", makeResultMsg());
+    gitBackendSession.pushMessage(makeResultUnifiedMsg());
+    await tick();
 
     // Should NOT have broadcast a session_update with git fields
     const parsed = gitConsumerSocket.sentMessages.map((m: string) => JSON.parse(m));
@@ -291,8 +315,9 @@ describe("SessionBridge — CLI message routing", () => {
     expect(updateMsg).toBeUndefined();
   });
 
-  it("stream_event is broadcast to consumers", () => {
-    bridge.handleCLIMessage("sess-1", makeStreamEventMsg());
+  it("stream_event is broadcast to consumers", async () => {
+    backendSession.pushMessage(makeStreamEventUnifiedMsg());
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const streamMsg = parsed.find((m: any) => m.type === "stream_event");
@@ -300,11 +325,12 @@ describe("SessionBridge — CLI message routing", () => {
     expect(streamMsg.parent_tool_use_id).toBeNull();
   });
 
-  it("control_request (can_use_tool) stores permission and broadcasts", () => {
+  it("control_request (can_use_tool) stores permission and broadcasts", async () => {
     const permHandler = vi.fn();
     bridge.on("permission:requested", permHandler);
 
-    bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+    backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+    await tick();
 
     const snapshot = bridge.getSession("sess-1")!;
     expect(snapshot.pendingPermissions).toHaveLength(1);
@@ -321,8 +347,9 @@ describe("SessionBridge — CLI message routing", () => {
     );
   });
 
-  it("tool_progress is broadcast to consumers", () => {
-    bridge.handleCLIMessage("sess-1", makeToolProgressMsg());
+  it("tool_progress is broadcast to consumers", async () => {
+    backendSession.pushMessage(makeToolProgressUnifiedMsg());
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const progressMsg = parsed.find((m: any) => m.type === "tool_progress");
@@ -332,8 +359,9 @@ describe("SessionBridge — CLI message routing", () => {
     expect(progressMsg.elapsed_time_seconds).toBe(5);
   });
 
-  it("tool_use_summary is broadcast to consumers", () => {
-    bridge.handleCLIMessage("sess-1", makeToolUseSummaryMsg());
+  it("tool_use_summary is broadcast to consumers", async () => {
+    backendSession.pushMessage(makeToolUseSummaryUnifiedMsg());
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const summaryMsg = parsed.find((m: any) => m.type === "tool_use_summary");
@@ -342,11 +370,12 @@ describe("SessionBridge — CLI message routing", () => {
     expect(summaryMsg.tool_use_ids).toEqual(["tu-1", "tu-2"]);
   });
 
-  it("auth_status is broadcast to consumers and emitted as event", () => {
+  it("auth_status is broadcast to consumers and emitted as event", async () => {
     const handler = vi.fn();
     bridge.on("auth_status", handler);
 
-    bridge.handleCLIMessage("sess-1", makeAuthStatusMsg());
+    backendSession.pushMessage(makeAuthStatusUnifiedMsg());
+    await tick();
 
     const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
     const authMsg = parsed.find((m: any) => m.type === "auth_status");
@@ -363,8 +392,17 @@ describe("SessionBridge — CLI message routing", () => {
     );
   });
 
-  it("keep_alive is silently consumed (no broadcast)", () => {
-    bridge.handleCLIMessage("sess-1", makeKeepAliveMsg());
+  it("keep_alive is silently consumed (no broadcast)", async () => {
+    // In the adapter path, keep_alive maps to "unknown" type which is not
+    // handled by routeUnifiedMessage's switch, so nothing is broadcast.
+    backendSession.pushMessage(
+      createUnifiedMessage({
+        type: "unknown",
+        role: "system",
+        metadata: { originalType: "keep_alive" },
+      }),
+    );
+    await tick();
 
     // Only message:outbound events from the broadcastToConsumers function.
     // keep_alive should NOT produce any consumer messages.
