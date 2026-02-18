@@ -155,7 +155,7 @@ All previously untested components (StatusBar, App, LogDrawer) now have test fil
 | Security | **Added** | Auth token tests, file storage path traversal, origin validation, HMAC signing, session ID validation |
 | E2E | **Added** | 8 E2E test files covering full system lifecycle |
 | Integration | **Added** | 5 integration test files (adapter-bridge, session-bridge, encryption pipeline, reconnection) |
-| Property-based | **Added** | 43 fast-check tests: JSON-RPC roundtrip/type guards, UnifiedMessage canonicalize/validation, state reducer immutability/idempotency, team state reducer, message sequencer monotonicity, auth token uniqueness/isolation |
+| Property-based | **Added** | 43 fast-check tests across 6 files: JSON-RPC roundtrip/type guards, UnifiedMessage canonicalize/validation, state reducer immutability/idempotency, team state reducer, message sequencer monotonicity, auth token uniqueness/isolation |
 | Accessibility | **Added** | 6 axe-core tests via vitest-axe: Composer, Sidebar, StatusBar, SlashMenu, MessageFeed. Found real issue: Sidebar nested-interactive violation |
 
 **Still missing**:
@@ -180,7 +180,7 @@ All Phase 1 items resolved:
 
 | Item | Gap | Status |
 |------|-----|--------|
-| ~~Property-based tests with fast-check~~ | T10 | **DONE** — 43 tests across 5 files |
+| ~~Property-based tests with fast-check~~ | T10 | **DONE** — 43 tests across 6 files |
 | ~~Accessibility tests with axe-core~~ | T10 | **DONE** — 6 tests across 5 components |
 | Contract tests with real subprocess (controlled test CLI) | T4 | Remaining |
 
@@ -198,5 +198,5 @@ All Phase 1 items resolved:
 
 - **[Architecture Gap Analysis](2026-02-17-architecture-gap-analysis.md)** — G9 (Testing Gaps) is expanded here; most items now resolved
 - **[Frontend Gap Analysis](2026-02-17-frontend-architecture-gap-analysis.md)** — F7 (No E2E Tests) resolved with 8 E2E test files
-- **[Production Readiness Report](2026-02-15-production-readiness-report.md)** — C2 (consumer module 0% coverage) still open; C3 (backend adapter path) resolved; C4 (Codex adapter) now at 99.27%
-- **[Codebase Quality Assessment](2026-02-16-codebase-quality-assessment.md)** — Testing should be re-rated from "Adequate" to "Good" for critical paths, with `src/consumer/` as the remaining outlier
+- **[Production Readiness Report](2026-02-15-production-readiness-report.md)** — C2 (consumer module 0% coverage) no longer applicable (`src/consumer/` removed in PR #32); C3 (backend adapter path) resolved; C4 (Codex adapter) now at 99.27%
+- **[Codebase Quality Assessment](2026-02-16-codebase-quality-assessment.md)** — Testing should be re-rated from "Adequate" to "Good" for critical paths
