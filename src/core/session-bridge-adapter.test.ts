@@ -76,6 +76,13 @@ class MockBackendSession implements BackendSession {
     this.sentMessages.push(message);
   }
 
+  readonly sentRawMessages: string[] = [];
+
+  sendRaw(ndjson: string): void {
+    if (this._closed) throw new Error("Session is closed");
+    this.sentRawMessages.push(ndjson);
+  }
+
   get messages(): AsyncIterable<UnifiedMessage> {
     return this.channel;
   }
@@ -135,6 +142,9 @@ class ErrorBackendSession implements BackendSession {
     this.sessionId = sessionId;
   }
   send(): void {}
+  sendRaw(_ndjson: string): void {
+    throw new Error("ErrorBackendSession does not support raw NDJSON");
+  }
   get messages(): AsyncIterable<UnifiedMessage> {
     return {
       [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
@@ -1283,7 +1293,8 @@ describe("SessionBridge (BackendAdapter path)", () => {
 
       expect(bridge.isCliConnected("cli-sess")).toBe(true);
       expect(bridge.isBackendConnected("adapter-sess")).toBe(true);
-      expect(bridge.isCliConnected("adapter-sess")).toBe(false);
+      // isCliConnected now returns true for adapter sessions too (backendSession counts)
+      expect(bridge.isCliConnected("adapter-sess")).toBe(true);
       expect(bridge.isBackendConnected("cli-sess")).toBe(false);
     });
   });
@@ -1291,13 +1302,14 @@ describe("SessionBridge (BackendAdapter path)", () => {
   // ── 14. Pending message flush ──────────────────────────────────────────
 
   describe("pending message flush on connect", () => {
-    it("flushes pending messages when backend connects", async () => {
+    it("flushes pending messages via backendSession.sendRaw when adapter active", async () => {
       bridge.getOrCreateSession("sess-1");
       bridge.sendUserMessage("sess-1", "hello");
 
       await bridge.connectBackend("sess-1");
-      // connectBackend flushes pendingMessages via sendToCLI
-      // But since cliSocket is still null, they re-queue (expected in coexistence mode)
+      // connectBackend flushes pendingMessages via backendSession.sendRaw
+      const session = adapter.getSession("sess-1")!;
+      expect(session.sentRawMessages.length).toBeGreaterThan(0);
     });
   });
 });

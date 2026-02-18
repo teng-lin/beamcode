@@ -87,6 +87,10 @@ class MockBackendSession implements BackendSession {
     this.sentMessages.push(message);
   }
 
+  sendRaw(_ndjson: string): void {
+    throw new Error("MockBackendSession does not support raw NDJSON");
+  }
+
   get messages(): AsyncIterable<UnifiedMessage> {
     return this.channel;
   }

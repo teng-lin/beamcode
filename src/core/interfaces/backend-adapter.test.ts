@@ -87,6 +87,10 @@ class MockSession implements BackendSession, Interruptible, Configurable {
     this.channel.push(response);
   }
 
+  sendRaw(_ndjson: string): void {
+    throw new Error("MockSession does not support raw NDJSON");
+  }
+
   get messages(): AsyncIterable<UnifiedMessage> {
     return this.channel;
   }
