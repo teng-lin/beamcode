@@ -396,7 +396,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
   });
 
   it("auth_status with error → auth_status broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+    const { consumer } = setupSession(bridge);
 
     bridge.handleCLIMessage(
       "char-session",

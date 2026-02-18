@@ -1,5 +1,5 @@
-import { NoopLogger } from "../adapters/noop-logger.js";
 import { SlidingWindowBreaker } from "../adapters/sliding-window-breaker.js";
+import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -67,7 +67,9 @@ export abstract class ProcessSupervisor<
   constructor(options: ProcessSupervisorOptions) {
     super();
     this.processManager = options.processManager;
-    this.logger = options.logger ?? new NoopLogger();
+    this.logger =
+      options.logger ??
+      new StructuredLogger({ component: "process-supervisor", level: LogLevel.WARN });
     this.killGracePeriodMs = options.killGracePeriodMs ?? 5000;
     this.crashThresholdMs = options.crashThresholdMs ?? 5000;
 

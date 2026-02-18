@@ -36,12 +36,16 @@ function buildWsUrl(sessionId: string): string {
 
 function handleMessage(sessionId: string, data: string): void {
   const store = useStore.getState();
-  let msg: ConsumerMessage;
+  let parsed: unknown;
   try {
-    msg = JSON.parse(data) as ConsumerMessage;
+    parsed = JSON.parse(data);
   } catch {
     return;
   }
+
+  // Guard: ensure parsed value is an object with a string `type` discriminant
+  if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return;
+  const msg = parsed as ConsumerMessage;
 
   store.ensureSessionData(sessionId);
 

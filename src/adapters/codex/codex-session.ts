@@ -135,7 +135,10 @@ export class CodexSession implements BackendSession {
 
             // If done, signal completion
             if (self.done) {
-              return Promise.resolve({ value: undefined as unknown as UnifiedMessage, done: true });
+              return Promise.resolve({
+                value: undefined,
+                done: true,
+              } as IteratorResult<UnifiedMessage>);
             }
 
             // Wait for the next message
@@ -248,7 +251,7 @@ export class CodexSession implements BackendSession {
     if (this.messageResolve) {
       const resolve = this.messageResolve;
       this.messageResolve = null;
-      resolve({ value: undefined as unknown as UnifiedMessage, done: true });
+      resolve({ value: undefined, done: true } as IteratorResult<UnifiedMessage>);
     }
   }
 }

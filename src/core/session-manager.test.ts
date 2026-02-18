@@ -650,18 +650,16 @@ describe("SessionManager", () => {
       noIdleMgr.stop();
     });
 
-    it("does not start when idleSessionTimeoutMs is negative", () => {
-      const negMgr = new SessionManager({
-        config: { port: 3456, idleSessionTimeoutMs: -1 },
-        processManager: pm,
-        storage,
-        logger: noopLogger,
-      });
-      negMgr.start();
-
-      vi.advanceTimersByTime(5000);
-
-      negMgr.stop();
+    it("rejects negative idleSessionTimeoutMs via config validation", () => {
+      expect(
+        () =>
+          new SessionManager({
+            config: { port: 3456, idleSessionTimeoutMs: -1 },
+            processManager: pm,
+            storage,
+            logger: noopLogger,
+          }),
+      ).toThrow("Invalid configuration");
     });
   });
 });

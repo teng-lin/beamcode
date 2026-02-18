@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-
+import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
@@ -155,6 +155,7 @@ async function main(): Promise<void> {
 
   // 3. Create SessionManager (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
+  const metrics = new ConsoleMetricsCollector(logger);
   const sessionManager = new SessionManager({
     config: {
       port: config.port,
@@ -164,7 +165,8 @@ async function main(): Promise<void> {
     },
     processManager: new NodeProcessManager(),
     storage,
-    logger: config.verbose ? logger : undefined,
+    logger,
+    metrics,
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server

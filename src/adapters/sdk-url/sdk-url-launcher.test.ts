@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 vi.mock("node:crypto", () => ({ randomUUID: vi.fn(() => "test-uuid") }));
@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
 import { flushPromises, noopLogger } from "../../testing/cli-message-factories.js";
-import { type MockProcessHandle, MockProcessManager } from "../../testing/mock-process-manager.js";
+import { MockProcessManager } from "../../testing/mock-process-manager.js";
 import { SdkUrlLauncher, type SdkUrlLauncherOptions } from "./sdk-url-launcher.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

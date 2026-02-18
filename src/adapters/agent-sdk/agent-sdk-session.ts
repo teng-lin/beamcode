@@ -90,7 +90,10 @@ export class AgentSdkSession implements BackendSession {
               return Promise.resolve({ value, done: false });
             }
             if (self.closed) {
-              return Promise.resolve({ value: undefined as unknown as UnifiedMessage, done: true });
+              return Promise.resolve({
+                value: undefined,
+                done: true,
+              } as IteratorResult<UnifiedMessage>);
             }
             return new Promise((resolve) => {
               self.messageResolve = resolve;
@@ -113,11 +116,11 @@ export class AgentSdkSession implements BackendSession {
     this.permissionBridge.rejectAll();
 
     if (this.inputResolve) {
-      this.inputResolve({ value: undefined as unknown as SDKUserMessage, done: true });
+      this.inputResolve({ value: undefined, done: true } as IteratorResult<SDKUserMessage>);
       this.inputResolve = null;
     }
     if (this.messageResolve) {
-      this.messageResolve({ value: undefined as unknown as UnifiedMessage, done: true });
+      this.messageResolve({ value: undefined, done: true } as IteratorResult<UnifiedMessage>);
       this.messageResolve = null;
     }
   }
@@ -159,7 +162,10 @@ export class AgentSdkSession implements BackendSession {
               return Promise.resolve({ value, done: false });
             }
             if (self.closed) {
-              return Promise.resolve({ value: undefined as unknown as SDKUserMessage, done: true });
+              return Promise.resolve({
+                value: undefined,
+                done: true,
+              } as IteratorResult<SDKUserMessage>);
             }
             return new Promise((resolve) => {
               self.inputResolve = resolve;
