@@ -2,11 +2,11 @@ import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
+import { type AdapterName, createAdapter } from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
@@ -28,6 +28,7 @@ interface CliConfig {
   cwd: string;
   claudeBinary: string;
   verbose: boolean;
+  adapter?: AdapterName;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ function printHelp(): void {
     --model <name>         Model to pass to Claude CLI
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
+    --adapter <name>       Backend adapter: sdk-url (default), codex, acp
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 `);
@@ -89,6 +91,9 @@ function parseArgs(argv: string[]): CliConfig {
       case "--claude-binary":
         config.claudeBinary = argv[++i];
         break;
+      case "--adapter":
+        config.adapter = argv[++i] as AdapterName;
+        break;
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -102,6 +107,10 @@ function parseArgs(argv: string[]): CliConfig {
         console.error(`Unknown option: ${arg}\nRun with --help for usage.`);
         process.exit(1);
     }
+  }
+
+  if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
+    config.adapter = process.env.BEAMCODE_ADAPTER as AdapterName;
   }
 
   return config;
