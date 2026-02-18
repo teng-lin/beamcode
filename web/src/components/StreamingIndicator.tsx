@@ -74,9 +74,7 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
   const stats = formatStreamingStats(elapsed, streamingOutputTokens);
   const showStopButton = sessionStatus === "running" && !stopping;
 
-  const dotClass = stopping
-    ? "inline-block h-1.5 w-1.5 rounded-full bg-bc-text-muted"
-    : "inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bc-accent shadow-[0_0_6px_var(--color-bc-accent-glow)]";
+  const dotClass = `inline-block h-1.5 w-1.5 rounded-full ${stopping ? "bg-bc-text-muted" : "animate-pulse bg-bc-accent shadow-[0_0_6px_var(--color-bc-accent-glow)]"}`;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3">
