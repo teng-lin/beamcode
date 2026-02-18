@@ -1497,6 +1497,41 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         });
       }
     }
+
+    // Re-resolve git info — the CLI may have committed, switched branches, etc.
+    this.refreshGitInfo(session);
+  }
+
+  /** Re-resolve git info and broadcast session_update if anything changed. */
+  private refreshGitInfo(session: Session): void {
+    if (!session.state.cwd || !this.gitResolver) return;
+
+    const gitInfo = this.gitResolver.resolve(session.state.cwd);
+    if (!gitInfo) return;
+
+    const changed =
+      session.state.git_branch !== gitInfo.branch ||
+      session.state.git_ahead !== (gitInfo.ahead ?? 0) ||
+      session.state.git_behind !== (gitInfo.behind ?? 0) ||
+      session.state.is_worktree !== gitInfo.isWorktree;
+
+    if (!changed) return;
+
+    session.state.git_branch = gitInfo.branch;
+    session.state.is_worktree = gitInfo.isWorktree;
+    session.state.repo_root = gitInfo.repoRoot;
+    session.state.git_ahead = gitInfo.ahead ?? 0;
+    session.state.git_behind = gitInfo.behind ?? 0;
+
+    this.broadcaster.broadcast(session, {
+      type: "session_update",
+      session: {
+        git_branch: session.state.git_branch,
+        git_ahead: session.state.git_ahead,
+        git_behind: session.state.git_behind,
+        is_worktree: session.state.is_worktree,
+      } as Partial<SessionState>,
+    });
   }
 
   private handleUnifiedStreamEvent(session: Session, msg: UnifiedMessage): void {

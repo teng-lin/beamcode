@@ -790,6 +790,96 @@ describe("SessionBridge", () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
+    it("result message refreshes git info and broadcasts session_update if changed", () => {
+      // Create a bridge with a mock gitResolver
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue({
+          branch: "main",
+          isWorktree: false,
+          repoRoot: "/repo",
+          ahead: 0,
+          behind: 0,
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      gitBridge.getOrCreateSession("sess-1");
+      const gitCliSocket = createMockSocket();
+      gitBridge.handleCLIOpen(gitCliSocket, "sess-1");
+      const gitConsumerSocket = createMockSocket();
+      gitBridge.handleConsumerOpen(gitConsumerSocket, authContext("sess-1"));
+
+      // Trigger session_init so git info is initially resolved
+      gitBridge.handleCLIMessage("sess-1", makeInitMsg());
+      gitConsumerSocket.sentMessages.length = 0;
+
+      // Update the mock to return different git_ahead
+      mockGitResolver.resolve.mockReturnValue({
+        branch: "main",
+        isWorktree: false,
+        repoRoot: "/repo",
+        ahead: 3,
+        behind: 0,
+      });
+
+      // Send a result message — should trigger refreshGitInfo
+      gitBridge.handleCLIMessage("sess-1", makeResultMsg());
+
+      // Should have broadcast a session_update with updated git_ahead
+      const parsed = gitConsumerSocket.sentMessages.map((m: string) => JSON.parse(m));
+      const updateMsg = parsed.find(
+        (m: any) => m.type === "session_update" && m.session?.git_ahead !== undefined,
+      );
+      expect(updateMsg).toBeDefined();
+      expect(updateMsg.session.git_ahead).toBe(3);
+      expect(updateMsg.session.git_branch).toBe("main");
+
+      // Session state should also be updated
+      const state = gitBridge.getSession("sess-1")!.state;
+      expect(state.git_ahead).toBe(3);
+    });
+
+    it("result message does not broadcast session_update when git info unchanged", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue({
+          branch: "main",
+          isWorktree: false,
+          repoRoot: "/repo",
+          ahead: 0,
+          behind: 0,
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      gitBridge.getOrCreateSession("sess-1");
+      const gitCliSocket = createMockSocket();
+      gitBridge.handleCLIOpen(gitCliSocket, "sess-1");
+      const gitConsumerSocket = createMockSocket();
+      gitBridge.handleConsumerOpen(gitConsumerSocket, authContext("sess-1"));
+
+      // Trigger session_init so git info is initially resolved
+      gitBridge.handleCLIMessage("sess-1", makeInitMsg());
+      gitConsumerSocket.sentMessages.length = 0;
+
+      // Git resolver returns same values — no change
+      gitBridge.handleCLIMessage("sess-1", makeResultMsg());
+
+      // Should NOT have broadcast a session_update with git fields
+      const parsed = gitConsumerSocket.sentMessages.map((m: string) => JSON.parse(m));
+      const updateMsg = parsed.find(
+        (m: any) => m.type === "session_update" && m.session?.git_ahead !== undefined,
+      );
+      expect(updateMsg).toBeUndefined();
+    });
+
     it("stream_event is broadcast to consumers", () => {
       bridge.handleCLIMessage("sess-1", makeStreamEventMsg());
 
