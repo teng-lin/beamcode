@@ -1,5 +1,5 @@
 import { ConsoleLogger } from "../adapters/console-logger.js";
-import { normalizeInbound } from "../adapters/sdk-url/inbound-translator.js";
+import { normalizeInbound, toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
@@ -513,13 +513,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       }
     } else {
       // Queue for flush when backend connects
-      const ndjson = JSON.stringify({
-        type: "user",
+      const unified = normalizeInbound({
+        type: "user_message",
         content,
         session_id: options?.sessionIdOverride || session.state.session_id || "",
-        ...(options?.images ? { images: options.images } : {}),
+        images: options?.images,
       });
-      session.pendingMessages.push(ndjson);
+      if (unified) {
+        const ndjson = toNDJSON(unified);
+        if (ndjson) {
+          session.pendingMessages.push(ndjson);
+        }
+      }
     }
     this.persistSession(session);
   }

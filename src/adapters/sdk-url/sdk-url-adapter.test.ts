@@ -66,7 +66,7 @@ describe("SdkUrlAdapter", () => {
       // After delivery, send should go through to the socket
       await tick();
       session.sendRaw('{"test":true}');
-      expect(ws.sent).toContain('{"test":true}');
+      expect(ws.sent).toContain('{"test":true}\n');
 
       await session.close();
     });

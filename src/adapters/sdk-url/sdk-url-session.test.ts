@@ -102,7 +102,7 @@ describe("SdkUrlSession", () => {
 
     // Raw data should be flushed
     expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0]).toBe(rawData);
+    expect(ws.sent[0]).toBe(`${rawData}\n`);
 
     await session.close();
   });
@@ -141,7 +141,7 @@ describe("SdkUrlSession", () => {
     expect(first.type).toBe("user");
 
     // Second: raw NDJSON
-    expect(ws.sent[1]).toBe(rawData);
+    expect(ws.sent[1]).toBe(`${rawData}\n`);
 
     await session.close();
   });

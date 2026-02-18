@@ -10,7 +10,6 @@ import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
 import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
 import type {
-  BackendAdapter,
   BackendCapabilities,
   BackendSession,
   ConnectOptions,
@@ -750,7 +749,15 @@ describe("SessionManager", () => {
         expect(adapter.deliverSocketCalls).toHaveLength(1);
       });
       expect(adapter.deliverSocketCalls[0].sessionId).toBe("adapter-session-1");
-      expect(adapter.deliverSocketCalls[0].ws).toBe(socket);
+      expect(adapter.deliverSocketCalls[0].ws).not.toBeNull();
+      const deliveredSocket = adapter.deliverSocketCalls[0].ws as {
+        send: (data: string) => void;
+        close: () => void;
+      };
+      deliveredSocket.send("hello");
+      deliveredSocket.close();
+      expect(socket.send).toHaveBeenCalledWith("hello");
+      expect(socket.close).toHaveBeenCalled();
 
       // Backend session should be connected via adapter
       expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(true);

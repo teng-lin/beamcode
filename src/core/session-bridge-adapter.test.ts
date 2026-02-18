@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
-import type { MemoryStorage } from "../adapters/memory-storage.js";
+import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import {
   createBridgeWithAdapter,
@@ -68,6 +68,69 @@ class ErrorBackendAdapter implements BackendAdapter {
   };
   async connect(options: ConnectOptions): Promise<BackendSession> {
     return new ErrorBackendSession(options.sessionId);
+  }
+}
+
+class PassthroughBackendSession implements BackendSession {
+  readonly sessionId: string;
+  readonly sentMessages: UnifiedMessage[] = [];
+  private passthroughHandler: ((rawMsg: any) => boolean) | null = null;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  send(message: UnifiedMessage): void {
+    this.sentMessages.push(message);
+  }
+
+  sendRaw(): void {}
+
+  get messages(): AsyncIterable<UnifiedMessage> {
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
+        return {
+          next: () => new Promise<IteratorResult<UnifiedMessage>>(() => {}),
+        };
+      },
+    };
+  }
+
+  async close(): Promise<void> {}
+
+  setPassthroughHandler(handler: ((rawMsg: any) => boolean) | null): void {
+    this.passthroughHandler = handler;
+  }
+
+  emitUserEcho(content: unknown): void {
+    this.passthroughHandler?.({
+      type: "user",
+      message: { role: "user", content },
+      parent_tool_use_id: null,
+    });
+  }
+}
+
+class PassthroughBackendAdapter implements BackendAdapter {
+  readonly name = "passthrough-mock";
+  readonly capabilities: BackendCapabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: true,
+    availability: "local",
+    teams: false,
+  };
+
+  private sessions = new Map<string, PassthroughBackendSession>();
+
+  async connect(options: ConnectOptions): Promise<BackendSession> {
+    const session = new PassthroughBackendSession(options.sessionId);
+    this.sessions.set(options.sessionId, session);
+    return session;
+  }
+
+  getSession(id: string): PassthroughBackendSession | undefined {
+    return this.sessions.get(id);
   }
 }
 
@@ -168,6 +231,48 @@ describe("SessionBridge (BackendAdapter path)", () => {
       await bridge.connectBackend("sess-1");
       expect(firstSession!.closed).toBe(true);
       expect(bridge.isBackendConnected("sess-1")).toBe(true);
+    });
+
+    it("converts passthrough user-echo into slash_command_result", async () => {
+      const storage = new MemoryStorage();
+      const passthroughAdapter = new PassthroughBackendAdapter();
+      const passthroughBridge = new SessionBridge({
+        storage,
+        config: { port: 3456 },
+        logger: noopLogger,
+        adapter: passthroughAdapter,
+      });
+      const consumer = createMockSocket();
+
+      await passthroughBridge.connectBackend("sess-p");
+      const backendSession = passthroughAdapter.getSession("sess-p")!;
+      passthroughBridge.handleConsumerOpen(consumer, authContext("sess-p"));
+      consumer.sentMessages.length = 0;
+
+      passthroughBridge.handleConsumerMessage(
+        consumer,
+        "sess-p",
+        JSON.stringify({ type: "slash_command", command: "/context", request_id: "req-ctx" }),
+      );
+
+      expect(
+        backendSession.sentMessages.some(
+          (m) =>
+            m.type === "user_message" &&
+            m.content.some((b) => b.type === "text" && "text" in b && b.text === "/context"),
+        ),
+      ).toBe(true);
+
+      backendSession.emitUserEcho("Context: 23% used");
+      await tick();
+
+      const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
+      const result = msgs.find((m: { type: string }) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.command).toBe("/context");
+      expect(result.request_id).toBe("req-ctx");
+      expect(result.source).toBe("cli");
+      expect(result.content).toContain("Context");
     });
   });
 

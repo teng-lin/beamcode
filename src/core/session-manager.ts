@@ -113,19 +113,58 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         (socket, sessionId) => {
           if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
             const adapter = this.adapter;
-            // Connect backend (creates adapter session + registers pending socket),
-            // then deliver the real socket to complete the handshake.
+            // Buffer messages that arrive before the adapter socket is wired.
+            // connectBackend() is async — without buffering, messages the CLI
+            // sends immediately on connect (system.init, hooks) would be lost.
+            const buffered: unknown[] = [];
+            let buffering = true;
+            let replayed = false;
+            socket.on("message", (data: unknown) => {
+              if (buffering) buffered.push(data);
+            });
+
+            const socketForAdapter = {
+              send: (data: string) => socket.send(data),
+              close: (code?: number, reason?: string) => socket.close(code, reason),
+              get bufferedAmount() {
+                return socket.bufferedAmount;
+              },
+              on: ((event: string, handler: (...args: unknown[]) => void) => {
+                if (event === "message") {
+                  socket.on("message", handler as (data: string | Buffer) => void);
+                } else if (event === "close") {
+                  socket.on("close", handler as () => void);
+                } else if (event === "error") {
+                  socket.on("error", handler as (err: Error) => void);
+                } else {
+                  return;
+                }
+                if (event === "message" && !replayed) {
+                  replayed = true;
+                  for (const msg of buffered) {
+                    handler(msg);
+                  }
+                  buffered.length = 0;
+                  buffering = false;
+                }
+              }) as typeof socket.on,
+            };
+
             this.bridge
               .connectBackend(sessionId)
               .then(() => {
-                const delivered = adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
-                if (!delivered) {
+                const ok = adapter.deliverSocket(
+                  sessionId,
+                  socketForAdapter as unknown as WebSocket,
+                );
+                if (!ok) {
+                  adapter.cancelPending(sessionId);
                   this.logger.warn(`Failed to deliver socket for session ${sessionId}, closing`);
                   socket.close();
                 }
-                // SdkUrlSession wires message/close handlers internally via attachSocket()
               })
               .catch((err) => {
+                adapter.cancelPending(sessionId);
                 this.logger.warn(`Failed to connect backend for session ${sessionId}: ${err}`);
                 socket.close();
               });
