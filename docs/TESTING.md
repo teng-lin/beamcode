@@ -11,14 +11,28 @@ BeamCode has three test layers, all powered by [Vitest](https://vitest.dev/):
 ## Quick start
 
 ```bash
-# Run all backend + e2e tests
+# Run backend unit/integration tests
 pnpm test
 
 # Run frontend tests
 cd web && pnpm test
 
-# Run everything
+# Run backend + frontend
 pnpm test && cd web && pnpm test
+```
+
+### Full local suite (including real CLI e2e)
+
+```bash
+# Prereq once per machine: Claude CLI installed and authenticated
+# claude login
+
+pnpm install
+pnpm typecheck
+pnpm -r --include-workspace-root test
+pnpm test:e2e:deterministic
+pnpm test:e2e:realcli:smoke
+pnpm test:e2e:realcli:full
 ```
 
 ## Backend tests
@@ -172,26 +186,51 @@ E2E tests live in `src/e2e/` and exercise the full stack: daemon, HTTP server, W
 ### Running
 
 ```bash
-# All e2e tests (they run as part of the backend suite)
-pnpm vitest run src/e2e/
+# Default deterministic lane (mock CLI)
+pnpm test:e2e
 
-# Single e2e test
-pnpm vitest run src/e2e/daemon-server.e2e.test.ts
+# Deterministic lane explicitly
+pnpm test:e2e:deterministic
+
+# Real CLI smoke lane (requires Claude CLI; API key or CLI login for auth-required tests)
+pnpm test:e2e:realcli:smoke
+
+# Real CLI full lane (same prerequisites)
+pnpm test:e2e:realcli:full
 ```
 
-### Adaptive process manager
+### E2E profiles
 
-E2E tests auto-detect whether the Claude CLI is available. The helper in `src/e2e/helpers/test-utils.ts` provides:
+E2E tests use explicit profiles via `E2E_PROFILE`:
 
-- **`MockProcessManager`** — used when Claude CLI is not installed (CI environments)
-- **`NodeProcessManager`** — used when Claude CLI is detected locally
+- `deterministic` — stable/default lane using `MockProcessManager`
+- `realcli-smoke` — minimal real backend checks
+- `realcli-full` — broader real backend coverage
 
-Override with environment variables:
+Current real CLI inventory in `src/e2e/realcli/`:
 
-```bash
-USE_MOCK_CLI=true pnpm vitest run src/e2e/   # Force mock mode
-USE_REAL_CLI=true pnpm vitest run src/e2e/   # Force real CLI
-```
+- 4 suites / 36 total tests
+- 25 tests execute real `claude` processes in smoke mode (`prereqs.ok` + localhost-bind capable SessionManager tests)
+- 33 tests execute real `claude` processes in full mode (adds live turn/control/multi-consumer/resume tests)
+
+The helper in `src/e2e/helpers/test-utils.ts` resolves process manager selection in this order:
+
+1. `USE_MOCK_CLI=true` -> `MockProcessManager`
+2. `USE_REAL_CLI=true` -> `NodeProcessManager`
+3. `E2E_PROFILE in {realcli-smoke, realcli-full}` -> `NodeProcessManager`
+4. deterministic fallback -> Claude CLI auto-detection
+
+Real CLI scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast when Claude CLI is missing.
+If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, auth-required tests are skipped.
+
+### CI lanes
+
+- PR: `E2E Deterministic` is required.
+- PR: `E2E Real CLI Smoke` runs when `ANTHROPIC_API_KEY` secret is configured.
+- Nightly (`.github/workflows/e2e-nightly.yml`):
+  - `E2E Deterministic Full`
+  - `E2E Real CLI Full` (secret-gated)
+
 
 ### Shared helpers
 
@@ -199,7 +238,7 @@ USE_REAL_CLI=true pnpm vitest run src/e2e/   # Force real CLI
 
 | Helper | Purpose |
 |--------|---------|
-| `createProcessManager()` | Adaptive mock/real CLI process manager |
+| `createProcessManager()` | Profile-aware mock/real CLI process manager |
 | `setupTestSessionManager()` | Create a test session manager with in-memory storage |
 | `connectTestConsumer(port, id)` | Open a WebSocket as a consumer client |
 | `connectTestCLI(port, id)` | Open a WebSocket as a CLI client |
@@ -218,6 +257,15 @@ USE_REAL_CLI=true pnpm vitest run src/e2e/   # Force real CLI
 | `encrypted-relay.e2e.test.ts` | Encrypted relay with key exchange and sealed boxes |
 | `http-api-sessions.e2e.test.ts` | REST API for session CRUD (`/api/sessions`) |
 | `session-lifecycle.e2e.test.ts` | Full session lifecycle from creation to teardown |
+| `slash-commands.e2e.test.ts` | Emulated slash command behavior and request/response flow |
+| `capabilities-broadcast.e2e.test.ts` | `capabilities_ready` broadcast behavior and late-join replay |
+| `permission-flow.e2e.test.ts` | Permission request/response round-trip across CLI and consumers |
+| `consumer-edge-cases.e2e.test.ts` | Malformed payload handling, oversize rejection, RBAC edge behavior |
+| `session-status.e2e.test.ts` | Status change propagation and interrupt forwarding |
+| `message-queue.e2e.test.ts` | Queued message lifecycle (queue, update, cancel, auto-send) |
+| `streaming-conversation.e2e.test.ts` | Streaming deltas and multi-turn conversation ordering |
+| `presence-rbac.e2e.test.ts` | Identity/presence updates and observer role constraints |
+| `realcli/session-manager-realcli.e2e.test.ts` | Real `SessionManager` + `--sdk-url` handshake, connection lifecycle, and full-mode live turns |
 
 ## Manual CLI testing
 

@@ -153,7 +153,9 @@ function asString(value: unknown, fallback: string): string {
 }
 
 function asStringArray(value: unknown, fallback: string[]): string[] {
-  return Array.isArray(value) ? (value as string[]) : fallback;
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : fallback;
 }
 
 function asMcpServers(

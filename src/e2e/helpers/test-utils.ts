@@ -3,27 +3,43 @@ import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { MockProcessManager } from "../../adapters/mock-process-manager.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
+import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
 import { SessionManager } from "../../core/session-manager.js";
+import type { Authenticator } from "../../interfaces/auth.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
 import type { ProviderConfig } from "../../types/config.js";
 import { isClaudeAvailable } from "../../utils/claude-detection.js";
+import { getE2EProfile, isRealCliProfile } from "./e2e-profile.js";
+
+const PREBUFFER_KEY = Symbol("e2ePrebuffer");
+
+type BufferedWebSocket = WebSocket & { [PREBUFFER_KEY]?: string[] };
+
+function toBuffered(ws: WebSocket): BufferedWebSocket {
+  return ws as BufferedWebSocket;
+}
+
+function getPrebuffer(ws: WebSocket): string[] {
+  return toBuffered(ws)[PREBUFFER_KEY] ?? [];
+}
+
+function removeFirstRaw(prebuffer: string[], raw: string): void {
+  const idx = prebuffer.indexOf(raw);
+  if (idx >= 0) prebuffer.splice(idx, 1);
+}
 
 // ── Adaptive Process Manager ────────────────────────────────────────────────
 
 /**
- * Creates a ProcessManager that adapts based on environment:
- * - Returns MockProcessManager if:
- *   - USE_MOCK_CLI=true is set (forced mock mode)
- *   - Claude CLI is not available (auto-detect)
- * - Returns NodeProcessManager if:
- *   - USE_REAL_CLI=true is set (forced real mode)
- *   - Claude CLI is available and no forced mode is set
+ * Creates a ProcessManager based on the active E2E profile and explicit env overrides.
  *
- * This allows e2e tests to run in CI environments without Claude CLI,
- * while still testing with real CLI when available locally.
+ * Priority order:
+ * 1. USE_MOCK_CLI=true -> MockProcessManager
+ * 2. USE_REAL_CLI=true -> NodeProcessManager
+ * 3. E2E_PROFILE in {realcli-smoke, realcli-full} -> NodeProcessManager
+ * 4. deterministic profile -> auto-detect Claude availability
  */
 export function createProcessManager(): ProcessManager {
-  // Check for forced mock/real mode via environment variables
   if (process.env.USE_MOCK_CLI === "true") {
     console.log("[Test] Using MockProcessManager (forced via USE_MOCK_CLI=true)");
     return new MockProcessManager();
@@ -34,9 +50,13 @@ export function createProcessManager(): ProcessManager {
     return new NodeProcessManager();
   }
 
-  // Auto-detect: use real CLI if available, mock otherwise
-  const claudeAvailable = isClaudeAvailable();
+  const profile = getE2EProfile();
+  if (isRealCliProfile(profile)) {
+    console.log("[Test] Using NodeProcessManager (E2E_PROFILE=" + profile + ")");
+    return new NodeProcessManager();
+  }
 
+  const claudeAvailable = isClaudeAvailable();
   if (claudeAvailable) {
     console.log("[Test] Using NodeProcessManager (Claude CLI detected)");
     return new NodeProcessManager();
@@ -50,6 +70,7 @@ export function createProcessManager(): ProcessManager {
 
 export interface TestSessionManagerOptions {
   config?: Partial<ProviderConfig>;
+  authenticator?: Authenticator;
 }
 
 export interface TestSessionManager {
@@ -66,6 +87,8 @@ export async function setupTestSessionManager(
     processManager: createProcessManager(),
     storage: new MemoryStorage(),
     server,
+    adapter: new SdkUrlAdapter(),
+    authenticator: options.authenticator,
   });
 
   await manager.start();
@@ -87,12 +110,21 @@ export function createTestSession(testManager: TestSessionManager): TestSession 
 
 type ClientRole = "cli" | "consumer";
 
-function connectWebSocket(port: number, role: ClientRole, sessionId: string): Promise<WebSocket> {
+function connectWebSocketUrl(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}/ws/${role}/${sessionId}`);
+    const ws = new WebSocket(url);
+    const buffered = toBuffered(ws);
+    buffered[PREBUFFER_KEY] = [];
+    ws.on("message", (data: Buffer | string) => {
+      buffered[PREBUFFER_KEY]?.push(data.toString());
+    });
     ws.on("open", () => resolve(ws));
     ws.on("error", reject);
   });
+}
+
+function connectWebSocket(port: number, role: ClientRole, sessionId: string): Promise<WebSocket> {
+  return connectWebSocketUrl(`ws://localhost:${port}/ws/${role}/${sessionId}`);
 }
 
 export function connectTestConsumer(port: number, sessionId: string): Promise<WebSocket> {
@@ -103,18 +135,41 @@ export function connectTestCLI(port: number, sessionId: string): Promise<WebSock
   return connectWebSocket(port, "cli", sessionId);
 }
 
+export function connectTestConsumerWithQuery(
+  port: number,
+  sessionId: string,
+  query: Record<string, string>,
+): Promise<WebSocket> {
+  const params = new URLSearchParams(query);
+  return connectWebSocketUrl(
+    `ws://localhost:${port}/ws/consumer/${sessionId}?${params.toString()}`,
+  );
+}
+
 // ── Message Collection ───────────────────────────────────────────────────────
 
 export function collectMessages(ws: WebSocket, count: number, timeoutMs = 2000): Promise<string[]> {
   return new Promise((resolve) => {
+    const prebuffer = getPrebuffer(ws);
     const messages: string[] = [];
+    while (messages.length < count && prebuffer.length > 0) {
+      const next = prebuffer.shift();
+      if (next !== undefined) messages.push(next);
+    }
+    if (messages.length >= count) {
+      resolve(messages);
+      return;
+    }
+
     const timer = setTimeout(() => {
       ws.removeListener("message", handler);
       resolve(messages);
     }, timeoutMs);
 
     const handler = (data: Buffer | string) => {
-      messages.push(data.toString());
+      const raw = data.toString();
+      removeFirstRaw(prebuffer, raw);
+      messages.push(raw);
       if (messages.length >= count) {
         clearTimeout(timer);
         ws.removeListener("message", handler);
@@ -132,6 +187,20 @@ export function waitForMessage(
   timeoutMs = 2000,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const prebuffer = getPrebuffer(ws);
+    for (let i = 0; i < prebuffer.length; i += 1) {
+      try {
+        const parsed = JSON.parse(prebuffer[i]);
+        if (predicate(parsed)) {
+          prebuffer.splice(i, 1);
+          resolve(parsed);
+          return;
+        }
+      } catch {
+        // Ignore parse errors, keep waiting.
+      }
+    }
+
     const timer = setTimeout(() => {
       ws.removeListener("message", handler);
       reject(new Error(`Timeout waiting for message after ${timeoutMs}ms`));
@@ -139,8 +208,10 @@ export function waitForMessage(
 
     const handler = (data: Buffer | string) => {
       try {
-        const parsed = JSON.parse(data.toString());
+        const raw = data.toString();
+        const parsed = JSON.parse(raw);
         if (predicate(parsed)) {
+          removeFirstRaw(prebuffer, raw);
           clearTimeout(timer);
           ws.removeListener("message", handler);
           resolve(parsed);
@@ -256,6 +327,79 @@ export function mockAssistantMessage(text: string, id = "test-msg") {
     // parent_tool_use_id is intentionally null for test messages that are not part of a tool use chain
     parent_tool_use_id: null,
   };
+}
+
+export function mockSystemInit(
+  sessionId: string,
+  options?: {
+    model?: string;
+    slashCommands?: string[] | Array<{ name: string; description: string; argumentHint?: string }>;
+    skills?: string[];
+    tools?: string[];
+  },
+) {
+  const slashCommands = (options?.slashCommands ?? []).map((cmd) =>
+    typeof cmd === "string" ? cmd : cmd.name,
+  );
+
+  return {
+    type: "system",
+    subtype: "init",
+    model: options?.model ?? "claude-sonnet-4-5-20250929",
+    session_id: sessionId,
+    cwd: "/tmp/test",
+    slash_commands: slashCommands,
+    skills: options?.skills ?? [],
+    tools: options?.tools ?? ["Bash", "Read", "Write", "Edit"],
+  };
+}
+
+export function mockSlashCommand(command: string, requestId?: string) {
+  return {
+    type: "slash_command",
+    command,
+    ...(requestId ? { request_id: requestId } : {}),
+  };
+}
+
+export function mockResultMessage(
+  sessionId: string,
+  options?: { text?: string; costUsd?: number; isError?: boolean },
+) {
+  return {
+    type: "result",
+    subtype: options?.isError ? "error" : "success",
+    cost_usd: options?.costUsd ?? 0.001,
+    duration_ms: 500,
+    duration_api_ms: 400,
+    is_error: options?.isError ?? false,
+    num_turns: 1,
+    session_id: sessionId,
+    result: options?.text ?? "",
+  };
+}
+
+export function mockStreamDelta(text: string) {
+  return {
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text },
+    },
+    parent_tool_use_id: null,
+  };
+}
+
+export function sendAndWait(
+  sender: WebSocket,
+  receiver: WebSocket,
+  message: unknown,
+  responseType: string,
+  timeoutMs = 3000,
+): Promise<unknown> {
+  const promise = waitForMessageType(receiver, responseType, timeoutMs);
+  sender.send(JSON.stringify(message));
+  return promise;
 }
 
 export function mockUserMessage(content: string) {

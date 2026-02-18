@@ -1,48 +1,13 @@
-name: CI
+name: E2E Nightly
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
-      - name: Set up Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run tests
-        run: pnpm -r --include-workspace-root test
-
-      - name: Run linter
-        run: pnpm run lint
-
-      - name: Build
-        run: pnpm run build
-
-  e2e-deterministic:
-    name: E2E Deterministic
+  e2e-deterministic-full:
+    name: E2E Deterministic Full
     runs-on: ubuntu-latest
 
     steps:
@@ -62,11 +27,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run deterministic e2e lane
+      - name: Run deterministic e2e full lane
         run: pnpm test:e2e:deterministic
 
-  e2e-realcli-smoke-process:
-    name: E2E Real CLI Smoke (Process)
+  e2e-realcli-full-process:
+    name: E2E Real CLI Full (Process)
     runs-on: ubuntu-latest
 
     steps:
@@ -105,14 +70,14 @@ jobs:
         if: steps.realcli.outputs.enabled == 'true'
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
-      - name: Run real CLI smoke process shard
+      - name: Run real CLI full process shard
         if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:smoke:process
+        run: pnpm test:e2e:realcli:full:process
 
-  e2e-realcli-smoke-session:
-    name: E2E Real CLI Smoke (Session)
+  e2e-realcli-full-session:
+    name: E2E Real CLI Full (Session)
     runs-on: ubuntu-latest
 
     steps:
@@ -151,63 +116,8 @@ jobs:
         if: steps.realcli.outputs.enabled == 'true'
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
-      - name: Run real CLI smoke session shard
+      - name: Run real CLI full session shard
         if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:smoke:session
-
-  type-check:
-    name: Type Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Type check
-        run: pnpm run typecheck
-
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    # Run coverage on all PRs and pushes to main
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run tests with coverage
-        run: pnpm -r --include-workspace-root test -- --coverage
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false  # vitest thresholds enforce coverage; Codecov upload failures are transient
+        run: pnpm test:e2e:realcli:full:session

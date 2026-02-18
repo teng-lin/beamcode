@@ -8,43 +8,33 @@ vi.mock("node:child_process", () => ({
 const mockedExecSync = vi.mocked(execSync);
 
 describe("isClaudeAvailable", () => {
-  const originalEnv = process.env.ANTHROPIC_API_KEY;
-
   afterEach(() => {
     vi.resetModules();
     mockedExecSync.mockReset();
-    if (originalEnv !== undefined) {
-      process.env.ANTHROPIC_API_KEY = originalEnv;
-    } else {
-      delete process.env.ANTHROPIC_API_KEY;
-    }
   });
 
   async function loadModule() {
     return import("./claude-detection.js");
   }
 
-  it("returns true when claude command exists and API key is set", async () => {
+  it("returns true when claude command exists", async () => {
     mockedExecSync.mockReturnValue("claude 1.0.0");
-    process.env.ANTHROPIC_API_KEY = "sk-test-key";
 
     const { isClaudeAvailable } = await loadModule();
     expect(isClaudeAvailable()).toBe(true);
   });
 
-  it("returns false when claude command exists but API key is missing", async () => {
+  it("returns true when claude command exists without API key", async () => {
     mockedExecSync.mockReturnValue("claude 1.0.0");
-    delete process.env.ANTHROPIC_API_KEY;
 
     const { isClaudeAvailable } = await loadModule();
-    expect(isClaudeAvailable()).toBe(false);
+    expect(isClaudeAvailable()).toBe(true);
   });
 
   it("returns false when claude command is not found", async () => {
     mockedExecSync.mockImplementation(() => {
       throw new Error("command not found: claude");
     });
-    process.env.ANTHROPIC_API_KEY = "sk-test-key";
 
     const { isClaudeAvailable } = await loadModule();
     expect(isClaudeAvailable()).toBe(false);
@@ -52,7 +42,6 @@ describe("isClaudeAvailable", () => {
 
   it("calls execSync with correct arguments", async () => {
     mockedExecSync.mockReturnValue("claude 1.0.0");
-    process.env.ANTHROPIC_API_KEY = "sk-test-key";
 
     const { isClaudeAvailable } = await loadModule();
     isClaudeAvailable();

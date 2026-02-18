@@ -108,25 +108,30 @@ export class SlashCommandRegistry {
 
   registerFromCLI(
     commands: Array<{
-      name: string;
-      description: string;
-      argumentHint?: string;
+      name: unknown;
+      description?: unknown;
+      argumentHint?: unknown;
     }>,
   ): void {
     for (const cmd of commands) {
+      if (typeof cmd.name !== "string" || cmd.name.trim() === "") {
+        continue;
+      }
       const name = cmd.name.startsWith("/") ? cmd.name : `/${cmd.name}`;
       const key = name.toLowerCase();
+      const description = typeof cmd.description === "string" ? cmd.description : "";
+      const argumentHint = typeof cmd.argumentHint === "string" ? cmd.argumentHint : undefined;
       const existing = this.commands.get(key);
       if (existing && existing.source === "built-in") {
         // Enrich built-in with CLI metadata but keep source as built-in
-        existing.description = cmd.description;
-        if (cmd.argumentHint) existing.argumentHint = cmd.argumentHint;
+        existing.description = description;
+        if (argumentHint) existing.argumentHint = argumentHint;
       } else {
         this.commands.set(key, {
           name,
-          description: cmd.description,
+          description,
           source: "cli",
-          argumentHint: cmd.argumentHint,
+          argumentHint,
           availableDuringTask: false,
         });
       }
