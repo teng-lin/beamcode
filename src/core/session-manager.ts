@@ -112,15 +112,23 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       await this.server.listen(
         (socket, sessionId) => {
           if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
-            // Adapter path: deliver the socket to the adapter's pending registration
-            const delivered = this.adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
-            if (!delivered) {
-              this.logger.warn(
-                `No pending socket registration for session ${sessionId}, closing socket`,
-              );
-              socket.close();
-            }
-            // SdkUrlSession wires message/close handlers internally via attachSocket()
+            const adapter = this.adapter;
+            // Connect backend (creates adapter session + registers pending socket),
+            // then deliver the real socket to complete the handshake.
+            this.bridge
+              .connectBackend(sessionId)
+              .then(() => {
+                const delivered = adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
+                if (!delivered) {
+                  this.logger.warn(`Failed to deliver socket for session ${sessionId}, closing`);
+                  socket.close();
+                }
+                // SdkUrlSession wires message/close handlers internally via attachSocket()
+              })
+              .catch((err) => {
+                this.logger.warn(`Failed to connect backend for session ${sessionId}: ${err}`);
+                socket.close();
+              });
           } else {
             this.logger.warn(
               `No adapter configured, cannot handle CLI connection for session ${sessionId}`,

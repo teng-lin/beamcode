@@ -137,15 +137,14 @@ describe("E2E: HTTP API /api/sessions", () => {
 
     expect(deleteRes.status).toBe(200);
     const data = (await deleteRes.json()) as { status: string };
-    expect(data.status).toBe("stopped");
+    expect(data.status).toBe("deleted");
 
-    // Verify session is marked as exited
+    // Verify session is removed from the list
     const listRes = await apiFetch("/api/sessions");
     expect(listRes.status).toBe(200);
     const sessions = (await listRes.json()) as Array<{ sessionId: string; state: string }>;
-    const stoppedSession = sessions.find((s) => s.sessionId === sessionId);
-    expect(stoppedSession).toBeDefined();
-    expect(stoppedSession?.state).toBe("exited");
+    const deletedSession = sessions.find((s) => s.sessionId === sessionId);
+    expect(deletedSession).toBeUndefined();
   });
 
   it("rejects API requests without valid API key", async () => {

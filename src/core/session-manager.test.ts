@@ -672,7 +672,18 @@ describe("SessionManager", () => {
       deliverSocketResult = true;
 
       async connect(_options: ConnectOptions): Promise<BackendSession> {
-        throw new Error("Not needed for this test");
+        const noop = {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+          }),
+        };
+        return {
+          sessionId: _options.sessionId,
+          send: vi.fn(),
+          sendRaw: vi.fn(),
+          messages: noop as AsyncIterable<never>,
+          close: vi.fn().mockResolvedValue(undefined),
+        } as unknown as BackendSession;
       }
 
       deliverSocket(sessionId: string, ws: WebSocket): boolean {
@@ -714,7 +725,7 @@ describe("SessionManager", () => {
       };
     }
 
-    it("with InvertedConnectionAdapter, CLI WS connection calls adapter.deliverSocket", async () => {
+    it("with InvertedConnectionAdapter, CLI WS connection calls connectBackend then deliverSocket", async () => {
       const adapter = new MockInvertedAdapter();
       const { server, getCapturedOnCLI } = createMockServer();
 
@@ -734,13 +745,15 @@ describe("SessionManager", () => {
       const { socket } = createMockSocket();
       onCLI!(socket as any, "adapter-session-1");
 
-      // Should have called deliverSocket
-      expect(adapter.deliverSocketCalls).toHaveLength(1);
+      // connectBackend + deliverSocket are async — wait for them
+      await vi.waitFor(() => {
+        expect(adapter.deliverSocketCalls).toHaveLength(1);
+      });
       expect(adapter.deliverSocketCalls[0].sessionId).toBe("adapter-session-1");
       expect(adapter.deliverSocketCalls[0].ws).toBe(socket);
 
-      // Should NOT have called bridge.handleCLIOpen (adapter handled it)
-      expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(false);
+      // Backend session should be connected via adapter
+      expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(true);
 
       await adapterMgr.stop();
     });
@@ -766,11 +779,13 @@ describe("SessionManager", () => {
       const { socket } = createMockSocket();
       onCLI!(socket as any, "fallback-session");
 
-      // deliverSocket was called but returned false
-      expect(adapter.deliverSocketCalls).toHaveLength(1);
+      // connectBackend + deliverSocket are async — wait for them
+      await vi.waitFor(() => {
+        expect(adapter.deliverSocketCalls).toHaveLength(1);
+      });
       expect(adapter.deliverSocketCalls[0].sessionId).toBe("fallback-session");
 
-      // Socket should have been closed (no legacy fallback)
+      // Socket should have been closed (deliverSocket returned false)
       expect(socket.close).toHaveBeenCalled();
 
       await adapterMgr.stop();
