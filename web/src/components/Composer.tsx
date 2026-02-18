@@ -102,13 +102,14 @@ export function Composer({ sessionId }: ComposerProps) {
     const allImages = Array.from(files).filter((f) => f.type.startsWith("image/"));
     const { addToast } = useStore.getState();
 
-    for (const f of allImages) {
+    const withinSizeLimit = allImages.reduce<File[]>((acc, f) => {
       if (f.size > MAX_IMAGE_SIZE) {
         addToast(`Image too large (${(f.size / 1024 / 1024).toFixed(1)}MB) — max 10MB`, "error");
+        return acc;
       }
-    }
-
-    const withinSizeLimit = allImages.filter((f) => f.size <= MAX_IMAGE_SIZE);
+      acc.push(f);
+      return acc;
+    }, []);
     const eligible = withinSizeLimit.slice(0, availableSlots);
 
     if (withinSizeLimit.length > availableSlots) {
