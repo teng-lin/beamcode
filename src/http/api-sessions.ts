@@ -110,13 +110,13 @@ export function handleApiSessions(
     return;
   }
 
-  // DELETE /api/sessions/:id — stop session
+  // DELETE /api/sessions/:id — delete session (kill + remove from storage)
   if (method === "DELETE" && segments.length === 3) {
-    sessionManager.launcher
-      .kill(sessionId)
-      .then((killed) => {
-        if (killed) {
-          json(res, 200, { status: "stopped" });
+    sessionManager
+      .deleteSession(sessionId)
+      .then((deleted) => {
+        if (deleted) {
+          json(res, 200, { status: "deleted" });
         } else {
           json(res, 404, { error: "Session not found" });
         }
@@ -138,6 +138,42 @@ export function handleApiSessions(
     }
     sessionManager.launcher.setArchived(sessionId, action === "archive");
     json(res, 200, { ...session, archived: action === "archive" });
+    return;
+  }
+
+  // PUT /api/sessions/:id/rename — rename a session
+  if (method === "PUT" && action === "rename") {
+    readBody(req)
+      .then((body) => {
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(body) as Record<string, unknown>;
+        } catch {
+          json(res, 400, { error: "Invalid JSON" });
+          return;
+        }
+
+        if (typeof parsed.name !== "string" || !parsed.name.trim()) {
+          json(res, 400, { error: "name is required and must be a non-empty string" });
+          return;
+        }
+
+        const name = parsed.name.trim().slice(0, 100);
+
+        const session = sessionManager.launcher.getSession(sessionId);
+        if (!session) {
+          json(res, 404, { error: "Session not found" });
+          return;
+        }
+
+        sessionManager.launcher.setSessionName(sessionId, name);
+        sessionManager.bridge.broadcastNameUpdate(sessionId, name);
+        json(res, 200, { ...session, name });
+      })
+      .catch((err) => {
+        const status = err instanceof Error && err.message === "Request body too large" ? 413 : 400;
+        json(res, status, { error: err instanceof Error ? err.message : "Bad request" });
+      });
     return;
   }
 

@@ -165,6 +165,33 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.started = false;
   }
 
+  /**
+   * Fully delete a session: kill CLI process, clean up dedup state,
+   * close WS connections + remove persisted JSON, remove from launcher map.
+   */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    if (!this.launcher.getSession(sessionId)) return false;
+
+    // Best-effort kill — process may already be exited
+    await this.launcher.kill(sessionId);
+
+    // Clear relaunch dedup state
+    const dedupTimer = this.relaunchDedupTimers.get(sessionId);
+    if (dedupTimer) {
+      clearTimeout(dedupTimer);
+      this.relaunchDedupTimers.delete(sessionId);
+    }
+    this.relaunchingSet.delete(sessionId);
+
+    // Close WS connections and remove per-session JSON from storage
+    this.bridge.closeSession(sessionId);
+
+    // Remove from launcher's in-memory map and re-persist launcher.json
+    this.launcher.removeSession(sessionId);
+
+    return true;
+  }
+
   /** Ring buffer for process output per session. */
   private processLogBuffers = new Map<string, string[]>();
   private static readonly MAX_LOG_LINES = 500;
