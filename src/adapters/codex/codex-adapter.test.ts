@@ -593,7 +593,7 @@ describe("CodexAdapter", () => {
       });
 
       await expect(adapter.connect({ sessionId: "hs-ws-err" })).rejects.toThrow(
-        "WebSocket error during handshake: socket hung up",
+        "WebSocket error during handshake",
       );
     });
   });

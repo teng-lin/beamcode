@@ -114,7 +114,8 @@ export class CodexAdapter implements BackendAdapter {
     }
 
     throw new Error(
-      `Failed to connect to codex app-server at ${url} after ${this.connectRetries} attempts: ${lastError instanceof Error ? lastError.message : lastError}`,
+      `Failed to connect to codex app-server at ${url} after ${this.connectRetries} attempts`,
+      { cause: lastError },
     );
   }
 
@@ -182,7 +183,7 @@ export class CodexAdapter implements BackendAdapter {
       const onError = (err: Error) => {
         cleanup();
         ws.terminate();
-        reject(new Error(`WebSocket error during handshake: ${err.message}`));
+        reject(new Error(`WebSocket error during handshake`, { cause: err }));
       };
 
       const cleanup = () => {
