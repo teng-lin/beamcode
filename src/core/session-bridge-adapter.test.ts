@@ -696,7 +696,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      // sendInitializeRequest calls sendToCLI, which queues when no cliSocket.
+      // sendInitializeRequest sends via backendSession.sendRaw when connected.
       // Verify pendingInitialize is set indirectly: the session should exist.
       const snapshot = bridge.getSession("sess-1");
       expect(snapshot).toBeDefined();

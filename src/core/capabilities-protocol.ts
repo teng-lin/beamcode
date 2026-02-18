@@ -20,7 +20,6 @@ import type { UnifiedMessage } from "./types/unified-message.js";
 
 // ─── Dependency contracts ────────────────────────────────────────────────────
 
-type SendToCLI = (session: Session, ndjson: string) => void;
 type EmitEvent = (type: string, payload: unknown) => void;
 type PersistSession = (session: Session) => void;
 
@@ -30,7 +29,6 @@ export class CapabilitiesProtocol {
   constructor(
     private config: ResolvedConfig,
     private logger: Logger,
-    private sendToCLI: SendToCLI,
     private broadcaster: ConsumerBroadcaster,
     private emitEvent: EmitEvent,
     private persistSession: PersistSession,
@@ -53,11 +51,8 @@ export class CapabilitiesProtocol {
       request: { subtype: "initialize" },
     });
 
-    // Use backendSession.sendRaw() when adapter path is active
     if (session.backendSession) {
       session.backendSession.sendRaw(ndjson);
-    } else {
-      this.sendToCLI(session, ndjson);
     }
   }
 

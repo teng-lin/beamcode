@@ -59,7 +59,6 @@ export function authContext(
 export function createMockSession(overrides?: Partial<Session>): Session {
   return {
     id: "sess-1",
-    cliSocket: null,
     backendSession: null,
     backendAbort: null,
     consumerSockets: new Map(),

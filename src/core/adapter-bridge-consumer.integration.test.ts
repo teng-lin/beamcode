@@ -531,8 +531,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
       const backendSession = adapter.getSession(sessionId)!;
 
       // Backend session should have received the queued message
-      // In the adapter path, pending messages are flushed via sendToCLI (legacy),
-      // but with an adapter the backendSession.sendRaw receives them
+      // Pending messages are flushed via backendSession.sendRaw on connect
       expect(backendSession.sentRawMessages.length).toBeGreaterThan(0);
     });
   });

@@ -119,29 +119,16 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
             const delivered = this.adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
             if (!delivered) {
               this.logger.warn(
-                `No pending socket registration for session ${sessionId}, falling back to legacy`,
+                `No pending socket registration for session ${sessionId}, closing socket`,
               );
-              this.bridge.handleCLIOpen(socket, sessionId);
-              socket.on("message", (data) => {
-                this.bridge.handleCLIMessage(
-                  sessionId,
-                  typeof data === "string" ? data : data.toString("utf-8"),
-                );
-              });
-              socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+              socket.close();
             }
-            // When adapter handles it, no need for message/close handlers on the socket
-            // — SdkUrlSession wires those up internally via attachSocket()
+            // SdkUrlSession wires message/close handlers internally via attachSocket()
           } else {
-            // Legacy path
-            this.bridge.handleCLIOpen(socket, sessionId);
-            socket.on("message", (data) => {
-              this.bridge.handleCLIMessage(
-                sessionId,
-                typeof data === "string" ? data : data.toString("utf-8"),
-              );
-            });
-            socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+            this.logger.warn(
+              `No adapter configured, cannot handle CLI connection for session ${sessionId}`,
+            );
+            socket.close();
           }
         },
         (socket, context) => {

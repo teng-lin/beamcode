@@ -13,7 +13,6 @@ function makeSession(id: string, overrides?: Partial<SessionState>): Session {
   const state = { ...makeDefaultState(id), ...overrides };
   return {
     id,
-    cliSocket: null,
     backendSession: null,
     backendAbort: null,
     consumerSockets: new Map(),

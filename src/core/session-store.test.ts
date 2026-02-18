@@ -105,7 +105,7 @@ describe("SessionStore", () => {
     it("creates a new session with correct defaults", () => {
       const session = store.getOrCreate("s1");
       expect(session.id).toBe("s1");
-      expect(session.cliSocket).toBeNull();
+      expect(session.backendSession).toBeNull();
       expect(session.state.session_id).toBe("s1");
       expect(session.consumerSockets.size).toBe(0);
       expect(session.messageHistory).toEqual([]);
@@ -160,14 +160,24 @@ describe("SessionStore", () => {
   });
 
   describe("isCliConnected", () => {
-    it("returns false when cliSocket is null", () => {
+    it("returns false when backendSession is null", () => {
       store.getOrCreate("s1");
       expect(store.isCliConnected("s1")).toBe(false);
     });
 
-    it("returns true when cliSocket is set", () => {
+    it("returns true when backendSession is set", () => {
       const session = store.getOrCreate("s1");
-      session.cliSocket = { send: vi.fn(), close: vi.fn() };
+      session.backendSession = {
+        sessionId: "s1",
+        send: vi.fn(),
+        sendRaw: vi.fn(),
+        messages: {
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
+        },
+        close: vi.fn(),
+      } as any;
       expect(store.isCliConnected("s1")).toBe(true);
     });
   });

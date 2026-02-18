@@ -332,7 +332,7 @@ describe("SessionManager", () => {
       await mgr.stop();
     });
 
-    it("wires CLI connections to bridge handlers", async () => {
+    it("wires CLI connections to onConnection callback", async () => {
       let capturedOnConnection: OnCLIConnection | null = null;
 
       const mockServer: WebSocketServerLike = {
@@ -346,36 +346,23 @@ describe("SessionManager", () => {
         config: { port: 3456 },
         processManager: pm,
         server: mockServer,
+        // No adapter — socket should be closed
       });
 
       await mgr.start();
       expect(capturedOnConnection).not.toBeNull();
 
-      // Simulate a CLI connection
-      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      // Simulate a CLI connection without an adapter
       const mockSocket = {
         send: vi.fn(),
         close: vi.fn(),
-        on: (event: string, handler: (...args: unknown[]) => void) => {
-          events[event] = events[event] || [];
-          events[event].push(handler);
-        },
+        on: vi.fn(),
       };
 
       capturedOnConnection!(mockSocket as any, "test-session-id");
 
-      // Verify bridge knows about this session
-      expect(mgr.bridge.isCliConnected("test-session-id")).toBe(true);
-
-      // Simulate a message
-      const messageHandler = events.message;
-      expect(messageHandler).toBeDefined();
-
-      // Simulate close
-      const closeHandler = events.close;
-      expect(closeHandler).toBeDefined();
-      closeHandler[0]();
-      expect(mgr.bridge.isCliConnected("test-session-id")).toBe(false);
+      // Without an adapter, the socket should be closed
+      expect(mockSocket.close).toHaveBeenCalled();
 
       await mgr.stop();
     });
@@ -623,7 +610,7 @@ describe("SessionManager", () => {
       // Connect backend (replaces handleCLIOpen)
       await idleMgr.bridge.connectBackend("active-session");
 
-      // Verify backend is connected (isCliConnected checks both cliSocket and backendSession)
+      // Verify backend is connected (isCliConnected checks backendSession)
       expect(idleMgr.bridge.isCliConnected("active-session")).toBe(true);
 
       // Advance well past idle timeout
@@ -758,7 +745,7 @@ describe("SessionManager", () => {
       await adapterMgr.stop();
     });
 
-    it("falls back to legacy when deliverSocket returns false", async () => {
+    it("closes socket when deliverSocket returns false", async () => {
       const adapter = new MockInvertedAdapter();
       adapter.deliverSocketResult = false;
       const { server, getCapturedOnCLI } = createMockServer();
@@ -776,28 +763,20 @@ describe("SessionManager", () => {
       const onCLI = getCapturedOnCLI();
       expect(onCLI).not.toBeNull();
 
-      const { socket, events } = createMockSocket();
+      const { socket } = createMockSocket();
       onCLI!(socket as any, "fallback-session");
 
       // deliverSocket was called but returned false
       expect(adapter.deliverSocketCalls).toHaveLength(1);
       expect(adapter.deliverSocketCalls[0].sessionId).toBe("fallback-session");
 
-      // Should have fallen back to bridge.handleCLIOpen
-      expect(adapterMgr.bridge.isCliConnected("fallback-session")).toBe(true);
-
-      // Message and close handlers should be wired
-      expect(events.message).toBeDefined();
-      expect(events.close).toBeDefined();
-
-      // Simulate close
-      events.close[0]();
-      expect(adapterMgr.bridge.isCliConnected("fallback-session")).toBe(false);
+      // Socket should have been closed (no legacy fallback)
+      expect(socket.close).toHaveBeenCalled();
 
       await adapterMgr.stop();
     });
 
-    it("without adapter, uses legacy handleCLIOpen path", async () => {
+    it("without adapter, closes the socket", async () => {
       const { server, getCapturedOnCLI } = createMockServer();
 
       const legacyMgr = new SessionManager({
@@ -813,19 +792,11 @@ describe("SessionManager", () => {
       const onCLI = getCapturedOnCLI();
       expect(onCLI).not.toBeNull();
 
-      const { socket, events } = createMockSocket();
-      onCLI!(socket as any, "legacy-session");
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "no-adapter-session");
 
-      // Should use bridge.handleCLIOpen directly
-      expect(legacyMgr.bridge.isCliConnected("legacy-session")).toBe(true);
-
-      // Message and close handlers should be wired
-      expect(events.message).toBeDefined();
-      expect(events.close).toBeDefined();
-
-      // Simulate close
-      events.close[0]();
-      expect(legacyMgr.bridge.isCliConnected("legacy-session")).toBe(false);
+      // Socket should have been closed (no adapter to handle it)
+      expect(socket.close).toHaveBeenCalled();
 
       await legacyMgr.stop();
     });
