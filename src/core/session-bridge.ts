@@ -1361,6 +1361,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       status: session.lastStatus,
     });
 
+    // Broadcast permissionMode change so frontend can confirm the update
+    if (msg.metadata.permissionMode !== undefined && msg.metadata.permissionMode !== null) {
+      this.broadcaster.broadcast(session, {
+        type: "session_update",
+        session: { permissionMode: session.state.permissionMode } as Partial<SessionState>,
+      });
+    }
+
     // Auto-send queued message when transitioning to idle
     if (status === "idle") {
       this.autoSendQueuedMessage(session);

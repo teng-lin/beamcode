@@ -689,6 +689,25 @@ describe("SessionBridge", () => {
       expect(bridge.getSession("sess-1")!.state.permissionMode).toBe("plan");
     });
 
+    it("system status with permissionMode broadcasts session_update to consumers", () => {
+      bridge.handleCLIMessage("sess-1", makeStatusMsg({ permissionMode: "plan" }));
+
+      const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+      const updateMsg = parsed.find(
+        (m: any) => m.type === "session_update" && m.session?.permissionMode,
+      );
+      expect(updateMsg).toBeDefined();
+      expect(updateMsg.session.permissionMode).toBe("plan");
+    });
+
+    it("system status without permissionMode does not broadcast session_update", () => {
+      bridge.handleCLIMessage("sess-1", makeStatusMsg({ status: "idle" }));
+
+      const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+      const updateMsg = parsed.find((m: any) => m.type === "session_update");
+      expect(updateMsg).toBeUndefined();
+    });
+
     it("assistant message is stored in history and broadcast", () => {
       bridge.handleCLIMessage("sess-1", makeAssistantMsg());
 
