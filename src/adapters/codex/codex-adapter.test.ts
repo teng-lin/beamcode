@@ -96,6 +96,7 @@ describe("CodexSession", () => {
       sessionId: "test-session",
       ws: ws as unknown as WebSocket,
       launcher,
+      threadId: "thread-test",
     });
   });
 
@@ -104,7 +105,7 @@ describe("CodexSession", () => {
   });
 
   describe("send", () => {
-    it("sends turn.create JSON-RPC for user_message", () => {
+    it("sends turn/start JSON-RPC for user_message", () => {
       const msg = createUnifiedMessage({
         type: "user_message",
         role: "user",
@@ -116,8 +117,9 @@ describe("CodexSession", () => {
       expect(ws.sent).toHaveLength(1);
       const parsed = JSON.parse(ws.sent[0]);
       expect(parsed.jsonrpc).toBe("2.0");
-      expect(parsed.method).toBe("turn.create");
-      expect(parsed.params.input).toBe("Hello");
+      expect(parsed.method).toBe("turn/start");
+      expect(parsed.params.threadId).toBe("thread-test");
+      expect(parsed.params.input).toEqual([{ type: "text", text: "Hello" }]);
       expect(parsed.id).toBe(1);
     });
 
@@ -308,6 +310,104 @@ describe("CodexSession", () => {
 
       const result = await iter.next();
       expect(result.value.metadata.delta).toBe("valid");
+    });
+
+    it("handles wrapped event notifications ({ method: event, params.type })", async () => {
+      const iter = session.messages[Symbol.asyncIterator]();
+      const nextPromise = iter.next();
+
+      ws.emit(
+        "message",
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "event",
+            params: {
+              type: "response.output_text.delta",
+              delta: "wrapped-delta",
+              output_index: 0,
+            },
+          }),
+        ),
+      );
+
+      const result = await nextPromise;
+      expect(result.done).toBe(false);
+      expect(result.value.type).toBe("stream_event");
+      expect(result.value.metadata.delta).toBe("wrapped-delta");
+    });
+
+    it("translates JSON-RPC error responses into result error messages", async () => {
+      session.send(
+        createUnifiedMessage({
+          type: "user_message",
+          role: "user",
+          content: [{ type: "text", text: "trigger error" }],
+        }),
+      );
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      const nextPromise = iter.next();
+
+      ws.emit(
+        "message",
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            error: { code: -32000, message: "request failed" },
+          }),
+        ),
+      );
+
+      const result = await nextPromise;
+      expect(result.done).toBe(false);
+      expect(result.value.type).toBe("result");
+      expect(result.value.metadata.is_error).toBe(true);
+      expect(result.value.metadata.error).toBe("request failed");
+    });
+
+    it("translates JSON-RPC result payloads into assistant + result", async () => {
+      session.send(
+        createUnifiedMessage({
+          type: "user_message",
+          role: "user",
+          content: [{ type: "text", text: "hello" }],
+        }),
+      );
+
+      const iter = session.messages[Symbol.asyncIterator]();
+
+      ws.emit(
+        "message",
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              id: "resp-1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  id: "msg-1",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "from-result" }],
+                },
+              ],
+            },
+          }),
+        ),
+      );
+
+      const assistant = await iter.next();
+      const done = await iter.next();
+      expect(assistant.done).toBe(false);
+      expect(assistant.value.type).toBe("assistant");
+      expect(assistant.value.content[0]).toEqual({ type: "text", text: "from-result" });
+      expect(done.done).toBe(false);
+      expect(done.value.type).toBe("result");
+      expect(done.value.metadata.status).toBe("completed");
     });
   });
 

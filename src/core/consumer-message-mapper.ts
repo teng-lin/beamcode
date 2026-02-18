@@ -70,18 +70,25 @@ export function mapAssistantMessage(msg: UnifiedMessage): ConsumerMessage {
  */
 export function mapResultMessage(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
+  const isError = (m.is_error as boolean) ?? false;
+  const subtype = (m.subtype as string | undefined) as
+    | "success"
+    | "error_during_execution"
+    | "error_max_turns"
+    | "error_max_budget_usd"
+    | "error_max_structured_output_retries"
+    | undefined;
+  const errors =
+    (m.errors as string[] | undefined) ??
+    (typeof m.error === "string" && m.error.length > 0 ? [m.error] : undefined);
+
   return {
     type: "result",
     data: {
-      subtype: m.subtype as string as
-        | "success"
-        | "error_during_execution"
-        | "error_max_turns"
-        | "error_max_budget_usd"
-        | "error_max_structured_output_retries",
-      is_error: (m.is_error as boolean) ?? false,
+      subtype: subtype ?? (isError ? "error_during_execution" : "success"),
+      is_error: isError,
       result: m.result as string | undefined,
-      errors: m.errors as string[] | undefined,
+      errors,
       duration_ms: (m.duration_ms as number) ?? 0,
       duration_api_ms: (m.duration_api_ms as number) ?? 0,
       num_turns: (m.num_turns as number) ?? 0,

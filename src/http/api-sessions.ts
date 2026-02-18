@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
 import type { SessionManager } from "../core/session-manager.js";
+import type { SdkSessionInfo } from "../types/session-state.js";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
@@ -38,6 +39,40 @@ function json(res: ServerResponse, status: number, data: unknown): void {
   res.end(body);
 }
 
+function toSyntheticSessionInfo(
+  snapshot: ReturnType<SessionManager["bridge"]["getSession"]>,
+): SdkSessionInfo | null {
+  if (!snapshot) return null;
+  return {
+    sessionId: snapshot.id,
+    state: snapshot.cliConnected ? "connected" : "starting",
+    cwd: snapshot.state.cwd || process.cwd(),
+    model: snapshot.state.model || undefined,
+    permissionMode: snapshot.state.permissionMode || undefined,
+    cliSessionId: snapshot.state.session_id || undefined,
+    createdAt: snapshot.lastActivity || Date.now(),
+  };
+}
+
+function listAllSessionInfos(sessionManager: SessionManager): SdkSessionInfo[] {
+  const launcherSessions = sessionManager.launcher.listSessions();
+  const byId = new Map<string, SdkSessionInfo>();
+  for (const session of launcherSessions) {
+    byId.set(session.sessionId, session);
+  }
+
+  for (const state of sessionManager.bridge.getAllSessions()) {
+    const sessionId = state.session_id;
+    if (!sessionId || byId.has(sessionId)) continue;
+    const synthetic = toSyntheticSessionInfo(sessionManager.bridge.getSession(sessionId));
+    if (synthetic) {
+      byId.set(sessionId, synthetic);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
 export function handleApiSessions(
   req: IncomingMessage,
   res: ServerResponse,
@@ -49,7 +84,7 @@ export function handleApiSessions(
 
   // GET /api/sessions — list all sessions
   if (segments.length === 2 && method === "GET") {
-    const sessions = sessionManager.launcher.listSessions();
+    const sessions = listAllSessionInfos(sessionManager);
     json(res, 200, sessions);
     return;
   }
@@ -106,7 +141,9 @@ export function handleApiSessions(
 
   // GET /api/sessions/:id — get session info
   if (method === "GET") {
-    const session = sessionManager.launcher.getSession(sessionId);
+    const session =
+      sessionManager.launcher.getSession(sessionId) ??
+      toSyntheticSessionInfo(sessionManager.bridge.getSession(sessionId));
     if (!session) {
       json(res, 404, { error: "Session not found" });
       return;

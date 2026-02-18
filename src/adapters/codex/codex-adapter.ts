@@ -5,7 +5,6 @@
  * performs the JSON-RPC initialize handshake, and returns a CodexSession.
  */
 
-import { createRequire } from "node:module";
 import WebSocket from "ws";
 import type {
   BackendAdapter,
@@ -15,11 +14,16 @@ import type {
 } from "../../core/interfaces/backend-adapter.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
+import { resolvePackageVersion } from "../../utils/resolve-package-version.js";
 import { CodexLauncher } from "./codex-launcher.js";
 import type { CodexInitResponse } from "./codex-message-translator.js";
 import { CodexSession } from "./codex-session.js";
 
-const { version } = createRequire(import.meta.url)("../../../package.json") as { version: string };
+const version = resolvePackageVersion(import.meta.url, [
+  "../../../package.json",
+  "../../../../package.json",
+  "../../package.json",
+]);
 
 export interface CodexAdapterOptions {
   processManager: ProcessManager;

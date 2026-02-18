@@ -335,6 +335,23 @@ describe("mapResultMessage", () => {
     expect(data.total_lines_added).toBeUndefined();
     expect(data.total_lines_removed).toBeUndefined();
   });
+
+  it("maps fallback error string when errors[] is absent", () => {
+    const msg = createUnifiedMessage({
+      type: "result",
+      role: "assistant",
+      metadata: {
+        is_error: true,
+        error: "turn.create failed",
+      },
+    });
+
+    const result = mapResultMessage(msg);
+    const data = (result as Extract<typeof result, { type: "result" }>).data;
+    expect(data.is_error).toBe(true);
+    expect(data.subtype).toBe("error_during_execution");
+    expect(data.errors).toEqual(["turn.create failed"]);
+  });
 });
 
 // ─── mapStreamEvent ─────────────────────────────────────────────────────────
