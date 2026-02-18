@@ -125,6 +125,30 @@ describe("SlashCommandExecutor", () => {
     });
   });
 
+  describe("isPassthroughCommand", () => {
+    it("identifies passthrough commands from registry", () => {
+      const { executor } = createExecutor();
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("/cost", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/context", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/compact", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/files", registry)).toBe(true);
+    });
+
+    it("rejects non-passthrough commands", () => {
+      const { executor } = createExecutor();
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("/help", registry)).toBe(false);
+      expect(executor.isPassthroughCommand("/model", registry)).toBe(false);
+      expect(executor.isPassthroughCommand("/status", registry)).toBe(false);
+    });
+
+    it("returns false when registry is null", () => {
+      const { executor } = createExecutor();
+      expect(executor.isPassthroughCommand("/cost", null)).toBe(false);
+    });
+  });
+
   describe("canHandle", () => {
     it("handles emulatable commands regardless of backend state", () => {
       const { executor } = createExecutor();

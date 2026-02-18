@@ -112,6 +112,14 @@ export class SlashCommandExecutor {
     return cmd?.source === "skill";
   }
 
+  /** Returns true if the command is a passthrough command (forwarded to CLI without emulation). */
+  isPassthroughCommand(command: string, registry: SlashCommandRegistry | null): boolean {
+    if (!registry) return false;
+    const name = commandName(command);
+    const cmd = registry.find(name);
+    return cmd?.category === "passthrough";
+  }
+
   /** Returns true if the command is supported by the backend AND not emulatable locally. */
   isNativeCommand(command: string, state: SessionState): boolean {
     const name = commandName(command);

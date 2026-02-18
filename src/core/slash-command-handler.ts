@@ -51,11 +51,12 @@ export class SlashCommandHandler {
     this.emitEvent = deps.emitEvent;
   }
 
-  /** Returns true if the command should be forwarded to the CLI as a user message (native or skill). */
+  /** Returns true if the command should be forwarded to the CLI as a user message (native, skill, or passthrough). */
   private shouldForwardToCLI(command: string, session: Session): boolean {
     return (
       this.executor.isNativeCommand(command, session.state) ||
-      this.executor.isSkillCommand(command, session.registry)
+      this.executor.isSkillCommand(command, session.registry) ||
+      this.executor.isPassthroughCommand(command, session.registry)
     );
   }
 
