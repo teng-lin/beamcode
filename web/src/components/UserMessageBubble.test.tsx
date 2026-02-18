@@ -11,8 +11,8 @@ describe("UserMessageBubble", () => {
 
   /** Render the bubble and return the root HTMLElement. */
   function renderBubble(content = "Hi"): HTMLElement {
-    const { container } = render(<UserMessageBubble content={content} sessionId="s1" />);
-    return container.firstElementChild as HTMLElement;
+    render(<UserMessageBubble content={content} sessionId="s1" />);
+    return screen.getByText(content);
   }
 
   it("renders message content", () => {

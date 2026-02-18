@@ -38,14 +38,14 @@ describe("QueuedMessage", () => {
   });
 
   it("has data-queued-message attribute for FLIP animation targeting", () => {
-    const { container } = render(<QueuedMessage {...defaults} />);
-    expect(container.querySelector("[data-queued-message]")).toBeInTheDocument();
+    render(<QueuedMessage {...defaults} />);
+    expect(screen.getByText(defaults.content).closest("[data-queued-message]")).toBeInTheDocument();
   });
 
   it("applies opacity-50 class for queued appearance", () => {
-    const { container } = render(<QueuedMessage {...defaults} />);
-    const wrapper = container.querySelector("[data-queued-message]");
+    render(<QueuedMessage {...defaults} />);
+    const wrapper = screen.getByText(defaults.content).closest("[data-queued-message]");
     expect(wrapper).toBeInTheDocument();
-    expect(wrapper!.className).toContain("opacity-50");
+    expect(wrapper).toHaveClass("opacity-50");
   });
 });
