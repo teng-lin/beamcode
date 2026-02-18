@@ -47,8 +47,9 @@ export class SlashCommandExecutor {
 
     if (hasCapabilities) {
       const formatted = capCmds.map((cmd) => {
+        const name = cmd.name.startsWith("/") ? cmd.name : `/${cmd.name}`;
         const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
-        return `  ${cmd.name}${hint} — ${cmd.description}`;
+        return `  ${name}${hint} — ${cmd.description}`;
       });
       content = ["Available commands:", ...formatted].join("\n");
     } else {
