@@ -14,22 +14,34 @@ export function useKeyboardShortcuts(): void {
       const meta = e.metaKey || e.ctrlKey;
       const state = useStore.getState();
 
-      // Cmd/Ctrl+B: toggle sidebar
-      if (meta && e.key === "b") {
+      // Cmd/Ctrl+K: toggle quick switcher
+      if (meta && e.key === "k") {
+        e.preventDefault();
+        state.toggleQuickSwitcher();
+        return;
+      }
+
+      // Cmd/Ctrl+B: toggle sidebar (skip when typing in inputs)
+      if (meta && e.key === "b" && !isInputFocused()) {
         e.preventDefault();
         state.toggleSidebar();
         return;
       }
 
-      // Cmd/Ctrl+.: toggle task panel
-      if (meta && e.key === ".") {
+      // Cmd/Ctrl+.: toggle task panel (skip when typing in inputs)
+      if (meta && e.key === "." && !isInputFocused()) {
         e.preventDefault();
         state.toggleTaskPanel();
         return;
       }
 
-      // Escape: close agent pane first, then shortcuts modal
+      // Escape: close quick switcher > agent pane > shortcuts modal
       if (e.key === "Escape") {
+        if (state.quickSwitcherOpen) {
+          e.preventDefault();
+          state.setQuickSwitcherOpen(false);
+          return;
+        }
         if (state.inspectedAgentId) {
           e.preventDefault();
           state.setInspectedAgent(null);

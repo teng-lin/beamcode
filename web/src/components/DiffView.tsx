@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { diffLines } from "diff";
 
 interface DiffViewProps {
@@ -21,7 +22,7 @@ function computeDiff(oldStr: string, newStr: string): DiffLine[] {
 }
 
 export function DiffView({ oldString, newString, filePath, maxLines = 40 }: DiffViewProps) {
-  const allLines = computeDiff(oldString, newString);
+  const allLines = useMemo(() => computeDiff(oldString, newString), [oldString, newString]);
   const truncated = allLines.length > maxLines;
   const lines = truncated ? allLines.slice(0, maxLines) : allLines;
 

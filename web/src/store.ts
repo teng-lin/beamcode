@@ -93,6 +93,7 @@ export interface AppState {
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   shortcutsModalOpen: boolean;
+  quickSwitcherOpen: boolean;
   inspectedAgentId: string | null;
   soundEnabled: boolean;
   alertsEnabled: boolean;
@@ -109,6 +110,8 @@ export interface AppState {
   toggleSound: () => void;
   toggleAlerts: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
+  toggleQuickSwitcher: () => void;
+  setQuickSwitcherOpen: (open: boolean) => void;
   setInspectedAgent: (id: string | null) => void;
   addToast: (message: string, type?: "info" | "error" | "success", ttl?: number) => void;
   removeToast: (id: string) => void;
@@ -250,6 +253,7 @@ export const useStore = create<AppState>()((set, get) => ({
   ),
   taskPanelOpen: false,
   shortcutsModalOpen: false,
+  quickSwitcherOpen: false,
   inspectedAgentId: null,
   soundEnabled: readBool("beamcode_sound", true),
   alertsEnabled: readBool("beamcode_alerts", false),
@@ -285,6 +289,8 @@ export const useStore = create<AppState>()((set, get) => ({
       return { alertsEnabled: next };
     }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+  toggleQuickSwitcher: () => set((s) => ({ quickSwitcherOpen: !s.quickSwitcherOpen })),
+  setQuickSwitcherOpen: (open) => set({ quickSwitcherOpen: open }),
   setInspectedAgent: (id) => set({ inspectedAgentId: id }),
 
   addToast: (message, type = "info", ttl) =>

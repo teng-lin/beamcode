@@ -19,12 +19,15 @@ export function formatDuration(ms: number): string {
   return `${m}m ${remainS}s`;
 }
 
-export function formatElapsed(startedAt: number): string {
-  const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-  if (elapsed < 60) return `${elapsed}s`;
-  const m = Math.floor(elapsed / 60);
-  const s = elapsed % 60;
+export function formatElapsedSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
   return `${m}m ${s}s`;
+}
+
+export function formatElapsed(startedAt: number): string {
+  return formatElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
 }
 
 export function cwdBasename(cwd: string): string {

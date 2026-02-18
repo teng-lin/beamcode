@@ -44,6 +44,21 @@ describe("useKeyboardShortcuts", () => {
     expect(store().taskPanelOpen).toBe(true);
   });
 
+  it("toggles quick switcher on Cmd+K", async () => {
+    const user = userEvent.setup();
+    renderHook(() => useKeyboardShortcuts());
+
+    expect(store().quickSwitcherOpen).toBe(false);
+
+    await user.keyboard("{Meta>}k{/Meta}");
+
+    expect(store().quickSwitcherOpen).toBe(true);
+
+    await user.keyboard("{Meta>}k{/Meta}");
+
+    expect(store().quickSwitcherOpen).toBe(false);
+  });
+
   it("opens shortcuts modal on ?", async () => {
     const user = userEvent.setup();
     renderHook(() => useKeyboardShortcuts());
@@ -79,6 +94,26 @@ describe("useKeyboardShortcuts", () => {
       Object.defineProperty(document, "activeElement", originalDescriptor);
     }
     document.body.removeChild(textarea);
+  });
+
+  it("closes quick switcher on Escape before other modals", async () => {
+    const user = userEvent.setup();
+    renderHook(() => useKeyboardShortcuts());
+
+    // Open both quick switcher and shortcuts modal
+    store().setQuickSwitcherOpen(true);
+    store().setShortcutsModalOpen(true);
+
+    await user.keyboard("{Escape}");
+
+    // Quick switcher should close first
+    expect(store().quickSwitcherOpen).toBe(false);
+    // Shortcuts modal should still be open
+    expect(store().shortcutsModalOpen).toBe(true);
+
+    await user.keyboard("{Escape}");
+
+    expect(store().shortcutsModalOpen).toBe(false);
   });
 
   it("closes shortcuts modal on Escape", async () => {

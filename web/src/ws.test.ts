@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "./store";
 import { makeAssistantContent, makeTeamState, resetStore } from "./test/factories";
-import { _resetForTesting, connectToSession, disconnect, disconnectSession, send } from "./ws";
+import {
+  _resetForTesting,
+  connectToSession,
+  disconnect,
+  disconnectSession,
+  flushDeltas,
+  send,
+} from "./ws";
 
 vi.mock("./utils/audio", () => ({
   playCompletionSound: vi.fn(),
@@ -513,6 +520,8 @@ describe("handleMessage", () => {
       }),
     );
 
+    // Deltas are batched via rAF — flush to apply
+    flushDeltas();
     expect(getSessionData()?.streaming).toBe("hello world");
   });
 
@@ -531,6 +540,7 @@ describe("handleMessage", () => {
       }),
     );
 
+    flushDeltas();
     expect(getSessionData()?.agentStreaming?.["agent-1"]?.text).toBe("agent text");
   });
 

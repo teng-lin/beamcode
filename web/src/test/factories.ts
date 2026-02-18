@@ -22,6 +22,7 @@ export function resetStore(overrides?: Partial<ReturnType<typeof useStore.getSta
     logDrawerOpen: false,
     processLogs: {},
     shortcutsModalOpen: false,
+    quickSwitcherOpen: false,
     inspectedAgentId: null,
     darkMode: true,
     ...overrides,
