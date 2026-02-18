@@ -50,6 +50,36 @@ import { TypedEventEmitter } from "./typed-emitter.js";
 import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Strip `<local-command-stdout>` wrapper tags that the CLI adds to local command output. */
+const LOCAL_STDOUT_RE = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
+
+/** Extract readable text content from a CLI user-echo message (passthrough command response). */
+function extractPassthroughContent(msg: { message?: { content: unknown } }): string {
+  const raw = msg.message?.content;
+  let text: string;
+  if (typeof raw === "string") {
+    text = raw;
+  } else if (Array.isArray(raw)) {
+    text = raw
+      .filter(
+        (b: unknown): b is { type: string; text: string } =>
+          b != null &&
+          typeof b === "object" &&
+          (b as { type?: unknown }).type === "text" &&
+          typeof (b as { text?: unknown }).text === "string",
+      )
+      .map((b) => b.text)
+      .join("\n");
+  } else {
+    return "";
+  }
+  // Unwrap <local-command-stdout> if present
+  const match = LOCAL_STDOUT_RE.exec(text);
+  return match ? match[1].trim() : text.trim();
+}
+
 // ─── SessionBridge ───────────────────────────────────────────────────────────
 
 export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
@@ -700,6 +730,24 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   // ── CLI message routing ──────────────────────────────────────────────────
 
   private routeCLIMessage(session: Session, msg: CLIMessage): void {
+    // Intercept CLI user-echo for pending passthrough commands (/context, /cost, etc.)
+    if (msg.type === "user" && session.pendingPassthrough) {
+      const { command, requestId } = session.pendingPassthrough;
+      session.pendingPassthrough = null;
+      const content = extractPassthroughContent(msg);
+      const consumerMsg: ConsumerMessage = {
+        type: "slash_command_result",
+        command,
+        request_id: requestId,
+        content,
+        source: "pty",
+      };
+      session.messageHistory.push(consumerMsg);
+      this.trimMessageHistory(session);
+      this.broadcaster.broadcast(session, consumerMsg);
+      return;
+    }
+
     const unified = translateCLI(msg);
     if (!unified) {
       if (msg.type !== "keep_alive" && msg.type !== "user") {

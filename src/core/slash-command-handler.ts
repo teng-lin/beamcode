@@ -67,6 +67,13 @@ export class SlashCommandHandler {
     const { command, request_id } = msg;
 
     if (this.shouldForwardToCLI(command, session)) {
+      // Track passthrough commands so the bridge can intercept the CLI echo
+      if (this.executor.isPassthroughCommand(command, session.registry)) {
+        session.pendingPassthrough = {
+          command: command.trim().split(/\s+/)[0],
+          requestId: request_id,
+        };
+      }
       this.sendUserMessage(session.id, command);
       return;
     }
