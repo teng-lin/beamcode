@@ -140,7 +140,11 @@ describe("canonicalize property tests", () => {
   it("object key order does not affect output", () => {
     fc.assert(
       fc.property(
-        fc.dictionary(fc.string({ minLength: 1 }), fc.jsonValue(), { minKeys: 2, maxKeys: 10 }),
+        fc.dictionary(
+          fc.string({ minLength: 1 }).filter((s) => s !== "__proto__"),
+          fc.jsonValue(),
+          { minKeys: 2, maxKeys: 10 },
+        ),
         (obj) => {
           const keys = Object.keys(obj);
           const reversed: Record<string, unknown> = {};
