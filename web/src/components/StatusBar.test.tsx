@@ -181,6 +181,17 @@ describe("StatusBar", () => {
       expect(label.tagName).toBe("SPAN");
       expect(label.closest("button")).toBeNull();
     });
+
+    it("optimistically updates adapterType on selection", async () => {
+      const user = userEvent.setup();
+      setupSession({ adapterType: "claude" });
+      render(<StatusBar />);
+
+      await user.click(screen.getByText("Claude Code"));
+      await user.click(screen.getByText("Codex"));
+
+      expect(useStore.getState().sessions[SESSION]?.adapterType).toBe("codex");
+    });
   });
 
   // ── PermissionModePicker ────────────────────────────────────────────────────
@@ -398,6 +409,40 @@ describe("StatusBar", () => {
       setModels({ value: "gpt-4o", displayName: "GPT-4o" });
       render(<StatusBar />);
       expect(screen.getByText("GPT-4o")).toBeInTheDocument();
+    });
+
+    it("optimistically displays selected model", async () => {
+      const user = userEvent.setup();
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      setModels(
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      );
+      render(<StatusBar />);
+
+      await user.click(screen.getByText("Sonnet"));
+      await user.click(screen.getByText("Claude Opus 4"));
+
+      // Should immediately show "Opus" without waiting for server confirmation
+      expect(screen.getByText("Opus")).toBeInTheDocument();
+    });
+
+    it("clears pending model when server confirms via session state update", () => {
+      setupSession({ model: "claude-sonnet-4-20250514" });
+      setModels(
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      );
+      const { rerender } = render(<StatusBar />);
+
+      // Simulate server confirming the model change
+      store().setSessionState(SESSION, {
+        ...useStore.getState().sessionData[SESSION]!.state!,
+        model: "claude-opus-4-20250514",
+      });
+      rerender(<StatusBar />);
+
+      expect(screen.getByText("Opus")).toBeInTheDocument();
     });
   });
 

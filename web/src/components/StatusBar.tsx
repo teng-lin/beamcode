@@ -26,6 +26,9 @@ function AdapterSelector({ type }: { type: string }) {
 
   const handleSelect = useCallback(
     (adapter: string) => {
+      if (currentSessionId) {
+        useStore.getState().updateSession(currentSessionId, { adapterType: adapter });
+      }
       send({ type: "set_adapter", adapter }, currentSessionId ?? undefined);
       close();
     },
@@ -243,20 +246,36 @@ function ModelPicker() {
   const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
   const isObserver = identityRole === "observer";
   const { open, toggle, close, ref } = useDropdown(currentSessionId);
+  const [pendingModel, setPendingModel] = useState<string | null>(null);
+
+  // Reset pending state on session change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset
+  useEffect(() => {
+    setPendingModel(null);
+  }, [currentSessionId]);
+
+  // Clear pending state once server confirms the model change
+  useEffect(() => {
+    if (pendingModel && model === pendingModel) {
+      setPendingModel(null);
+    }
+  }, [model, pendingModel]);
 
   const canSwitch = models && models.length > 1 && !isObserver;
+  const displayModel = pendingModel ?? model;
 
   const handleSelect = useCallback(
     (value: string) => {
+      setPendingModel(value);
       send({ type: "set_model", model: value }, currentSessionId ?? undefined);
       close();
     },
     [currentSessionId, close],
   );
 
-  if (!model) return null;
+  if (!displayModel) return null;
 
-  const shortName = abbreviateModelName(model, models);
+  const shortName = abbreviateModelName(displayModel, models);
 
   return (
     <div className="relative" ref={ref}>
@@ -286,7 +305,7 @@ function ModelPicker() {
               type="button"
               onClick={() => handleSelect(m.value)}
               className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bc-hover ${
-                m.value === model ? "font-semibold text-bc-text" : "text-bc-text-muted"
+                m.value === displayModel ? "font-semibold text-bc-text" : "text-bc-text-muted"
               }`}
             >
               {m.displayName}
