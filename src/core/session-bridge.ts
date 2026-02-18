@@ -35,6 +35,7 @@ import {
   mapToolProgress,
   mapToolUseSummary,
 } from "./consumer-message-mapper.js";
+import { applyGitInfo, GitInfoTracker } from "./git-info-tracker.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
 import type { Session } from "./session-store.js";
@@ -54,8 +55,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private broadcaster: ConsumerBroadcaster;
   private gatekeeper: ConsumerGatekeeper;
   private gitResolver: GitInfoResolver | null;
-  /** Track sessions where git resolution was already attempted (avoids repeated execFileSync for non-git dirs). */
-  private gitResolveAttempted = new Set<string>();
+  private gitTracker: GitInfoTracker;
   private logger: Logger;
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
@@ -87,6 +87,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     );
     this.gatekeeper = new ConsumerGatekeeper(options?.authenticator ?? null, this.config);
     this.gitResolver = options?.gitResolver ?? null;
+    this.gitTracker = new GitInfoTracker(this.gitResolver);
     this.metrics = options?.metrics ?? null;
     this.adapter = options?.adapter ?? null;
     this.capabilitiesProtocol = new CapabilitiesProtocol(
@@ -147,7 +148,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.getOrCreateSession(sessionId);
     if (params.cwd) session.state.cwd = params.cwd;
     if (params.model) session.state.model = params.model;
-    this.resolveGitInfo(session);
+    this.gitTracker.resolveGitInfo(session);
   }
 
   /** Get a read-only snapshot of a session's state. */
@@ -379,7 +380,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     // Eagerly resolve git info if cwd is known but git info is missing
     // (e.g. resumed session where CLI hasn't reconnected yet)
-    this.resolveGitInfo(session);
+    this.gitTracker.resolveGitInfo(session);
 
     // Send current session state as snapshot
     this.broadcaster.sendTo(ws, {
@@ -1210,10 +1211,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     // Resolve git info (unconditional: CLI is authoritative, cwd may differ from seed)
-    this.gitResolveAttempted.delete(session.id);
+    this.gitTracker.resetAttempt(session.id);
     if (session.state.cwd && this.gitResolver) {
       const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) this.applyGitInfo(session, gitInfo);
+      if (gitInfo) applyGitInfo(session, gitInfo);
     }
 
     // Populate registry from init data (per-session)
@@ -1292,66 +1293,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
 
     // Re-resolve git info — the CLI may have committed, switched branches, etc.
-    this.refreshGitInfo(session);
-  }
-
-  /** Apply resolved git info fields to session state. */
-  private applyGitInfo(
-    session: Session,
-    gitInfo: {
-      branch: string;
-      isWorktree: boolean;
-      repoRoot: string;
-      ahead?: number;
-      behind?: number;
-    },
-  ): void {
-    session.state.git_branch = gitInfo.branch;
-    session.state.is_worktree = gitInfo.isWorktree;
-    session.state.repo_root = gitInfo.repoRoot;
-    session.state.git_ahead = gitInfo.ahead ?? 0;
-    session.state.git_behind = gitInfo.behind ?? 0;
-  }
-
-  /** Resolve git info from cwd if not already attempted (no broadcast). */
-  private resolveGitInfo(session: Session): void {
-    if (!session.state.cwd || !this.gitResolver) return;
-    if (session.state.git_branch || this.gitResolveAttempted.has(session.id)) return;
-    this.gitResolveAttempted.add(session.id);
-    try {
-      const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) this.applyGitInfo(session, gitInfo);
-    } catch {
-      // Best-effort: git resolution failure should never crash consumer connections
+    const gitUpdate = this.gitTracker.refreshGitInfo(session);
+    if (gitUpdate) {
+      this.broadcaster.broadcast(session, {
+        type: "session_update",
+        session: gitUpdate,
+      });
     }
-  }
-
-  /** Re-resolve git info and broadcast session_update if anything changed. */
-  private refreshGitInfo(session: Session): void {
-    if (!session.state.cwd || !this.gitResolver) return;
-
-    const gitInfo = this.gitResolver.resolve(session.state.cwd);
-    if (!gitInfo) return;
-
-    const changed =
-      session.state.git_branch !== gitInfo.branch ||
-      session.state.git_ahead !== (gitInfo.ahead ?? 0) ||
-      session.state.git_behind !== (gitInfo.behind ?? 0) ||
-      session.state.is_worktree !== gitInfo.isWorktree;
-
-    if (!changed) return;
-
-    this.applyGitInfo(session, gitInfo);
-
-    this.broadcaster.broadcast(session, {
-      type: "session_update",
-      session: {
-        git_branch: session.state.git_branch,
-        git_ahead: session.state.git_ahead,
-        git_behind: session.state.git_behind,
-        is_worktree: session.state.is_worktree,
-      } as Partial<SessionState>,
-    });
   }
 
   private handleUnifiedStreamEvent(session: Session, msg: UnifiedMessage): void {
