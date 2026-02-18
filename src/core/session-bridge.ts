@@ -23,6 +23,7 @@ import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
+import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper } from "./consumer-gatekeeper.js";
 import {
@@ -60,6 +61,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private metrics: MetricsCollector | null;
   private slashCommandExecutor: SlashCommandExecutor;
   private queueHandler: MessageQueueHandler;
+  private capabilitiesProtocol: CapabilitiesProtocol;
   private adapter: BackendAdapter | null;
 
   constructor(options?: {
@@ -87,6 +89,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.gitResolver = options?.gitResolver ?? null;
     this.metrics = options?.metrics ?? null;
     this.adapter = options?.adapter ?? null;
+    this.capabilitiesProtocol = new CapabilitiesProtocol(
+      this.config,
+      this.logger,
+      (session, ndjson) => this.sendToCLI(session, ndjson),
+      this.broadcaster,
+      (type, payload) =>
+        this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]),
+      (session) => this.persistSession(session),
+    );
     this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
       this.sendUserMessage(sessionId, content, opts),
     );
@@ -674,60 +685,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.routeUnifiedMessage(session, unified);
   }
 
-  // ── Initialize protocol ─────────────────────────────────────────────────
+  // ── Initialize protocol (delegated to CapabilitiesProtocol) ─────────────
 
   private cancelPendingInitialize(session: Session): void {
-    if (session.pendingInitialize) {
-      clearTimeout(session.pendingInitialize.timer);
-      session.pendingInitialize = null;
-    }
+    this.capabilitiesProtocol.cancelPendingInitialize(session);
   }
 
   private sendInitializeRequest(session: Session): void {
-    if (session.pendingInitialize) return; // dedup
-    const requestId = randomUUID();
-    const timer = setTimeout(() => {
-      if (session.pendingInitialize?.requestId === requestId) {
-        session.pendingInitialize = null;
-        this.emit("capabilities:timeout", { sessionId: session.id });
-      }
-    }, this.config.initializeTimeoutMs);
-    session.pendingInitialize = { requestId, timer };
-    this.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_request",
-        request_id: requestId,
-        request: { subtype: "initialize" },
-      }),
-    );
-  }
-
-  /** Apply capabilities from a control_response (used by unified handler). */
-  private applyCapabilities(
-    session: Session,
-    commands: InitializeCommand[],
-    models: InitializeModel[],
-    account: InitializeAccount | null,
-  ): void {
-    session.state.capabilities = { commands, models, account, receivedAt: Date.now() };
-    this.logger.info(
-      `Capabilities received for session ${session.id}: ${commands.length} commands, ${models.length} models`,
-    );
-
-    if (commands.length > 0) {
-      session.registry.registerFromCLI(commands);
-    }
-
-    this.broadcaster.broadcast(session, {
-      type: "capabilities_ready",
-      commands,
-      models,
-      account,
-      skills: session.state.skills,
-    });
-    this.emit("capabilities:ready", { sessionId: session.id, commands, models, account });
-    this.persistSession(session);
+    this.capabilitiesProtocol.sendInitializeRequest(session);
   }
 
   // ── Structured data APIs ───────────────────────────────────────────────
@@ -1422,49 +1387,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private handleUnifiedControlResponse(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-
-    // Match against pending initialize request
-    if (
-      !session.pendingInitialize ||
-      session.pendingInitialize.requestId !== (m.request_id as string)
-    ) {
-      return;
-    }
-    clearTimeout(session.pendingInitialize.timer);
-    session.pendingInitialize = null;
-
-    if (m.subtype === "error") {
-      this.logger.warn(`Initialize failed: ${m.error}`);
-      // Synthesize capabilities from session state (populated by session_init)
-      // so consumers still receive capabilities_ready even when the CLI
-      // refuses to re-initialize (e.g. "Already initialized").
-      if (!session.state.capabilities && session.state.slash_commands.length > 0) {
-        const commands = session.state.slash_commands.map((name: string) => ({
-          name,
-          description: "",
-        }));
-        this.applyCapabilities(session, commands, [], null);
-      }
-      return;
-    }
-
-    const response = m.response as
-      | {
-          commands?: unknown[];
-          models?: unknown[];
-          account?: unknown;
-        }
-      | undefined;
-    if (!response) return;
-
-    const commands = Array.isArray(response.commands)
-      ? (response.commands as InitializeCommand[])
-      : [];
-    const models = Array.isArray(response.models) ? (response.models as InitializeModel[]) : [];
-    const account = (response.account as InitializeAccount | null) ?? null;
-
-    this.applyCapabilities(session, commands, models, account);
+    this.capabilitiesProtocol.handleControlResponse(session, msg);
   }
 
   private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {
