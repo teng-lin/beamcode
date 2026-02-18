@@ -992,6 +992,178 @@ describe("handleMessage", () => {
     expect(logs[logs.length - 1]).toBe("Green text");
   });
 
+  // ── Queue message helpers & cleanup ─────────────────────────────────
+
+  afterEach(() => {
+    for (const el of document.querySelectorAll("[data-queued-message]")) {
+      el.remove();
+    }
+  });
+
+  /** Seed a queued message into the store for session "s1". */
+  function seedQueuedMessage(content = "queued") {
+    useStore.getState().setQueuedMessage("s1", {
+      consumerId: "c-1",
+      displayName: "Alice",
+      content,
+      queuedAt: 1700000000,
+    });
+  }
+
+  /** Mount a mock DOM element with `data-queued-message` and a fake bounding rect. */
+  function mountQueuedMessageElement(rect = { top: 100, left: 50, width: 300 }): HTMLDivElement {
+    const el = document.createElement("div");
+    el.setAttribute("data-queued-message", "");
+    el.getBoundingClientRect = () => rect as DOMRect;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  // ── message_queued ──────────────────────────────────────────────────────
+
+  it("message_queued: sets queued message in store", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "message_queued",
+        consumer_id: "c-1",
+        display_name: "Alice",
+        content: "Fix the bug",
+        images: [{ media_type: "image/png", data: "base64..." }],
+        queued_at: 1700000000,
+      }),
+    );
+
+    expect(getSessionData()?.queuedMessage).toEqual({
+      consumerId: "c-1",
+      displayName: "Alice",
+      content: "Fix the bug",
+      images: [{ media_type: "image/png", data: "base64..." }],
+      queuedAt: 1700000000,
+    });
+  });
+
+  it("message_queued: works without images field", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "message_queued",
+        consumer_id: "c-1",
+        display_name: "Alice",
+        content: "no images",
+        queued_at: 1700000000,
+      }),
+    );
+
+    const qm = getSessionData()?.queuedMessage;
+    expect(qm?.content).toBe("no images");
+    expect(qm?.images).toBeUndefined();
+  });
+
+  // ── queued_message_updated ────────────────────────────────────────────
+
+  it("queued_message_updated: updates content and images of existing queued message", () => {
+    const ws = openSession();
+    seedQueuedMessage("original");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "queued_message_updated",
+        content: "updated content",
+        images: [{ media_type: "image/jpeg", data: "new-base64" }],
+      }),
+    );
+
+    const qm = getSessionData()?.queuedMessage;
+    expect(qm?.content).toBe("updated content");
+    expect(qm?.images).toEqual([{ media_type: "image/jpeg", data: "new-base64" }]);
+    expect(qm?.consumerId).toBe("c-1");
+    expect(qm?.displayName).toBe("Alice");
+  });
+
+  it("queued_message_updated: preserves isEditingQueue state", () => {
+    const ws = openSession();
+    seedQueuedMessage("original");
+    useStore.getState().setEditingQueue("s1", true);
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_updated", content: "edited" }));
+
+    expect(getSessionData()?.queuedMessage?.content).toBe("edited");
+    expect(getSessionData()?.isEditingQueue).toBe(true);
+  });
+
+  it("queued_message_updated: no-op when no prior queued message exists", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({ type: "queued_message_updated", content: "orphan update" }),
+    );
+
+    expect(getSessionData()?.queuedMessage).toBeNull();
+  });
+
+  // ── queued_message_cancelled ──────────────────────────────────────────
+
+  it("queued_message_cancelled: clears queued message and editing state", () => {
+    const ws = openSession();
+    seedQueuedMessage();
+    useStore.getState().setEditingQueue("s1", true);
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_cancelled" }));
+
+    expect(getSessionData()?.queuedMessage).toBeNull();
+    expect(getSessionData()?.isEditingQueue).toBe(false);
+  });
+
+  // ── queued_message_sent ───────────────────────────────────────────────
+
+  it("queued_message_sent: clears queued message and editing state", () => {
+    const ws = openSession();
+    seedQueuedMessage();
+    useStore.getState().setEditingQueue("s1", true);
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
+
+    expect(getSessionData()?.queuedMessage).toBeNull();
+    expect(getSessionData()?.isEditingQueue).toBe(false);
+  });
+
+  it("queued_message_sent: captures FLIP origin from DOM element", () => {
+    const ws = openSession();
+    seedQueuedMessage();
+
+    mountQueuedMessageElement();
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
+
+    expect(getSessionData()?.flipOrigin).toEqual({ top: 100, left: 50, width: 300 });
+  });
+
+  it("queued_message_sent: clears flipOrigin after 2s safety timeout", () => {
+    const ws = openSession();
+    seedQueuedMessage();
+
+    mountQueuedMessageElement();
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
+    expect(getSessionData()?.flipOrigin).not.toBeNull();
+
+    // 2000ms matches the safety timeout in ws.ts queued_message_sent handler
+    vi.advanceTimersByTime(2001);
+    expect(getSessionData()?.flipOrigin).toBeNull();
+  });
+
+  it("queued_message_sent: no flipOrigin when no DOM element exists", () => {
+    const ws = openSession();
+    seedQueuedMessage();
+
+    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
+
+    expect(getSessionData()?.flipOrigin).toBeNull();
+  });
+
   // ── Unhandled message type ──────────────────────────────────────────────
 
   it("unhandled message type: silent drop, no crash", () => {
