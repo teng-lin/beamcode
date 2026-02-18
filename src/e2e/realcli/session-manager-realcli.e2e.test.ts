@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
@@ -14,6 +15,23 @@ import {
 import { getRealCliPrereqState } from "./prereqs.js";
 
 type SessionManagerEventPayload = { sessionId: string };
+
+function canBindLocalhostSync(): boolean {
+  const probe = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      [
+        "const net=require('node:net');",
+        "const s=net.createServer();",
+        "s.once('error',()=>process.exit(1));",
+        "s.listen(0,'127.0.0.1',()=>s.close(()=>process.exit(0)));",
+      ].join(""),
+    ],
+    { timeout: 3000, stdio: "ignore" },
+  );
+  return probe.status === 0;
+}
 
 function waitForManagerEvent(
   manager: SessionManager,
@@ -85,7 +103,9 @@ function assistantTextContains(msg: unknown, token: string): boolean {
 
 const profile = getE2EProfile();
 const prereqs = getRealCliPrereqState();
-const runFullOnly = prereqs.ok && profile === "realcli-full";
+const canBindLocalhost = canBindLocalhostSync();
+const runSessionManagerRealCli = prereqs.ok && canBindLocalhost;
+const runFullOnly = runSessionManagerRealCli && profile === "realcli-full";
 
 describe("E2E Real CLI SessionManager integration", () => {
   const activeManagers: SessionManager[] = [];
@@ -99,7 +119,7 @@ describe("E2E Real CLI SessionManager integration", () => {
     }
   });
 
-  it.runIf(prereqs.ok)("launch emits process spawn and records PID", async () => {
+  it.runIf(runSessionManagerRealCli)("launch emits process spawn and records PID", async () => {
     const { manager, sessionId } = await setupRealCliSession();
     activeManagers.push(manager);
 
@@ -111,59 +131,71 @@ describe("E2E Real CLI SessionManager integration", () => {
     expect(info?.state === "starting" || info?.state === "connected").toBe(true);
   });
 
-  it.runIf(prereqs.ok)("real CLI connects backend and session becomes connected", async () => {
-    const { manager, sessionId } = await setupRealCliSession();
-    activeManagers.push(manager);
+  it.runIf(runSessionManagerRealCli)(
+    "real CLI connects backend and session becomes connected",
+    async () => {
+      const { manager, sessionId } = await setupRealCliSession();
+      activeManagers.push(manager);
 
-    await waitForManagerEvent(manager, "backend:connected", sessionId, 45_000);
+      await waitForManagerEvent(manager, "backend:connected", sessionId, 45_000);
 
-    expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
-    expect(manager.launcher.getSession(sessionId)?.state).toBe("connected");
-  });
+      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(manager.launcher.getSession(sessionId)?.state).toBe("connected");
+    },
+  );
 
-  it.runIf(prereqs.ok)("real CLI emits session id and capabilities are marked ready", async () => {
-    const { manager, sessionId } = await setupRealCliSession();
-    activeManagers.push(manager);
+  it.runIf(runSessionManagerRealCli)(
+    "real CLI emits session id and capabilities are marked ready",
+    async () => {
+      const { manager, sessionId } = await setupRealCliSession();
+      activeManagers.push(manager);
 
-    await waitForManagerEvent(manager, "backend:connected", sessionId, 45_000);
-    await waitForManagerEvent(manager, "backend:session_id", sessionId, 45_000);
-    await waitForManagerEvent(manager, "capabilities:ready", sessionId, 45_000);
+      await waitForManagerEvent(manager, "backend:connected", sessionId, 45_000);
+      await waitForManagerEvent(manager, "backend:session_id", sessionId, 45_000);
+      await waitForManagerEvent(manager, "capabilities:ready", sessionId, 45_000);
 
-    const info = manager.launcher.getSession(sessionId);
-    expect(info?.cliSessionId).toBeTruthy();
+      const info = manager.launcher.getSession(sessionId);
+      expect(info?.cliSessionId).toBeTruthy();
 
-    const models = manager.getSupportedModels(sessionId);
-    const commands = manager.getSupportedCommands(sessionId);
-    expect(models.length + commands.length).toBeGreaterThan(0);
-  });
+      const models = manager.getSupportedModels(sessionId);
+      const commands = manager.getSupportedCommands(sessionId);
+      expect(models.length + commands.length).toBeGreaterThan(0);
+    },
+  );
 
-  it.runIf(prereqs.ok)("consumer receives cli_connected from real backend", async () => {
-    const { manager, sessionId, port } = await setupRealCliSession();
-    activeManagers.push(manager);
+  it.runIf(runSessionManagerRealCli)(
+    "consumer receives cli_connected from real backend",
+    async () => {
+      const { manager, sessionId, port } = await setupRealCliSession();
+      activeManagers.push(manager);
 
-    const consumer = await connectTestConsumer(port, sessionId);
-    try {
-      await waitForMessageType(consumer, "session_init", 10_000);
-      const connected = await waitForMessageType(consumer, "cli_connected", 45_000);
-      expect((connected as { type: string }).type).toBe("cli_connected");
-    } finally {
-      await closeWebSockets(consumer);
-    }
-  });
+      const consumer = await connectTestConsumer(port, sessionId);
+      try {
+        await waitForMessageType(consumer, "session_init", 10_000);
+        const connected = await waitForMessageType(consumer, "cli_connected", 45_000);
+        expect((connected as { type: string }).type).toBe("cli_connected");
+      } finally {
+        await closeWebSockets(consumer);
+      }
+    },
+  );
 
-  it.runIf(prereqs.ok)("two independent real sessions can connect concurrently", async () => {
-    const session1 = await setupRealCliSession();
-    const session2 = await setupRealCliSession();
-    activeManagers.push(session1.manager, session2.manager);
+  it.runIf(runSessionManagerRealCli)(
+    "two independent real sessions can connect concurrently",
+    async () => {
+      const session1 = await setupRealCliSession();
+      const session2 = await setupRealCliSession();
+      activeManagers.push(session1.manager, session2.manager);
 
-    await Promise.all([
-      waitForManagerEvent(session1.manager, "backend:connected", session1.sessionId, 45_000),
-      waitForManagerEvent(session2.manager, "backend:connected", session2.sessionId, 45_000),
-    ]);
+      await Promise.all([
+        waitForManagerEvent(session1.manager, "backend:connected", session1.sessionId, 45_000),
+        waitForManagerEvent(session2.manager, "backend:connected", session2.sessionId, 45_000),
+      ]);
 
-    expect(session1.manager.bridge.isBackendConnected(session1.sessionId)).toBe(true);
-    expect(session2.manager.bridge.isBackendConnected(session2.sessionId)).toBe(true);
-  });
+      expect(session1.manager.bridge.isBackendConnected(session1.sessionId)).toBe(true);
+      expect(session2.manager.bridge.isBackendConnected(session2.sessionId)).toBe(true);
+    },
+  );
 
   it.runIf(runFullOnly)(
     "full mode: user_message gets an assistant reply from real CLI",

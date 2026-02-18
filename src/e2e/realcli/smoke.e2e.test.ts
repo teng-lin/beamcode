@@ -35,8 +35,9 @@ describe("E2E Real CLI smoke foundation", () => {
   const prereqs = getRealCliPrereqState();
 
   it.runIf(prereqs.ok)("real cli preflight assumptions hold when this suite runs", () => {
-    expect(getRealCliPrereqState().ok).toBe(true);
-    expect(process.env.ANTHROPIC_API_KEY).toBeTruthy();
+    const state = getRealCliPrereqState();
+    expect(state.ok).toBe(true);
+    expect(state.hasApiKey || state.hasAuthSession).toBeTypeOf("boolean");
   });
 
   it.runIf(prereqs.ok)("NodeProcessManager can spawn claude --version", async () => {

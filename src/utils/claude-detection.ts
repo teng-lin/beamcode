@@ -3,11 +3,10 @@ import { execSync } from "node:child_process";
 /**
  * Detects if the Claude CLI is available in the environment.
  *
- * Checks two conditions:
+ * Checks one condition:
  * 1. The 'claude' command is available in PATH
- * 2. An ANTHROPIC_API_KEY is set in the environment
  *
- * @returns true if Claude CLI is available and properly configured, false otherwise
+ * @returns true if Claude CLI is available, false otherwise
  */
 export function isClaudeAvailable(): boolean {
   try {
@@ -17,11 +16,7 @@ export function isClaudeAvailable(): boolean {
       timeout: 3000,
       encoding: "utf-8",
     });
-
-    // Check if API key is available
-    const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
-
-    return hasApiKey;
+    return true;
   } catch {
     // Command failed or doesn't exist
     return false;

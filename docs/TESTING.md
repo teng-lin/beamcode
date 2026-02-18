@@ -178,7 +178,7 @@ pnpm test:e2e
 # Deterministic lane explicitly
 pnpm test:e2e:deterministic
 
-# Real CLI smoke lane (requires Claude CLI + ANTHROPIC_API_KEY)
+# Real CLI smoke lane (requires Claude CLI; API key or CLI login for auth-required tests)
 pnpm test:e2e:realcli:smoke
 
 # Real CLI full lane (same prerequisites)
@@ -206,7 +206,8 @@ The helper in `src/e2e/helpers/test-utils.ts` resolves process manager selection
 3. `E2E_PROFILE in {realcli-smoke, realcli-full}` -> `NodeProcessManager`
 4. deterministic fallback -> Claude CLI auto-detection
 
-Real CLI scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast when prerequisites are missing.
+Real CLI scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast when Claude CLI is missing.
+If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, auth-required tests are skipped.
 
 ### CI lanes
 
