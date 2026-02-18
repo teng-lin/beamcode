@@ -919,15 +919,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // apply them directly instead of sending a separate control_request (SdkUrl-only).
     if (m.capabilities && typeof m.capabilities === "object") {
       const caps = m.capabilities as {
-        commands?: unknown[];
-        models?: unknown[];
-        account?: unknown;
+        commands?: InitializeCommand[];
+        models?: InitializeModel[];
+        account?: InitializeAccount;
       };
       this.capabilitiesProtocol.applyCapabilities(
         session,
         Array.isArray(caps.commands) ? caps.commands : [],
         Array.isArray(caps.models) ? caps.models : [],
-        (caps.account as import("../types/cli-messages.js").InitializeAccount | null) ?? null,
+        caps.account ?? null,
       );
     } else {
       this.capabilitiesProtocol.sendInitializeRequest(session);

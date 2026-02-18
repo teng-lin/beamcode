@@ -58,6 +58,14 @@ function printHelp(): void {
 `);
 }
 
+function validateAdapterName(value: string, source: string): CliAdapterName {
+  if (!CLI_ADAPTER_NAMES.includes(value as CliAdapterName)) {
+    console.error(`Error: ${source} must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
+    process.exit(1);
+  }
+  return value as CliAdapterName;
+}
+
 function parseArgs(argv: string[]): CliConfig {
   const config: CliConfig = {
     port: 3456,
@@ -96,15 +104,9 @@ function parseArgs(argv: string[]): CliConfig {
       case "--claude-binary":
         config.claudeBinary = argv[++i];
         break;
-      case "--adapter": {
-        const value = argv[++i];
-        if (!CLI_ADAPTER_NAMES.includes(value as CliAdapterName)) {
-          console.error(`Error: --adapter must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
-          process.exit(1);
-        }
-        config.adapter = value as CliAdapterName;
+      case "--adapter":
+        config.adapter = validateAdapterName(argv[++i], "--adapter");
         break;
-      }
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -121,12 +123,7 @@ function parseArgs(argv: string[]): CliConfig {
   }
 
   if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
-    const envValue = process.env.BEAMCODE_ADAPTER;
-    if (!CLI_ADAPTER_NAMES.includes(envValue as CliAdapterName)) {
-      console.error(`Error: BEAMCODE_ADAPTER must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
-      process.exit(1);
-    }
-    config.adapter = envValue as CliAdapterName;
+    config.adapter = validateAdapterName(process.env.BEAMCODE_ADAPTER, "BEAMCODE_ADAPTER");
   }
 
   return config;
@@ -235,28 +232,36 @@ async function main(): Promise<void> {
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
   let activeSessionId: string;
+  const isInverted = isInvertedConnectionAdapter(adapter);
 
-  if (isInvertedConnectionAdapter(adapter)) {
+  if (isInverted) {
     // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
-    const session = sessionManager.launcher.launch({
+    activeSessionId = sessionManager.launcher.launch({
       cwd: config.cwd,
       model: config.model,
-    });
-    activeSessionId = session.sessionId;
-    sessionManager.bridge.seedSessionState(activeSessionId, {
-      cwd: config.cwd,
-      model: config.model,
-    });
+    }).sessionId;
   } else {
     // Direct-connection flow (Codex, ACP): adapter handles spawning internally
     activeSessionId = randomUUID();
-    sessionManager.bridge.seedSessionState(activeSessionId, {
-      cwd: config.cwd,
-      model: config.model,
-    });
-    await sessionManager.bridge.connectBackend(activeSessionId, {
-      adapterOptions: { cwd: config.cwd },
-    });
+  }
+
+  sessionManager.bridge.seedSessionState(activeSessionId, {
+    cwd: config.cwd,
+    model: config.model,
+  });
+
+  if (!isInverted) {
+    try {
+      await sessionManager.bridge.connectBackend(activeSessionId, {
+        adapterOptions: { cwd: config.cwd },
+      });
+    } catch (err) {
+      console.error(
+        `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
+      );
+      console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
+      process.exit(1);
+    }
   }
   httpServer.setActiveSessionId(activeSessionId);
 
