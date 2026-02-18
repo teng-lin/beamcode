@@ -1,9 +1,9 @@
 import type { SessionState } from "../types/session-state.js";
-import type { RegisteredCommand, SlashCommandRegistry } from "./slash-command-registry.js";
+import type { SlashCommandRegistry } from "./slash-command-registry.js";
 
 export interface SlashCommandResult {
   content: string;
-  source: "emulated" | "pty";
+  source: "emulated";
   durationMs: number;
 }
 
@@ -14,10 +14,7 @@ function commandName(command: string): string {
 
 export class SlashCommandExecutor {
   /** True if this command should go to the CLI (everything except /help, /clear). */
-  shouldForwardToCLI(
-    command: string,
-    _session: { state: SessionState; registry: SlashCommandRegistry | null },
-  ): boolean {
+  shouldForwardToCLI(command: string): boolean {
     const name = commandName(command);
     return name !== "/help" && name !== "/clear";
   }
@@ -40,27 +37,6 @@ export class SlashCommandExecutor {
       };
     }
     throw new Error(`Command "${name}" must be forwarded to CLI`);
-  }
-
-  /** Returns true if the command is a skill command in the registry. */
-  isSkillCommand(command: string, registry: SlashCommandRegistry | null): boolean {
-    return this.registryMatch(command, registry, (cmd) => cmd.source === "skill");
-  }
-
-  /** Returns true if the command is a passthrough command (forwarded to CLI without emulation). */
-  isPassthroughCommand(command: string, registry: SlashCommandRegistry | null): boolean {
-    return this.registryMatch(command, registry, (cmd) => cmd.category === "passthrough");
-  }
-
-  /** Look up a command in the registry and test it against a predicate. */
-  private registryMatch(
-    command: string,
-    registry: SlashCommandRegistry | null,
-    predicate: (cmd: RegisteredCommand) => boolean,
-  ): boolean {
-    if (!registry) return false;
-    const cmd = registry.find(commandName(command));
-    return cmd !== undefined && predicate(cmd);
   }
 
   /** Build /help output from capabilities, slash_commands, and registry. */

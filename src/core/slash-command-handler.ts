@@ -1,9 +1,9 @@
 /**
  * SlashCommandHandler -- extracted from SessionBridge (Phase 2).
  *
- * Handles slash command routing: determines whether a command should be
- * forwarded to the CLI, executed locally, or reported as unknown.
- * SessionBridge delegates to this class while retaining the public API surface.
+ * Binary routing: commands are either forwarded to the CLI or executed locally
+ * (/help, /clear). All forwarded commands get echo interception via
+ * pendingPassthrough so the bridge can capture the CLI response.
  */
 
 import type { BridgeEventMap } from "../types/events.js";
@@ -51,51 +51,25 @@ export class SlashCommandHandler {
     this.emitEvent = deps.emitEvent;
   }
 
-  /** Returns true if the command should be forwarded to the CLI as a user message (native, skill, or passthrough). */
-  private shouldForwardToCLI(command: string, session: Session): boolean {
-    return (
-      this.executor.isNativeCommand(command, session.state) ||
-      this.executor.isSkillCommand(command, session.registry) ||
-      this.executor.isPassthroughCommand(command, session.registry)
-    );
-  }
-
   handleSlashCommand(
     session: Session,
     msg: { type: "slash_command"; command: string; request_id?: string },
   ): void {
     const { command, request_id } = msg;
 
-    if (this.shouldForwardToCLI(command, session)) {
-      // Track passthrough commands so the bridge can intercept the CLI echo
-      if (this.executor.isPassthroughCommand(command, session.registry)) {
-        session.pendingPassthrough = {
-          command: command.trim().split(/\s+/)[0],
-          requestId: request_id,
-        };
-      }
+    if (this.executor.shouldForwardToCLI(command)) {
+      // ALL forwarded commands get echo interception (not just passthrough)
+      session.pendingPassthrough = {
+        command: command.trim().split(/\s+/)[0],
+        requestId: request_id,
+      };
       this.sendUserMessage(session.id, command);
       return;
     }
 
-    if (!this.executor.canHandle(command, session.state)) {
-      const errorMsg = `Unknown slash command: ${command.split(/\s+/)[0]}`;
-      this.broadcaster.broadcast(session, {
-        type: "slash_command_error",
-        command,
-        request_id,
-        error: errorMsg,
-      });
-      this.emitEvent("slash_command:failed", {
-        sessionId: session.id,
-        command,
-        error: errorMsg,
-      });
-      return;
-    }
-
+    // Local commands: /help, /clear
     this.executor
-      .execute(session.state, command, session.cliSessionId ?? session.id, session.registry)
+      .executeLocal(session.state, command, session.registry)
       .then((result) => {
         this.broadcaster.broadcast(session, {
           type: "slash_command_result",
@@ -131,22 +105,17 @@ export class SlashCommandHandler {
   async executeSlashCommand(
     session: Session,
     command: string,
-  ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
-    if (this.shouldForwardToCLI(command, session)) {
+  ): Promise<{ content: string; source: "emulated" } | null> {
+    if (this.executor.shouldForwardToCLI(command)) {
+      // ALL forwarded commands get echo interception
+      session.pendingPassthrough = {
+        command: command.trim().split(/\s+/)[0],
+      };
       this.sendUserMessage(session.id, command);
       return null; // result comes back via normal CLI message flow
     }
 
-    if (!this.executor.canHandle(command, session.state)) {
-      return null;
-    }
-
-    const result = await this.executor.execute(
-      session.state,
-      command,
-      session.cliSessionId ?? session.id,
-      session.registry,
-    );
+    const result = await this.executor.executeLocal(session.state, command, session.registry);
     return { content: result.content, source: result.source };
   }
 }

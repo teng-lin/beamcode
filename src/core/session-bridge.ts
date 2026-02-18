@@ -855,7 +855,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   async executeSlashCommand(
     sessionId: string,
     command: string,
-  ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
+  ): Promise<{ content: string; source: "emulated" } | null> {
     const session = this.store.get(sessionId);
     if (!session) return null;
     return this.slashCommandHandler.executeSlashCommand(session, command);

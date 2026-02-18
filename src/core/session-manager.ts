@@ -336,7 +336,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   async executeSlashCommand(
     sessionId: string,
     command: string,
-  ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
+  ): Promise<{ content: string; source: "emulated" } | null> {
     return this.bridge.executeSlashCommand(sessionId, command);
   }
 

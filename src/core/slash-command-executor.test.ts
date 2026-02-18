@@ -61,44 +61,39 @@ describe("SlashCommandExecutor", () => {
   describe("shouldForwardToCLI", () => {
     it("returns true for CLI commands", () => {
       const executor = createExecutor();
-      const session = { state: makeState(), registry: null };
 
-      expect(executor.shouldForwardToCLI("/model", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/model some-arg", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/compact", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/commit", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/status", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/vim", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/config", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/cost", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/context", session)).toBe(true);
-      expect(executor.shouldForwardToCLI("/unknown-cmd", session)).toBe(true);
+      expect(executor.shouldForwardToCLI("/model")).toBe(true);
+      expect(executor.shouldForwardToCLI("/model some-arg")).toBe(true);
+      expect(executor.shouldForwardToCLI("/compact")).toBe(true);
+      expect(executor.shouldForwardToCLI("/commit")).toBe(true);
+      expect(executor.shouldForwardToCLI("/status")).toBe(true);
+      expect(executor.shouldForwardToCLI("/vim")).toBe(true);
+      expect(executor.shouldForwardToCLI("/config")).toBe(true);
+      expect(executor.shouldForwardToCLI("/cost")).toBe(true);
+      expect(executor.shouldForwardToCLI("/context")).toBe(true);
+      expect(executor.shouldForwardToCLI("/unknown-cmd")).toBe(true);
     });
 
     it("returns false for /help", () => {
       const executor = createExecutor();
-      const session = { state: makeState(), registry: null };
-      expect(executor.shouldForwardToCLI("/help", session)).toBe(false);
+      expect(executor.shouldForwardToCLI("/help")).toBe(false);
     });
 
     it("returns false for /clear", () => {
       const executor = createExecutor();
-      const session = { state: makeState(), registry: null };
-      expect(executor.shouldForwardToCLI("/clear", session)).toBe(false);
+      expect(executor.shouldForwardToCLI("/clear")).toBe(false);
     });
 
     it("handles commands with leading whitespace", () => {
       const executor = createExecutor();
-      const session = { state: makeState(), registry: null };
-      expect(executor.shouldForwardToCLI("  /help", session)).toBe(false);
-      expect(executor.shouldForwardToCLI("  /model", session)).toBe(true);
+      expect(executor.shouldForwardToCLI("  /help")).toBe(false);
+      expect(executor.shouldForwardToCLI("  /model")).toBe(true);
     });
 
     it("handles commands with arguments", () => {
       const executor = createExecutor();
-      const session = { state: makeState(), registry: null };
-      expect(executor.shouldForwardToCLI("/help topic", session)).toBe(false);
-      expect(executor.shouldForwardToCLI("/model gpt-4", session)).toBe(true);
+      expect(executor.shouldForwardToCLI("/help topic")).toBe(false);
+      expect(executor.shouldForwardToCLI("/model gpt-4")).toBe(true);
     });
   });
 
@@ -172,53 +167,6 @@ describe("SlashCommandExecutor", () => {
       await expect(executor.executeLocal(state, "/compact")).rejects.toThrow(
         'Command "/compact" must be forwarded to CLI',
       );
-    });
-  });
-
-  describe("isPassthroughCommand", () => {
-    it("identifies passthrough commands from registry", () => {
-      const executor = createExecutor();
-      const registry = new SlashCommandRegistry();
-      expect(executor.isPassthroughCommand("/cost", registry)).toBe(true);
-      expect(executor.isPassthroughCommand("/context", registry)).toBe(true);
-      expect(executor.isPassthroughCommand("/compact", registry)).toBe(true);
-      expect(executor.isPassthroughCommand("/files", registry)).toBe(true);
-      expect(executor.isPassthroughCommand("/release-notes", registry)).toBe(true);
-    });
-
-    it("rejects non-passthrough commands", () => {
-      const executor = createExecutor();
-      const registry = new SlashCommandRegistry();
-      expect(executor.isPassthroughCommand("/help", registry)).toBe(false);
-      expect(executor.isPassthroughCommand("/model", registry)).toBe(false);
-      expect(executor.isPassthroughCommand("/status", registry)).toBe(false);
-    });
-
-    it("returns false when registry is null", () => {
-      const executor = createExecutor();
-      expect(executor.isPassthroughCommand("/cost", null)).toBe(false);
-    });
-
-    it("handles commands with leading whitespace", () => {
-      const executor = createExecutor();
-      const registry = new SlashCommandRegistry();
-      expect(executor.isPassthroughCommand("  /cost", registry)).toBe(true);
-    });
-  });
-
-  describe("isSkillCommand", () => {
-    it("identifies skill commands from registry", () => {
-      const registry = new SlashCommandRegistry();
-      registry.registerSkills(["commit"]);
-      const executor = createExecutor();
-      expect(executor.isSkillCommand("/commit", registry)).toBe(true);
-      expect(executor.isSkillCommand("/help", registry)).toBe(false);
-      expect(executor.isSkillCommand("/nonexistent", registry)).toBe(false);
-    });
-
-    it("returns false when no registry", () => {
-      const executor = createExecutor();
-      expect(executor.isSkillCommand("/commit", null)).toBe(false);
     });
   });
 
