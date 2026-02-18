@@ -20,7 +20,6 @@ import type { UnifiedMessage } from "./types/unified-message.js";
 
 // ─── Dependency contracts ────────────────────────────────────────────────────
 
-type SendToCLI = (session: Session, ndjson: string) => void;
 type EmitEvent = (type: string, payload: unknown) => void;
 type PersistSession = (session: Session) => void;
 
@@ -30,7 +29,6 @@ export class CapabilitiesProtocol {
   constructor(
     private config: ResolvedConfig,
     private logger: Logger,
-    private sendToCLI: SendToCLI,
     private broadcaster: ConsumerBroadcaster,
     private emitEvent: EmitEvent,
     private persistSession: PersistSession,
@@ -46,14 +44,16 @@ export class CapabilitiesProtocol {
       }
     }, this.config.initializeTimeoutMs);
     session.pendingInitialize = { requestId, timer };
-    this.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_request",
-        request_id: requestId,
-        request: { subtype: "initialize" },
-      }),
-    );
+
+    const ndjson = JSON.stringify({
+      type: "control_request",
+      request_id: requestId,
+      request: { subtype: "initialize" },
+    });
+
+    if (session.backendSession) {
+      session.backendSession.sendRaw(ndjson);
+    }
   }
 
   cancelPendingInitialize(session: Session): void {

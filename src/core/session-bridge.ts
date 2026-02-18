@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { ConsoleLogger } from "../adapters/console-logger.js";
-import { translate as translateCLI } from "../adapters/sdk-url/message-translator.js";
+import { normalizeInbound } from "../adapters/sdk-url/inbound-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
@@ -9,7 +8,6 @@ import type { MetricsCollector } from "../interfaces/metrics.js";
 import type { SessionStorage } from "../interfaces/storage.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type {
-  CLIMessage,
   InitializeAccount,
   InitializeCommand,
   InitializeModel,
@@ -21,7 +19,6 @@ import type { BridgeEventMap } from "../types/events.js";
 import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
-import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
 import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
@@ -48,36 +45,6 @@ import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Strip `<local-command-stdout>` wrapper tags that the CLI adds to local command output. */
-const LOCAL_STDOUT_RE = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
-
-/** Extract readable text content from a CLI user-echo message (passthrough command response). */
-function extractPassthroughContent(msg: { message?: { content: unknown } }): string {
-  const raw = msg.message?.content;
-  let text: string;
-  if (typeof raw === "string") {
-    text = raw;
-  } else if (Array.isArray(raw)) {
-    text = raw
-      .filter(
-        (b: unknown): b is { type: string; text: string } =>
-          b != null &&
-          typeof b === "object" &&
-          (b as { type?: unknown }).type === "text" &&
-          typeof (b as { text?: unknown }).text === "string",
-      )
-      .map((b) => b.text)
-      .join("\n");
-  } else {
-    return "";
-  }
-  // Unwrap <local-command-stdout> if present
-  const match = LOCAL_STDOUT_RE.exec(text);
-  return match ? match[1].trim() : text.trim();
-}
 
 // ─── SessionBridge ───────────────────────────────────────────────────────────
 
@@ -124,7 +91,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.capabilitiesProtocol = new CapabilitiesProtocol(
       this.config,
       this.logger,
-      (session, ndjson) => this.sendToCLI(session, ndjson),
       this.broadcaster,
       emitEvent,
       (session) => this.persistSession(session),
@@ -138,7 +104,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       logger: this.logger,
       metrics: this.metrics,
       broadcaster: this.broadcaster,
-      sendToCLI: (session, ndjson) => this.sendToCLI(session, ndjson),
       routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
       emitEvent,
     });
@@ -233,16 +198,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     this.capabilitiesProtocol.cancelPendingInitialize(session);
 
-    // Close CLI socket
-    if (session.cliSocket) {
-      try {
-        session.cliSocket.close();
-      } catch {
-        // ignore close errors
-      }
-      session.cliSocket = null;
-    }
-
     // Close backend session
     if (session.backendSession) {
       session.backendAbort?.abort();
@@ -277,82 +232,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
     this.slashCommandExecutor.dispose();
     this.removeAllListeners();
-  }
-
-  // ── CLI WebSocket handlers ───────────────────────────────────────────────
-
-  handleCLIOpen(ws: WebSocketLike, sessionId: string): void {
-    const session = this.getOrCreateSession(sessionId);
-    session.cliSocket = ws;
-    this.logger.info(`CLI connected for session ${sessionId}`);
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "cli:connected",
-      sessionId,
-    });
-    this.broadcaster.broadcast(session, { type: "cli_connected" });
-    this.emit("cli:connected", { sessionId });
-    this.emit("backend:connected", { sessionId });
-
-    // Flush any messages that were queued while waiting for CLI to connect
-    if (session.pendingMessages.length > 0) {
-      this.logger.info(
-        `Flushing ${session.pendingMessages.length} queued message(s) for session ${sessionId}`,
-      );
-      for (const ndjson of session.pendingMessages) {
-        this.sendToCLI(session, ndjson);
-      }
-      session.pendingMessages = [];
-    }
-  }
-
-  handleCLIMessage(sessionId: string, data: string | Buffer): void {
-    const raw = typeof data === "string" ? data : data.toString("utf-8");
-    const session = this.store.get(sessionId);
-    if (!session) return;
-
-    session.lastActivity = Date.now();
-
-    const { messages, errors } = parseNDJSON<CLIMessage>(raw);
-
-    for (const error of errors) {
-      this.logger.warn(`Failed to parse CLI message: ${error.substring(0, 200)}`);
-    }
-
-    for (const msg of messages) {
-      this.routeCLIMessage(session, msg);
-    }
-  }
-
-  handleCLIClose(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-
-    this.capabilitiesProtocol.cancelPendingInitialize(session);
-
-    session.cliSocket = null;
-    this.logger.info(`CLI disconnected for session ${sessionId}`);
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "cli:disconnected",
-      sessionId,
-    });
-    this.broadcaster.broadcast(session, { type: "cli_disconnected" });
-    this.emit("cli:disconnected", { sessionId });
-    this.emit("backend:disconnected", {
-      sessionId,
-      code: 1000,
-      reason: "CLI process disconnected",
-    });
-
-    // Cancel any pending permission requests (only participants see these)
-    for (const [reqId] of session.pendingPermissions) {
-      this.broadcaster.broadcastToParticipants(session, {
-        type: "permission_cancelled",
-        request_id: reqId,
-      });
-    }
-    session.pendingPermissions.clear();
   }
 
   // ── Consumer WebSocket handlers ──────────────────────────────────────────
@@ -490,8 +369,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       identity,
     });
 
-    // Notify consumer of current CLI/backend connection state
-    if (session.cliSocket || session.backendSession) {
+    // Notify consumer of current backend connection state
+    if (session.backendSession) {
       this.broadcaster.sendTo(ws, { type: "cli_connected" });
     } else {
       this.broadcaster.sendTo(ws, { type: "cli_disconnected" });
@@ -621,25 +500,27 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, userMsg);
 
-    // Build content: if images are present, use content block array; otherwise plain string
-    const images = options?.images;
-    const messageContent: string | unknown[] = images?.length
-      ? [
-          ...images.map((img) => ({
-            type: "image",
-            source: { type: "base64", media_type: img.media_type, data: img.data },
-          })),
-          { type: "text", text: content },
-        ]
-      : content;
-
-    const ndjson = serializeNDJSON({
-      type: "user",
-      message: { role: "user", content: messageContent },
-      parent_tool_use_id: null,
-      session_id: options?.sessionIdOverride || session.state.session_id || "",
-    }).trimEnd(); // serializeNDJSON adds \n, sendToCLI also adds \n
-    this.sendToCLI(session, ndjson);
+    // Route through BackendSession
+    if (session.backendSession) {
+      const unified = normalizeInbound({
+        type: "user_message",
+        content,
+        session_id: options?.sessionIdOverride || session.state.session_id || "",
+        images: options?.images,
+      });
+      if (unified) {
+        session.backendSession.send(unified);
+      }
+    } else {
+      // Queue for flush when backend connects
+      const ndjson = JSON.stringify({
+        type: "user",
+        content,
+        session_id: options?.sessionIdOverride || session.state.session_id || "",
+        ...(options?.images ? { images: options.images } : {}),
+      });
+      session.pendingMessages.push(ndjson);
+    }
     this.persistSession(session);
   }
 
@@ -669,31 +550,22 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     this.emit("permission:resolved", { sessionId, requestId, behavior });
 
-    let innerResponse: Record<string, unknown>;
-    if (behavior === "allow") {
-      innerResponse = {
-        behavior: "allow",
-        updatedInput: options?.updatedInput ?? pending.input ?? {},
-      };
-      if (options?.updatedPermissions?.length) {
-        innerResponse.updatedPermissions = options.updatedPermissions;
-      }
-    } else {
-      innerResponse = {
-        behavior: "deny",
-        message: options?.message || "Denied by user",
-      };
-    }
-
-    const ndjson = JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
+    // Route through BackendSession
+    if (session.backendSession) {
+      const unified = normalizeInbound({
+        type: "permission_response",
         request_id: requestId,
-        response: innerResponse,
-      },
-    });
-    this.sendToCLI(session, ndjson);
+        behavior,
+        updated_input: options?.updatedInput,
+        updated_permissions: options?.updatedPermissions as
+          | import("../types/cli-messages.js").PermissionUpdate[]
+          | undefined,
+        message: options?.message,
+      });
+      if (unified) {
+        session.backendSession.send(unified);
+      }
+    }
   }
 
   /** Send an interrupt to the CLI for a session. */
@@ -713,50 +585,20 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   private sendControlRequest(sessionId: string, request: Record<string, unknown>): void {
     const session = this.store.get(sessionId);
-    if (!session) return;
-    const ndjson = JSON.stringify({
-      type: "control_request",
-      request_id: randomUUID(),
-      request,
-    });
-    this.sendToCLI(session, ndjson);
-  }
+    if (!session?.backendSession) return;
 
-  // ── CLI message routing ──────────────────────────────────────────────────
-
-  private routeCLIMessage(session: Session, msg: CLIMessage): void {
-    // Intercept CLI user-echo for forwarded slash commands
-    if (msg.type === "user" && session.pendingPassthrough) {
-      const { command, requestId } = session.pendingPassthrough;
-      session.pendingPassthrough = null;
-      const content = extractPassthroughContent(msg);
-      const consumerMsg: ConsumerMessage = {
-        type: "slash_command_result",
-        command,
-        request_id: requestId,
-        content,
-        source: "cli",
-      };
-      session.messageHistory.push(consumerMsg);
-      this.trimMessageHistory(session);
-      this.broadcaster.broadcast(session, consumerMsg);
-      this.emit("slash_command:executed", {
-        sessionId: session.id,
-        command,
-        source: "cli",
-        durationMs: 0,
-      });
-      return;
+    let unified: UnifiedMessage | null = null;
+    if (request.subtype === "interrupt") {
+      unified = normalizeInbound({ type: "interrupt" });
+    } else if (request.subtype === "set_model") {
+      unified = normalizeInbound({ type: "set_model", model: request.model as string });
+    } else if (request.subtype === "set_permission_mode") {
+      unified = normalizeInbound({ type: "set_permission_mode", mode: request.mode as string });
     }
 
-    const unified = translateCLI(msg);
-    if (!unified) {
-      if (msg.type !== "keep_alive" && msg.type !== "user") {
-        this.logger.warn(`Unrecognized CLI message type "${msg.type}" in session ${session.id}`);
-      }
-      return;
+    if (unified) {
+      session.backendSession.send(unified);
     }
-    this.routeUnifiedMessage(session, unified);
   }
 
   // ── Structured data APIs ───────────────────────────────────────────────
@@ -865,37 +707,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return this.slashCommandHandler.executeSlashCommand(session, command);
   }
 
-  // ── Transport helpers ────────────────────────────────────────────────────
-
-  private sendToCLI(session: Session, ndjson: string): void {
-    if (!session.cliSocket) {
-      // Queue the message — CLI might still be starting up
-      this.logger.info(`CLI not yet connected for session ${session.id}, queuing message`);
-      // Cap pending messages to prevent unbounded memory growth
-      if (session.pendingMessages.length >= this.config.pendingMessageQueueMaxSize) {
-        this.logger.warn(
-          `Pending message queue full for session ${session.id}, dropping oldest message`,
-        );
-        session.pendingMessages.shift();
-      }
-      session.pendingMessages.push(ndjson);
-      return;
-    }
-    try {
-      // NDJSON requires a newline delimiter
-      session.cliSocket.send(`${ndjson}\n`);
-    } catch (err) {
-      this.logger.error(`Failed to send to CLI for session ${session.id}`, {
-        error: err,
-      });
-      this.emit("error", {
-        source: "sendToCLI",
-        error: err instanceof Error ? err : new Error(String(err)),
-        sessionId: session.id,
-      });
-    }
-  }
-
   /** Push a session name update to all connected consumers for a session. */
   broadcastNameUpdate(sessionId: string, name: string): void {
     const session = this.store.get(sessionId);
@@ -967,6 +778,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   async disconnectBackend(sessionId: string): Promise<void> {
     const session = this.store.get(sessionId);
     if (!session) return;
+    this.capabilitiesProtocol.cancelPendingInitialize(session);
     return this.backendLifecycle.disconnectBackend(session);
   }
 

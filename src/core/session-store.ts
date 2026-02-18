@@ -29,9 +29,8 @@ export interface QueuedMessage {
 
 export interface Session {
   id: string;
-  cliSocket: WebSocketLike | null;
   cliSessionId?: string;
-  /** BackendSession from BackendAdapter (coexistence: set when adapter path is used). */
+  /** BackendSession from BackendAdapter. */
   backendSession: BackendSession | null;
   /** AbortController for the backend message consumption loop. */
   backendAbort: AbortController | null;
@@ -136,7 +135,7 @@ export class SessionStore {
     return {
       id: session.id,
       state: session.state,
-      cliConnected: session.cliSocket !== null,
+      cliConnected: session.backendSession !== null,
       consumerCount: session.consumerSockets.size,
       consumers: Array.from(session.consumerSockets.values()).map(toPresenceEntry),
       pendingPermissions: Array.from(session.pendingPermissions.values()),
@@ -150,7 +149,8 @@ export class SessionStore {
   }
 
   isCliConnected(id: string): boolean {
-    return !!this.sessions.get(id)?.cliSocket;
+    const session = this.sessions.get(id);
+    return !!session?.backendSession;
   }
 
   /** Remove a session from the map and storage (does NOT close sockets). */
@@ -179,7 +179,6 @@ export class SessionStore {
   ): Session {
     return {
       id,
-      cliSocket: null,
       backendSession: null,
       backendAbort: null,
       consumerSockets: new Map(),

@@ -5,61 +5,81 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import {
+  createBridgeWithAdapter,
+  MockBackendAdapter,
+  type MockBackendSession,
+  makeControlResponseUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  noopLogger,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
   authContext,
   createTestSocket as createMockSocket,
-  makeInitMsg,
-  makeResultMsg,
-  noopLogger,
-  flushPromises as tick,
 } from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createBridge(options?: { storage?: MemoryStorage; authenticator?: Authenticator }) {
-  const storage = options?.storage ?? new MemoryStorage();
-  return {
-    bridge: new SessionBridge({
-      storage,
-      authenticator: options?.authenticator,
-      config: { port: 3456 },
-      logger: noopLogger,
-    }),
+/** Check whether the backend received a user_message with the given text content. */
+function backendReceivedUserMessage(backendSession: MockBackendSession, text: string): boolean {
+  return backendSession.sentMessages.some(
+    (m) =>
+      m.type === "user_message" &&
+      m.content.some((c) => c.type === "text" && "text" in c && c.text === text),
+  );
+}
+
+/**
+ * Create a bridge with adapter AND a custom authenticator.
+ * Needed for the observer access-control test.
+ */
+function createBridgeWithAuth(authenticator: Authenticator) {
+  const storage = new MemoryStorage();
+  const adapter = new MockBackendAdapter();
+  const bridge = new SessionBridge({
     storage,
-  };
+    authenticator,
+    config: { port: 3456 },
+    logger: noopLogger,
+    adapter,
+  });
+  return { bridge, storage, adapter };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SessionBridge — slash commands", () => {
   let bridge: SessionBridge;
+  let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    const created = createBridge();
+    const created = createBridgeWithAdapter();
     bridge = created.bridge;
+    adapter = created.adapter;
   });
 
   // ── slash_command routing ────────────────────────────────────────────
 
   describe("slash_command routing", () => {
-    it("observers cannot send slash_command messages", () => {
+    it("observers cannot send slash_command messages", async () => {
       const authenticator: Authenticator = {
         async authenticate(): Promise<ConsumerIdentity> {
           return { userId: "obs-1", displayName: "Observer", role: "observer" };
         },
       };
-      const { bridge } = createBridge({ authenticator });
-      const cliSocket = createMockSocket();
+      const { bridge: authBridge } = createBridgeWithAuth(authenticator);
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      await authBridge.connectBackend("sess-1");
+      authBridge.handleConsumerOpen(ws, authContext("sess-1"));
 
       // Wait for auth to complete
       return new Promise<void>((resolve) => {
         setTimeout(() => {
           ws.sentMessages.length = 0;
-          bridge.handleConsumerMessage(
+          authBridge.handleConsumerMessage(
             ws,
             "sess-1",
             JSON.stringify({ type: "slash_command", command: "/model" }),
@@ -71,44 +91,40 @@ describe("SessionBridge — slash commands", () => {
       });
     });
 
-    it("forwards native commands as user messages to CLI", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      const ws = createMockSocket();
+    it("forwards native commands as user messages to CLI", async () => {
+      const consumerSocket = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
+      backendSession.pushMessage(
+        makeSessionInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
       );
+      await tick();
 
-      ws.sentMessages.length = 0;
-      cliSocket.sentMessages.length = 0;
+      consumerSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
-        ws,
+        consumerSocket,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/compact" }),
       );
 
-      // CLI should receive a user message with the command text
-      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/compact")).toBe(
-        true,
-      );
+      // Backend should receive a user_message with the command text
+      expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
 
-    it("forwards /model command to CLI with pendingPassthrough", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("forwards /model command to CLI with pendingPassthrough", async () => {
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ model: "claude-opus-4-6" }));
+      backendSession.pushMessage(makeSessionInitMsg({ model: "claude-opus-4-6" }));
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         ws,
@@ -116,48 +132,40 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/model", request_id: "req-1" }),
       );
 
-      // CLI should receive a user message with the command text
-      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/model")).toBe(
-        true,
-      );
+      // Backend should receive a user_message with the command text
+      expect(backendReceivedUserMessage(backendSession, "/model")).toBe(true);
     });
 
-    it("forwards unknown commands to CLI (no local error)", () => {
-      const bridge = new SessionBridge({
-        config: { port: 3456 },
-        logger: noopLogger,
-      });
-      const cliSocket = createMockSocket();
+    it("forwards unknown commands to CLI (no local error)", async () => {
+      const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      await noPtyBridge.connectBackend("sess-1");
+      const backendSession = noPtyAdapter.getSession("sess-1")!;
+      noPtyBridge.handleConsumerOpen(ws, authContext("sess-1"));
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
-      bridge.handleConsumerMessage(
+      noPtyBridge.handleConsumerMessage(
         ws,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/nonexistent", request_id: "req-2" }),
       );
 
-      // CLI should receive a user message — the CLI will report unknown commands
-      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(
-        cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/nonexistent"),
-      ).toBe(true);
+      // Backend should receive a user_message — the CLI will report unknown commands
+      expect(backendReceivedUserMessage(backendSession, "/nonexistent")).toBe(true);
     });
 
     it("echoes request_id in results for local commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       ws.sentMessages.length = 0;
 
@@ -176,13 +184,13 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("emits slash_command:executed event for local commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const events: any[] = [];
       bridge.on("slash_command:executed", (e) => events.push(e));
@@ -201,25 +209,24 @@ describe("SessionBridge — slash commands", () => {
       expect(events[0].source).toBe("emulated");
     });
 
-    it("stores cliSessionId from init message", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ session_id: "cli-abc" }));
+    it("stores cliSessionId from init message", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
+      await tick();
 
       // Verify via programmatic API — executeSlashCommand uses the stored cliSessionId
       const snapshot = bridge.getSession("sess-1");
       expect(snapshot).toBeDefined();
     });
 
-    it("stores modelUsage from result messages", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeResultMsg({
+    it("stores modelUsage from result messages", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+      backendSession.pushMessage(
+        makeResultUnifiedMsg({
           modelUsage: {
             "claude-sonnet-4-5-20250929": {
               inputTokens: 1000,
@@ -234,6 +241,7 @@ describe("SessionBridge — slash commands", () => {
           duration_api_ms: 2500,
         }),
       );
+      await tick();
 
       const snapshot = bridge.getSession("sess-1");
       expect(snapshot?.state.last_model_usage).toBeDefined();
@@ -242,10 +250,10 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("programmatic executeSlashCommand returns emulated result for /help", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const result = await bridge.executeSlashCommand("sess-1", "/help");
       expect(result).toBeDefined();
@@ -254,27 +262,24 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("programmatic executeSlashCommand returns null for unknown sessions", async () => {
-      const { bridge } = createBridge();
       const result = await bridge.executeSlashCommand("nonexistent", "/model");
       expect(result).toBeNull();
     });
 
     it("programmatic executeSlashCommand forwards native commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(
+        makeSessionInitMsg({ slash_commands: ["/compact", "/files", "/release-notes"] }),
       );
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       const result = await bridge.executeSlashCommand("sess-1", "/compact");
       expect(result).toBeNull(); // native commands return null
       // But the command was forwarded
-      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(cliMsgs.some((m: any) => m.type === "user")).toBe(true);
+      expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
   });
 
@@ -282,19 +287,18 @@ describe("SessionBridge — slash commands", () => {
 
   describe("SlashCommandRegistry integration", () => {
     it("populates registry when CLI reports slash_commands and skills in init", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage(
-        "sess-1",
-        makeInitMsg({
+      backendSession.pushMessage(
+        makeSessionInitMsg({
           slash_commands: ["/compact", "/vim"],
           skills: ["commit", "review-pr"],
         }),
       );
+      await tick();
 
       ws.sentMessages.length = 0;
 
@@ -314,16 +318,16 @@ describe("SessionBridge — slash commands", () => {
       expect(result.content).toContain("/review-pr");
     });
 
-    it("forwards skill commands to CLI as user messages", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("forwards skill commands to CLI as user messages", async () => {
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit"] }));
+      await tick();
 
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
         ws,
@@ -331,26 +335,24 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/commit" }),
       );
 
-      // CLI should receive a user message with "/commit"
-      const cliMsgs = cliSocket.sentMessages.map((m) => JSON.parse(m));
-      expect(cliMsgs.some((m: any) => m.type === "user" && m.message.content === "/commit")).toBe(
-        true,
-      );
+      // Backend should receive a user_message with "/commit"
+      expect(backendReceivedUserMessage(backendSession, "/commit")).toBe(true);
     });
 
     it("clearDynamic resets non-built-in commands on re-init", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
 
       // First init with skills
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit"] }));
+      await tick();
 
       // Re-init without skills (simulates CLI reconnect)
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: [] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: [] }));
+      await tick();
 
       ws.sentMessages.length = 0;
 
@@ -370,37 +372,32 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("enriches registry from capabilities commands", async () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ skills: ["commit"] }));
+      backendSession.pushMessage(makeSessionInitMsg({ skills: ["commit"] }));
+      await tick();
 
       // Simulate capabilities response with rich metadata
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "control_response",
+      backendSession.pushMessage(
+        makeControlResponseUnifiedMsg({
           response: {
-            subtype: "success",
-            request_id: "test-uuid",
-            response: {
-              commands: [
-                {
-                  name: "/compact",
-                  description: "Compact conversation",
-                  argumentHint: "[strategy]",
-                },
-                { name: "/vim", description: "Toggle vim mode" },
-              ],
-              models: [],
-              account: null,
-            },
+            commands: [
+              {
+                name: "/compact",
+                description: "Compact conversation",
+                argumentHint: "[strategy]",
+              },
+              { name: "/vim", description: "Toggle vim mode" },
+            ],
+            models: [],
+            account: null,
           },
         }),
       );
+      await tick();
 
       ws.sentMessages.length = 0;
 
@@ -421,18 +418,26 @@ describe("SessionBridge — slash commands", () => {
     });
   });
 
-  // ── passthrough command rendering ────────────────────────────────────
+  // ── passthrough command forwarding ──────────────────────────────────
+  //
+  // Passthrough commands (/cost, /context) are forwarded to the backend
+  // as user messages. The bridge sets pendingPassthrough state so that
+  // the CLI user-echo can be intercepted and converted to a
+  // slash_command_result. In the adapter path, we verify the forwarding
+  // behavior; the echo-interception is tested via the CLI message path
+  // in session-bridge-passthrough.test.ts.
 
-  describe("passthrough command rendering", () => {
-    it("converts CLI user-echo into slash_command_result for passthrough commands", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+  describe("passthrough command forwarding", () => {
+    it("forwards /context to backend as a user_message", async () => {
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
+      backendSession.sentMessages.length = 0;
       ws.sentMessages.length = 0;
 
       // Send passthrough command
@@ -442,67 +447,24 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/context", request_id: "req-ctx" }),
       );
 
-      // Simulate CLI echoing back the user message with rendered output
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: {
-            role: "user",
-            content:
-              "<local-command-stdout>## Context Usage\n\nModel: claude-opus-4-6\nTokens: 35k / 200k\n</local-command-stdout>",
-          },
-          parent_tool_use_id: null,
-          session_id: "sess-1",
-        }),
-      );
+      // Backend should receive the command as a user_message
+      expect(backendReceivedUserMessage(backendSession, "/context")).toBe(true);
 
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      const result = msgs.find((m: any) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.command).toBe("/context");
-      expect(result.request_id).toBe("req-ctx");
-      expect(result.content).toContain("## Context Usage");
-      expect(result.content).toContain("Tokens: 35k / 200k");
-      expect(result.source).toBe("cli");
-      // Should NOT contain the wrapper tags
-      expect(result.content).not.toContain("<local-command-stdout>");
+      // Consumer should NOT receive a local slash_command_result (forwarded, not emulated)
+      const consumerMsgs = ws.sentMessages.map((m) => JSON.parse(m));
+      expect(consumerMsgs.some((m: any) => m.type === "slash_command_result")).toBe(false);
     });
 
-    it("does not intercept user-echo when no passthrough is pending", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("forwards /cost to backend as a user_message", async () => {
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
-      ws.sentMessages.length = 0;
-
-      // Send a user-echo without any pending passthrough
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: { role: "user", content: "hello" },
-          parent_tool_use_id: null,
-          session_id: "sess-1",
-        }),
-      );
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      expect(msgs.find((m: any) => m.type === "slash_command_result")).toBeUndefined();
-    });
-
-    it("handles content as array of text blocks", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      const ws = createMockSocket();
-
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.sentMessages.length = 0;
 
       // Send passthrough command
       bridge.handleConsumerMessage(
@@ -511,105 +473,30 @@ describe("SessionBridge — slash commands", () => {
         JSON.stringify({ type: "slash_command", command: "/cost" }),
       );
 
-      ws.sentMessages.length = 0;
-
-      // Simulate CLI echoing with content block array
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: {
-            role: "user",
-            content: [
-              { type: "text", text: "<local-command-stdout>Cost: $0.50</local-command-stdout>" },
-            ],
-          },
-          parent_tool_use_id: null,
-          session_id: "sess-1",
-        }),
-      );
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      const result = msgs.find((m: any) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.command).toBe("/cost");
-      expect(result.content).toBe("Cost: $0.50");
+      expect(backendReceivedUserMessage(backendSession, "/cost")).toBe(true);
     });
 
-    it("clears pending passthrough after interception (one-shot)", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
+    it("sets pending passthrough for all forwarded commands (including /vim)", async () => {
       const ws = createMockSocket();
 
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg());
+      backendSession.pushMessage(makeSessionInitMsg({ slash_commands: ["/compact", "/vim"] }));
+      await tick();
 
-      // Send passthrough command
-      bridge.handleConsumerMessage(
-        ws,
-        "sess-1",
-        JSON.stringify({ type: "slash_command", command: "/context" }),
-      );
-
-      // First user echo — should be intercepted
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: { role: "user", content: "context output" },
-          parent_tool_use_id: null,
-        }),
-      );
-
+      backendSession.sentMessages.length = 0;
       ws.sentMessages.length = 0;
 
-      // Second user echo — should NOT be intercepted (pending already cleared)
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: { role: "user", content: "regular message" },
-          parent_tool_use_id: null,
-        }),
-      );
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      expect(msgs.find((m: any) => m.type === "slash_command_result")).toBeUndefined();
-    });
-
-    it("sets pending passthrough for all forwarded commands (including /vim)", () => {
-      const { bridge } = createBridge();
-      const cliSocket = createMockSocket();
-      const ws = createMockSocket();
-
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      bridge.handleCLIMessage("sess-1", makeInitMsg({ slash_commands: ["/compact", "/vim"] }));
-
-      // Send /vim — now ALL forwarded commands get echo interception
+      // Send /vim — all forwarded commands get echo interception
       bridge.handleConsumerMessage(
         ws,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/vim" }),
       );
 
-      ws.sentMessages.length = 0;
-
-      // User echo SHOULD be intercepted (all forwarded commands get pendingPassthrough)
-      bridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "user",
-          message: { role: "user", content: "vim mode enabled" },
-          parent_tool_use_id: null,
-        }),
-      );
-
-      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
-      const result = msgs.find((m: any) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.command).toBe("/vim");
+      // Command should be forwarded to backend
+      expect(backendReceivedUserMessage(backendSession, "/vim")).toBe(true);
     });
   });
 });

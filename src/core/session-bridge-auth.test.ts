@@ -5,12 +5,16 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import {
+  MockBackendAdapter,
+  makeAssistantUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeSessionInitMsg,
+  noopLogger,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
   authContext,
   createTestSocket as createMockSocket,
-  makeAssistantMsg,
-  makeControlRequestMsg,
-  makeInitMsg,
-  noopLogger,
 } from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
@@ -18,25 +22,27 @@ import { SessionBridge } from "./session-bridge.js";
 
 function createBridge(options?: { storage?: MemoryStorage; authenticator?: Authenticator }) {
   const storage = options?.storage ?? new MemoryStorage();
-  return {
-    bridge: new SessionBridge({
-      storage,
-      authenticator: options?.authenticator,
-      config: { port: 3456 },
-      logger: noopLogger,
-    }),
+  const adapter = new MockBackendAdapter();
+  const bridge = new SessionBridge({
     storage,
-  };
+    authenticator: options?.authenticator,
+    config: { port: 3456 },
+    logger: noopLogger,
+    adapter,
+  });
+  return { bridge, storage, adapter };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SessionBridge — auth", () => {
   let bridge: SessionBridge;
+  let adapter: MockBackendAdapter;
 
   beforeEach(() => {
     const created = createBridge();
     bridge = created.bridge;
+    adapter = created.adapter;
   });
 
   // ── Authentication ──────────────────────────────────────────────────
@@ -212,30 +218,39 @@ describe("SessionBridge — auth", () => {
     }
 
     it("observer receives all broadcast messages", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = createMockSocket();
       obsBridge.handleConsumerOpen(ws, authContext("sess-1"));
       await new Promise((r) => setTimeout(r, 0));
       ws.sentMessages.length = 0;
 
-      obsBridge.handleCLIMessage("sess-1", makeAssistantMsg());
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
 
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "assistant")).toBe(true);
     });
 
     it("observer blocked from user_message", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
-      cliSocket.sentMessages.length = 0;
+      // Clear any messages sent during init (e.g. initialize control_request)
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       obsBridge.handleConsumerMessage(
         ws,
@@ -243,8 +258,9 @@ describe("SessionBridge — auth", () => {
         JSON.stringify({ type: "user_message", content: "hello" }),
       );
 
-      // Should NOT reach CLI
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      // Should NOT reach backend
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
 
       // Should get error back
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
@@ -252,14 +268,21 @@ describe("SessionBridge — auth", () => {
     });
 
     it("observer blocked from permission_response", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
-      obsBridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+
+      // Push a permission request so there is a pending permission to respond to
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       obsBridge.handleConsumerMessage(
         ws,
@@ -271,35 +294,45 @@ describe("SessionBridge — auth", () => {
         }),
       );
 
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "error")).toBe(true);
     });
 
     it("observer blocked from interrupt", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       obsBridge.handleConsumerMessage(ws, "sess-1", JSON.stringify({ type: "interrupt" }));
 
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "error")).toBe(true);
     });
 
     it("observer blocked from set_model", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       obsBridge.handleConsumerMessage(
         ws,
@@ -307,19 +340,24 @@ describe("SessionBridge — auth", () => {
         JSON.stringify({ type: "set_model", model: "claude-opus-4-20250514" }),
       );
 
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "error")).toBe(true);
     });
 
     it("observer blocked from set_permission_mode", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       obsBridge.handleConsumerMessage(
         ws,
@@ -327,16 +365,20 @@ describe("SessionBridge — auth", () => {
         JSON.stringify({ type: "set_permission_mode", mode: "plan" }),
       );
 
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
       const parsed = ws.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "error")).toBe(true);
     });
 
     it("observer receives error message when blocked", async () => {
-      const { bridge: obsBridge } = createObserverBridge();
-      const cliSocket = createMockSocket();
+      const { bridge: obsBridge, adapter: obsAdapter } = createObserverBridge();
       obsBridge.getOrCreateSession("sess-1");
-      obsBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await obsBridge.connectBackend("sess-1");
+      const backendSession = obsAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = await connectObserver(obsBridge, "sess-1");
 
@@ -352,15 +394,20 @@ describe("SessionBridge — auth", () => {
       expect(errorMsg.message).toBe("Observers cannot send user_message messages");
     });
 
-    it("participant can send all message types", () => {
+    it("participant can send all message types", async () => {
       // Default anonymous is participant
       bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      cliSocket.sentMessages.length = 0;
+      // Clear messages sent during connect/init
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       bridge.handleConsumerMessage(
         ws,
@@ -368,8 +415,10 @@ describe("SessionBridge — auth", () => {
         JSON.stringify({ type: "user_message", content: "hello from participant" }),
       );
 
-      const parsed = cliSocket.sentMessages.map((m) => JSON.parse(m.trim()));
-      expect(parsed.some((m: any) => m.type === "user")).toBe(true);
+      // With adapter path, messages go through backendSession.send()
+      expect(backendSession.sentMessages.length).toBeGreaterThan(0);
+      const userMsg = backendSession.sentMessages.find((m) => m.type === "user_message");
+      expect(userMsg).toBeDefined();
     });
 
     it("observer can send presence_query", async () => {
@@ -392,11 +441,17 @@ describe("SessionBridge — auth", () => {
   // ── Edge cases (auth-related) ──────────────────────────────────────
 
   describe("Edge cases", () => {
-    it("messages from unregistered sockets are silently dropped", () => {
+    it("messages from unregistered sockets are silently dropped", async () => {
       bridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      bridge.handleCLIOpen(cliSocket, "sess-1");
-      cliSocket.sentMessages.length = 0;
+
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+
+      // Clear messages from init
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
 
       // ws is NOT registered as a consumer — never called handleConsumerOpen
       const ws = createMockSocket();
@@ -406,8 +461,9 @@ describe("SessionBridge — auth", () => {
         JSON.stringify({ type: "user_message", content: "sneaky" }),
       );
 
-      // Nothing forwarded to CLI
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      // Nothing forwarded to backend
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
       // No error sent to unregistered socket either
       expect(ws.sentMessages).toHaveLength(0);
     });
@@ -420,16 +476,20 @@ describe("SessionBridge — auth", () => {
             resolveAuth = resolve;
           }),
       };
-      const { bridge: authBridge } = createBridge({ authenticator });
+      const { bridge: authBridge, adapter: authAdapter } = createBridge({ authenticator });
       authBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      authBridge.handleCLIOpen(cliSocket, "sess-1");
+
+      await authBridge.connectBackend("sess-1");
+      const backendSession = authAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       const ws = createMockSocket();
       authBridge.handleConsumerOpen(ws, authContext("sess-1"));
 
       // Auth still pending — try to send a message
-      cliSocket.sentMessages.length = 0;
+      backendSession.sentMessages.length = 0;
+      backendSession.sentRawMessages.length = 0;
       authBridge.handleConsumerMessage(
         ws,
         "sess-1",
@@ -437,7 +497,8 @@ describe("SessionBridge — auth", () => {
       );
 
       // Dropped — socket not yet in map
-      expect(cliSocket.sentMessages).toHaveLength(0);
+      expect(backendSession.sentMessages).toHaveLength(0);
+      expect(backendSession.sentRawMessages).toHaveLength(0);
 
       // Now resolve auth
       resolveAuth({ userId: "u1", displayName: "User 1", role: "participant" });
@@ -449,7 +510,9 @@ describe("SessionBridge — auth", () => {
         "sess-1",
         JSON.stringify({ type: "user_message", content: "now it works" }),
       );
-      expect(cliSocket.sentMessages.length).toBeGreaterThan(0);
+      expect(
+        backendSession.sentMessages.length + backendSession.sentRawMessages.length,
+      ).toBeGreaterThan(0);
     });
 
     it("synchronous authenticator throw is caught", () => {
@@ -477,10 +540,12 @@ describe("SessionBridge — auth", () => {
         authenticate: () => new Promise(() => {}), // never resolves
       };
       // Override authTimeoutMs via config
+      const authAdapter = new MockBackendAdapter();
       const fastBridge = new SessionBridge({
         authenticator,
         config: { port: 3456, authTimeoutMs: 50 },
         logger: noopLogger,
+        adapter: authAdapter,
       });
       fastBridge.getOrCreateSession("sess-1");
 
@@ -543,11 +608,13 @@ describe("SessionBridge — auth", () => {
           return Promise.resolve(callCount === 1 ? participantIdentity : identity);
         },
       };
-      const { bridge: authBridge } = createBridge({ authenticator });
+      const { bridge: authBridge, adapter: authAdapter } = createBridge({ authenticator });
       authBridge.getOrCreateSession("sess-1");
-      const cliSocket = createMockSocket();
-      authBridge.handleCLIOpen(cliSocket, "sess-1");
-      authBridge.handleCLIMessage("sess-1", makeInitMsg());
+
+      await authBridge.connectBackend("sess-1");
+      const backendSession = authAdapter.getSession("sess-1")!;
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
 
       // Connect participant
       const wsParticipant = createMockSocket();
@@ -559,31 +626,15 @@ describe("SessionBridge — auth", () => {
       authBridge.handleConsumerOpen(wsObserver, authContext("sess-1"));
       await new Promise((r) => setTimeout(r, 0));
 
-      // Add a pending permission
-      authBridge.handleCLIMessage(
-        "sess-1",
-        JSON.stringify({
-          type: "control_request",
-          request_id: "perm-1",
-          uuid: "u-perm",
-          session_id: "cli-123",
-          request: {
-            subtype: "can_use_tool",
-            tool_name: "Bash",
-            input: { command: "ls" },
-            permission_suggestions: [],
-            description: "run ls",
-            tool_use_id: "tu-1",
-            agent_id: null,
-          },
-        }),
-      );
+      // Add a pending permission via adapter path
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
 
       wsParticipant.sentMessages.length = 0;
       wsObserver.sentMessages.length = 0;
 
-      // Disconnect CLI — should send permission_cancelled only to participant
-      authBridge.handleCLIClose("sess-1");
+      // Disconnect backend — should send permission_cancelled only to participant
+      await authBridge.disconnectBackend("sess-1");
 
       const participantMsgs = wsParticipant.sentMessages.map((m) => JSON.parse(m));
       const observerMsgs = wsObserver.sentMessages.map((m) => JSON.parse(m));

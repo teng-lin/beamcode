@@ -4,14 +4,12 @@ import type { ResolvedConfig } from "../types/config.js";
 import { DEFAULT_CONFIG } from "../types/config.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
-import type { Session } from "./session-store.js";
 import { createUnifiedMessage } from "./types/unified-message.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function createDeps(configOverrides?: Partial<ResolvedConfig>) {
   const config = { ...DEFAULT_CONFIG, ...configOverrides };
-  const sendToCLI = vi.fn<(session: Session, ndjson: string) => void>();
   const broadcaster = {
     broadcast: vi.fn(),
     broadcastToParticipants: vi.fn(),
@@ -23,13 +21,26 @@ function createDeps(configOverrides?: Partial<ResolvedConfig>) {
   const protocol = new CapabilitiesProtocol(
     config,
     noopLogger,
-    sendToCLI,
     broadcaster,
     emitEvent,
     persistSession,
   );
 
-  return { protocol, config, sendToCLI, broadcaster, emitEvent, persistSession };
+  return { protocol, config, broadcaster, emitEvent, persistSession };
+}
+
+function createMockBackendSession() {
+  return {
+    sessionId: "sess-1",
+    send: vi.fn(),
+    sendRaw: vi.fn(),
+    messages: {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.resolve({ done: true, value: undefined }),
+      }),
+    },
+    close: vi.fn(),
+  };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -43,14 +54,15 @@ describe("CapabilitiesProtocol", () => {
 
   describe("sendInitializeRequest", () => {
     it("sends a control_request with subtype initialize", () => {
-      const { protocol, sendToCLI } = createDeps();
+      const { protocol } = createDeps();
       const session = createMockSession();
+      const backendSession = createMockBackendSession();
+      session.backendSession = backendSession as any;
 
       protocol.sendInitializeRequest(session);
 
-      expect(sendToCLI).toHaveBeenCalledOnce();
-      const [sentSession, ndjson] = sendToCLI.mock.calls[0];
-      expect(sentSession).toBe(session);
+      expect(backendSession.sendRaw).toHaveBeenCalledOnce();
+      const ndjson = backendSession.sendRaw.mock.calls[0][0];
 
       const parsed = JSON.parse(ndjson);
       expect(parsed.type).toBe("control_request");
@@ -70,13 +82,15 @@ describe("CapabilitiesProtocol", () => {
     });
 
     it("deduplicates if already pending", () => {
-      const { protocol, sendToCLI } = createDeps();
+      const { protocol } = createDeps();
       const session = createMockSession();
+      const backendSession = createMockBackendSession();
+      session.backendSession = backendSession as any;
 
       protocol.sendInitializeRequest(session);
       protocol.sendInitializeRequest(session);
 
-      expect(sendToCLI).toHaveBeenCalledOnce();
+      expect(backendSession.sendRaw).toHaveBeenCalledOnce();
     });
 
     it("emits capabilities:timeout after initializeTimeoutMs", () => {

@@ -75,6 +75,10 @@ export class AgentSdkSession implements BackendSession {
     }
   }
 
+  sendRaw(_ndjson: string): void {
+    throw new Error("AgentSdkSession does not support raw NDJSON");
+  }
+
   // ---------------------------------------------------------------------------
   // BackendSession — messages (async iterable)
   // ---------------------------------------------------------------------------

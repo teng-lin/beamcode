@@ -14,6 +14,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
+import { tick } from "../testing/adapter-test-helpers.js";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -85,6 +86,10 @@ class MockBackendSession implements BackendSession {
   send(message: UnifiedMessage): void {
     if (this._closed) throw new Error("Session is closed");
     this.sentMessages.push(message);
+  }
+
+  sendRaw(_ndjson: string): void {
+    throw new Error("MockBackendSession does not support raw NDJSON");
   }
 
   get messages(): AsyncIterable<UnifiedMessage> {
@@ -199,11 +204,6 @@ function pushTeamToolPair(
       ],
     }),
   );
-}
-
-/** Wait for async message consumption to process. */
-function tick(ms = 10): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ---------------------------------------------------------------------------

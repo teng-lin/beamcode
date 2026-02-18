@@ -85,6 +85,10 @@ export class AcpSession implements BackendSession {
     this.child.stdin?.write(this.codec.encode(rpcMsg));
   }
 
+  sendRaw(_ndjson: string): void {
+    throw new Error("AcpSession does not support raw NDJSON");
+  }
+
   private cachedMessages: AsyncIterable<UnifiedMessage> | null = null;
 
   get messages(): AsyncIterable<UnifiedMessage> {

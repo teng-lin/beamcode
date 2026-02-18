@@ -1,3 +1,4 @@
+import type WebSocket from "ws";
 import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
@@ -16,6 +17,8 @@ import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
+import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
@@ -34,6 +37,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
   readonly launcher: SdkUrlLauncher;
 
+  private adapter: BackendAdapter | null;
   private config: ResolvedConfig;
   private logger: Logger;
   private server: WebSocketServerLike | null;
@@ -53,6 +57,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     beforeSpawn?: (sessionId: string, spawnOptions: SpawnOptions) => void;
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
+    adapter?: BackendAdapter;
   }) {
     super();
 
@@ -61,6 +66,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       options.logger ??
       new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
     this.server = options.server ?? null;
+    this.adapter = options.adapter ?? null;
 
     this.bridge = new SessionBridge({
       storage: options.storage,
@@ -69,6 +75,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       logger: options.logger,
       config: options.config,
       metrics: options.metrics,
+      adapter: options.adapter,
     });
 
     this.launcher = new SdkUrlLauncher({
@@ -104,14 +111,30 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     if (this.server) {
       await this.server.listen(
         (socket, sessionId) => {
-          this.bridge.handleCLIOpen(socket, sessionId);
-          socket.on("message", (data) => {
-            this.bridge.handleCLIMessage(
-              sessionId,
-              typeof data === "string" ? data : data.toString("utf-8"),
+          if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
+            const adapter = this.adapter;
+            // Connect backend (creates adapter session + registers pending socket),
+            // then deliver the real socket to complete the handshake.
+            this.bridge
+              .connectBackend(sessionId)
+              .then(() => {
+                const delivered = adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
+                if (!delivered) {
+                  this.logger.warn(`Failed to deliver socket for session ${sessionId}, closing`);
+                  socket.close();
+                }
+                // SdkUrlSession wires message/close handlers internally via attachSocket()
+              })
+              .catch((err) => {
+                this.logger.warn(`Failed to connect backend for session ${sessionId}: ${err}`);
+                socket.close();
+              });
+          } else {
+            this.logger.warn(
+              `No adapter configured, cannot handle CLI connection for session ${sessionId}`,
             );
-          });
-          socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+            socket.close();
+          }
         },
         (socket, context) => {
           this.bridge.handleConsumerOpen(socket, context);

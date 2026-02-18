@@ -4,9 +4,18 @@ const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
+import type WebSocket from "ws";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
+import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
+import type {
+  BackendAdapter,
+  BackendCapabilities,
+  BackendSession,
+  ConnectOptions,
+} from "./interfaces/backend-adapter.js";
+import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "./session-manager.js";
 
 // ---------------------------------------------------------------------------
@@ -323,7 +332,7 @@ describe("SessionManager", () => {
       await mgr.stop();
     });
 
-    it("wires CLI connections to bridge handlers", async () => {
+    it("wires CLI connections to onConnection callback", async () => {
       let capturedOnConnection: OnCLIConnection | null = null;
 
       const mockServer: WebSocketServerLike = {
@@ -337,36 +346,23 @@ describe("SessionManager", () => {
         config: { port: 3456 },
         processManager: pm,
         server: mockServer,
+        // No adapter — socket should be closed
       });
 
       await mgr.start();
       expect(capturedOnConnection).not.toBeNull();
 
-      // Simulate a CLI connection
-      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      // Simulate a CLI connection without an adapter
       const mockSocket = {
         send: vi.fn(),
         close: vi.fn(),
-        on: (event: string, handler: (...args: unknown[]) => void) => {
-          events[event] = events[event] || [];
-          events[event].push(handler);
-        },
+        on: vi.fn(),
       };
 
       capturedOnConnection!(mockSocket as any, "test-session-id");
 
-      // Verify bridge knows about this session
-      expect(mgr.bridge.isCliConnected("test-session-id")).toBe(true);
-
-      // Simulate a message
-      const messageHandler = events.message;
-      expect(messageHandler).toBeDefined();
-
-      // Simulate close
-      const closeHandler = events.close;
-      expect(closeHandler).toBeDefined();
-      closeHandler[0]();
-      expect(mgr.bridge.isCliConnected("test-session-id")).toBe(false);
+      // Without an adapter, the socket should be closed
+      expect(mockSocket.close).toHaveBeenCalled();
 
       await mgr.stop();
     });
@@ -567,26 +563,22 @@ describe("SessionManager", () => {
     });
 
     it("closes sessions with no connections that exceed the idle timeout", async () => {
+      const idleAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
         processManager: pm,
         storage,
         logger: noopLogger,
+        adapter: idleAdapter,
       });
       idleMgr.start();
 
       // Spy on closeSession to verify the reaper actually calls it
       const closeSpy = vi.spyOn(idleMgr.bridge, "closeSession");
 
-      // Create a session in the bridge (simulate a session that was created)
-      const mockSocket = {
-        send: vi.fn(),
-        close: vi.fn(),
-        on: vi.fn(),
-      };
-      idleMgr.bridge.handleCLIOpen(mockSocket as any, "idle-session");
-      // Now disconnect the CLI so the session has no connections
-      idleMgr.bridge.handleCLIClose("idle-session");
+      // Connect backend (replaces handleCLIOpen), then disconnect
+      await idleMgr.bridge.connectBackend("idle-session");
+      await idleMgr.bridge.disconnectBackend("idle-session");
 
       // Verify session exists and CLI is disconnected
       const snap1 = idleMgr.bridge.getSession("idle-session");
@@ -604,30 +596,27 @@ describe("SessionManager", () => {
       await idleMgr.stop();
     });
 
-    it("skips sessions with active CLI connections", async () => {
+    it("skips sessions with active backend connections", async () => {
+      const activeAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
         processManager: pm,
         storage,
         logger: noopLogger,
+        adapter: activeAdapter,
       });
       idleMgr.start();
 
-      // Create a session with an active CLI connection
-      const mockSocket = {
-        send: vi.fn(),
-        close: vi.fn(),
-        on: vi.fn(),
-      };
-      idleMgr.bridge.handleCLIOpen(mockSocket as any, "active-session");
+      // Connect backend (replaces handleCLIOpen)
+      await idleMgr.bridge.connectBackend("active-session");
 
-      // Verify CLI is connected
+      // Verify backend is connected (isCliConnected checks backendSession)
       expect(idleMgr.bridge.isCliConnected("active-session")).toBe(true);
 
       // Advance well past idle timeout
       await vi.advanceTimersByTimeAsync(2000);
 
-      // Session should still exist since CLI is connected
+      // Session should still exist since backend is connected
       const snap = idleMgr.bridge.getSession("active-session");
       expect(snap).toBeDefined();
       expect(snap!.cliConnected).toBe(true);
@@ -660,6 +649,171 @@ describe("SessionManager", () => {
             logger: noopLogger,
           }),
       ).toThrow("Invalid configuration");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Adapter-aware CLI routing
+  // -----------------------------------------------------------------------
+
+  describe("adapter-aware CLI routing", () => {
+    const defaultCapabilities: BackendCapabilities = {
+      streaming: true,
+      permissions: true,
+      slashCommands: true,
+      availability: "local" as const,
+      teams: true,
+    };
+
+    class MockInvertedAdapter implements InvertedConnectionAdapter {
+      readonly name = "mock-inverted";
+      readonly capabilities = defaultCapabilities;
+      deliverSocketCalls: Array<{ sessionId: string; ws: unknown }> = [];
+      deliverSocketResult = true;
+
+      async connect(_options: ConnectOptions): Promise<BackendSession> {
+        const noop = {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+          }),
+        };
+        return {
+          sessionId: _options.sessionId,
+          send: vi.fn(),
+          sendRaw: vi.fn(),
+          messages: noop as AsyncIterable<never>,
+          close: vi.fn().mockResolvedValue(undefined),
+        } as unknown as BackendSession;
+      }
+
+      deliverSocket(sessionId: string, ws: WebSocket): boolean {
+        this.deliverSocketCalls.push({ sessionId, ws });
+        return this.deliverSocketResult;
+      }
+
+      cancelPending(_sessionId: string): void {}
+    }
+
+    function createMockServer(): {
+      server: WebSocketServerLike;
+      getCapturedOnCLI: () => OnCLIConnection | null;
+    } {
+      let capturedOnCLI: OnCLIConnection | null = null;
+      return {
+        server: {
+          async listen(onCLI) {
+            capturedOnCLI = onCLI;
+          },
+          async close() {},
+        },
+        getCapturedOnCLI: () => capturedOnCLI,
+      };
+    }
+
+    function createMockSocket() {
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      return {
+        socket: {
+          send: vi.fn(),
+          close: vi.fn(),
+          on: (event: string, handler: (...args: unknown[]) => void) => {
+            events[event] = events[event] || [];
+            events[event].push(handler);
+          },
+        },
+        events,
+      };
+    }
+
+    it("with InvertedConnectionAdapter, CLI WS connection calls connectBackend then deliverSocket", async () => {
+      const adapter = new MockInvertedAdapter();
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const adapterMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        adapter,
+      });
+
+      await adapterMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "adapter-session-1");
+
+      // connectBackend + deliverSocket are async — wait for them
+      await vi.waitFor(() => {
+        expect(adapter.deliverSocketCalls).toHaveLength(1);
+      });
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe("adapter-session-1");
+      expect(adapter.deliverSocketCalls[0].ws).toBe(socket);
+
+      // Backend session should be connected via adapter
+      expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(true);
+
+      await adapterMgr.stop();
+    });
+
+    it("closes socket when deliverSocket returns false", async () => {
+      const adapter = new MockInvertedAdapter();
+      adapter.deliverSocketResult = false;
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const adapterMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        adapter,
+      });
+
+      await adapterMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "fallback-session");
+
+      // connectBackend + deliverSocket are async — wait for them
+      await vi.waitFor(() => {
+        expect(adapter.deliverSocketCalls).toHaveLength(1);
+      });
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe("fallback-session");
+
+      // Socket should have been closed (deliverSocket returned false)
+      expect(socket.close).toHaveBeenCalled();
+
+      await adapterMgr.stop();
+    });
+
+    it("without adapter, closes the socket", async () => {
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const legacyMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        // No adapter provided
+      });
+
+      await legacyMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "no-adapter-session");
+
+      // Socket should have been closed (no adapter to handle it)
+      expect(socket.close).toHaveBeenCalled();
+
+      await legacyMgr.stop();
     });
   });
 });

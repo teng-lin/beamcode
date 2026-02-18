@@ -1,9 +1,10 @@
 /**
- * Characterization tests for session-bridge CLI → consumer message routing.
+ * Characterization tests for backend → consumer message routing.
  *
- * These tests capture the exact shape of consumer messages produced when CLI
- * messages flow through `routeCLIMessage()`. They serve as the golden
- * assertions for Phase 5b (consolidation of CLI and Unified routing paths).
+ * These tests capture the exact shape of consumer messages produced when
+ * backend messages flow through `routeUnifiedMessage()`. They serve as the
+ * golden assertions for consumer compatibility during the BackendAdapter
+ * migration.
  *
  * DO NOT modify the expected outputs without understanding the implications
  * for consumer compatibility.
@@ -13,8 +14,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import type { WebSocketLike } from "../interfaces/transport.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  tick,
+  translateAndPush,
+} from "../testing/adapter-test-helpers.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
-import { SessionBridge } from "./session-bridge.js";
+import type { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,27 +38,22 @@ function createMockSocket(): WebSocketLike & {
   };
 }
 
-const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
-
-function createBridge() {
-  return new SessionBridge({
-    config: { port: 3456 },
-    logger: noopLogger,
-  });
-}
-
-/** Connect a CLI socket and a consumer socket to a session, return both. */
-function setupSession(bridge: SessionBridge, sessionId = "char-session") {
-  const cli = createMockSocket();
+/** Connect backend via adapter and a consumer socket to a session, return both. */
+async function setupSession(
+  bridge: SessionBridge,
+  adapter: MockBackendAdapter,
+  sessionId = "char-session",
+) {
   const consumer = createMockSocket();
 
-  bridge.handleCLIOpen(cli, sessionId);
+  await bridge.connectBackend(sessionId);
+  const backendSession = adapter.getSession(sessionId)!;
   bridge.handleConsumerOpen(consumer, { sessionId, transport: {} });
 
-  // Clear initial messages (cli_connected, identity, session_init, presence_update)
+  // Clear initial messages (backend_connected, identity, presence_update)
   consumer.sentMessages.length = 0;
 
-  return { cli, consumer };
+  return { backendSession, consumer };
 }
 
 /** Parse last N consumer messages from the socket. */
@@ -66,18 +68,21 @@ function allMessages(socket: { sentMessages: string[] }): ConsumerMessage[] {
 
 // ─── Characterization Tests ──────────────────────────────────────────────────
 
-describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () => {
+describe("SessionBridge Characterization - Backend → Consumer Message Shapes", () => {
   let bridge: SessionBridge;
+  let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    bridge = createBridge();
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    adapter = created.adapter;
   });
 
-  it("system.init → session_init + capabilities_ready broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("system.init → session_init + capabilities_ready broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -96,6 +101,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         apiKeySource: "env",
       }),
     );
+    await tick();
 
     const msgs = allMessages(consumer);
 
@@ -116,11 +122,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     expect((initMsg as any).session.skills).toEqual(["tdd"]);
   });
 
-  it("system.status → status_change broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("system.status → status_change broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -129,6 +135,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -137,11 +144,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("system.status null → status_change null broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("system.status null → status_change null broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -150,6 +157,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -158,8 +166,8 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("assistant → assistant broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("assistant → assistant broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
     const assistantPayload = {
       type: "assistant",
@@ -185,7 +193,8 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
       session_id: "cli-abc",
     };
 
-    bridge.handleCLIMessage("char-session", JSON.stringify(assistantPayload));
+    translateAndPush(backendSession, JSON.stringify(assistantPayload));
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0].type).toBe("assistant");
@@ -193,11 +202,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     expect((msgs[0] as any).parent_tool_use_id).toBe("parent-tu-1");
   });
 
-  it("result → result broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("result → result broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -232,6 +241,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0].type).toBe("result");
@@ -250,11 +260,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     expect(data.modelUsage).toBeDefined();
   });
 
-  it("stream_event → stream_event broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("stream_event → stream_event broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_start", index: 0 },
@@ -263,6 +273,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -272,11 +283,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("control_request (can_use_tool) → permission_request broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("control_request (can_use_tool) → permission_request broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "control_request",
         request_id: "perm-req-1",
@@ -291,6 +302,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         },
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0].type).toBe("permission_request");
@@ -305,11 +317,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     expect(req.timestamp).toBeTypeOf("number");
   });
 
-  it("control_request (non-can_use_tool) → NOT broadcast", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("control_request (non-can_use_tool) → NOT broadcast", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "control_request",
         request_id: "other-req-1",
@@ -320,16 +332,17 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         },
       }),
     );
+    await tick();
 
     const msgs = allMessages(consumer);
     expect(msgs.filter((m) => m.type === "permission_request")).toHaveLength(0);
   });
 
-  it("tool_progress → tool_progress broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("tool_progress → tool_progress broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "tool_progress",
         tool_use_id: "tu-prog-1",
@@ -339,6 +352,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -349,11 +363,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("tool_use_summary → tool_use_summary broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("tool_use_summary → tool_use_summary broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "tool_use_summary",
         summary: "Executed 3 commands",
@@ -362,6 +376,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -371,11 +386,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("auth_status → auth_status broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("auth_status → auth_status broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "auth_status",
         isAuthenticating: true,
@@ -385,6 +400,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -395,11 +411,11 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("auth_status with error → auth_status broadcast shape", () => {
-    const { consumer } = setupSession(bridge);
+  it("auth_status with error → auth_status broadcast shape", async () => {
+    const { consumer, backendSession } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "auth_status",
         isAuthenticating: false,
@@ -409,6 +425,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0]).toEqual({
@@ -419,20 +436,23 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     });
   });
 
-  it("keep_alive → silently consumed, no consumer broadcast", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("keep_alive → silently consumed, no consumer broadcast", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage("char-session", JSON.stringify({ type: "keep_alive" }));
+    // keep_alive translates to null — not pushed to backend session
+    const result = translateAndPush(backendSession, JSON.stringify({ type: "keep_alive" }));
+    expect(result).toBeNull();
+    await tick();
 
     const msgs = allMessages(consumer);
     expect(msgs).toHaveLength(0);
   });
 
-  it("system.init populates slash command registry", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("system.init triggers initialize request via backendSession", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -451,22 +471,22 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         apiKeySource: "env",
       }),
     );
+    await tick();
 
-    // After init, the bridge should send an initialize request to CLI
-    // The CLI socket should have received the initialize request
-    const cliMsgs = cli.sentMessages.map((s) => JSON.parse(s.trim()));
-    const initReq = cliMsgs.find(
-      (m: any) => m.type === "control_request" && m.request?.subtype === "initialize",
-    );
+    // After init, the bridge should send an initialize request via backendSession.sendRaw
+    const initReq = backendSession.sentRawMessages.find((raw) => {
+      const parsed = JSON.parse(raw);
+      return parsed.type === "control_request" && parsed.request?.subtype === "initialize";
+    });
     expect(initReq).toBeDefined();
   });
 
-  it("control_response (initialize success) → capabilities_ready broadcast shape", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("control_response (initialize success) → capabilities_ready broadcast shape", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    // Send system.init to trigger initialize request
-    bridge.handleCLIMessage(
-      "char-session",
+    // Send session_init to trigger initialize request
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -485,19 +505,21 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         apiKeySource: "env",
       }),
     );
+    await tick();
 
-    // Get the initialize request_id from the CLI socket
-    const cliMsgs = cli.sentMessages.map((s) => JSON.parse(s.trim()));
-    const initReq = cliMsgs.find(
-      (m: any) => m.type === "control_request" && m.request?.subtype === "initialize",
-    );
-    expect(initReq).toBeDefined();
+    // Get the initialize request_id from backendSession.sentRawMessages
+    const initRaw = backendSession.sentRawMessages.find((raw) => {
+      const parsed = JSON.parse(raw);
+      return parsed.type === "control_request" && parsed.request?.subtype === "initialize";
+    });
+    expect(initRaw).toBeDefined();
+    const initReq = JSON.parse(initRaw!);
 
     consumer.sentMessages.length = 0; // Clear after init
 
     // Send control_response with capabilities
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "control_response",
         response: {
@@ -511,6 +533,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         },
       }),
     );
+    await tick();
 
     const msgs = lastMessages(consumer);
     expect(msgs[0].type).toBe("capabilities_ready");
@@ -520,12 +543,12 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     expect((msgs[0] as any).skills).toEqual(["tdd"]);
   });
 
-  it("control_response (initialize error with slash_commands fallback) → capabilities_ready broadcast", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("control_response (initialize error with slash_commands fallback) → capabilities_ready broadcast", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
 
-    // Send system.init with slash_commands to trigger fallback synthesis
-    bridge.handleCLIMessage(
-      "char-session",
+    // Send session_init with slash_commands to trigger fallback synthesis
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -544,18 +567,20 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         apiKeySource: "env",
       }),
     );
+    await tick();
 
     // Get the initialize request_id
-    const cliMsgs = cli.sentMessages.map((s) => JSON.parse(s.trim()));
-    const initReq = cliMsgs.find(
-      (m: any) => m.type === "control_request" && m.request?.subtype === "initialize",
-    );
+    const initRaw = backendSession.sentRawMessages.find((raw) => {
+      const parsed = JSON.parse(raw);
+      return parsed.type === "control_request" && parsed.request?.subtype === "initialize";
+    });
+    const initReq = JSON.parse(initRaw!);
 
     consumer.sentMessages.length = 0;
 
     // Send error response (e.g., "Already initialized")
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "control_response",
         response: {
@@ -565,6 +590,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         },
       }),
     );
+    await tick();
 
     // Should still broadcast capabilities_ready with synthesized commands
     const msgs = allMessages(consumer);
@@ -576,8 +602,8 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     ]);
   });
 
-  it("result with first turn → triggers session:first_turn_completed event", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("result with first turn → triggers session:first_turn_completed event", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
     const events: any[] = [];
     bridge.on("session:first_turn_completed", (e) => events.push(e));
 
@@ -585,8 +611,8 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
     bridge.sendUserMessage("char-session", "Hello there");
 
     // Send result with num_turns=1
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -600,17 +626,18 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     expect(events).toHaveLength(1);
     expect(events[0].sessionId).toBe("char-session");
     expect(events[0].firstUserMessage).toBe("Hello there");
   });
 
-  it("system.status with permissionMode → updates state", () => {
-    const { cli, consumer } = setupSession(bridge);
+  it("system.status with permissionMode → updates state", async () => {
+    const { backendSession } = await setupSession(bridge, adapter);
 
-    bridge.handleCLIMessage(
-      "char-session",
+    translateAndPush(
+      backendSession,
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -620,6 +647,7 @@ describe("SessionBridge Characterization - CLI → Consumer Message Shapes", () 
         session_id: "cli-abc",
       }),
     );
+    await tick();
 
     const snapshot = bridge.getSession("char-session");
     expect(snapshot?.state.permissionMode).toBe("plan");

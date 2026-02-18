@@ -1,8 +1,113 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
+import { translate } from "../adapters/sdk-url/message-translator.js";
+import type {
+  BackendAdapter,
+  BackendCapabilities,
+  BackendSession,
+  ConnectOptions,
+} from "../core/interfaces/backend-adapter.js";
 import { SessionBridge } from "../core/session-bridge.js";
+import type { UnifiedMessage } from "../core/types/unified-message.js";
 import { OriginValidator } from "../server/origin-validator.js";
+import { createMessageChannel } from "../testing/adapter-test-helpers.js";
+import type { CLIMessage } from "../types/cli-messages.js";
+import { parseNDJSON } from "../utils/ndjson.js";
+
+// ── E2E Adapter Helpers ─────────────────────────────────────────────────────
+
+/**
+ * A BackendSession that bridges a real WebSocket CLI client with the adapter path.
+ *
+ * - `send()` translates UnifiedMessage → NDJSON and forwards to the real CLI socket
+ * - `pushMessage()` feeds CLI → consumer messages through the async channel
+ * - `attachSocket()` wires the CLI socket wrapper for bidirectional flow
+ *
+ * NOTE: The socket is a `WebSocketLike` wrapper (not a raw ws.WebSocket), so we
+ * cannot check `readyState`. We simply try to send and let any errors propagate.
+ */
+class E2EBackendSession implements BackendSession {
+  readonly sessionId: string;
+  private channel = createMessageChannel();
+  private _closed = false;
+  private cliSocket: {
+    send(data: string): void;
+    close(code?: number, reason?: string): void;
+  } | null = null;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  /** Attach the CLI socket wrapper for consumer → CLI forwarding. */
+  attachSocket(ws: {
+    send(data: string): void;
+    close(code?: number, reason?: string): void;
+  }): void {
+    this.cliSocket = ws;
+  }
+
+  send(message: UnifiedMessage): void {
+    if (this._closed) throw new Error("Session is closed");
+    // Convert UnifiedMessage to NDJSON and forward to the CLI socket
+    if (this.cliSocket) {
+      const ndjson = toNDJSON(message);
+      if (ndjson) {
+        this.cliSocket.send(`${ndjson}\n`);
+      }
+    }
+  }
+
+  sendRaw(ndjson: string): void {
+    if (this._closed) throw new Error("Session is closed");
+    if (this.cliSocket) {
+      this.cliSocket.send(`${ndjson}\n`);
+    }
+  }
+
+  get messages(): AsyncIterable<UnifiedMessage> {
+    return this.channel;
+  }
+
+  async close(): Promise<void> {
+    this._closed = true;
+    this.channel.close();
+  }
+
+  get closed() {
+    return this._closed;
+  }
+
+  /** Push a message into the channel (simulating CLI → bridge). */
+  pushMessage(msg: UnifiedMessage) {
+    this.channel.push(msg);
+  }
+}
+
+class E2EBackendAdapter implements BackendAdapter {
+  readonly name = "e2e-mock";
+  readonly capabilities: BackendCapabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: false,
+    availability: "local",
+    teams: false,
+  };
+
+  private sessions = new Map<string, E2EBackendSession>();
+
+  async connect(options: ConnectOptions): Promise<BackendSession> {
+    const session = new E2EBackendSession(options.sessionId);
+    this.sessions.set(options.sessionId, session);
+    return session;
+  }
+
+  getSession(id: string): E2EBackendSession | undefined {
+    return this.sessions.get(id);
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,11 +181,24 @@ function waitForMessage(
   });
 }
 
-/** Start a NodeWebSocketServer wired to a SessionBridge. */
-async function startWiredServer(options?: {
-  originValidator?: OriginValidator;
-}): Promise<{ bridge: SessionBridge; port: number }> {
-  const bridge = new SessionBridge({ config: { port: 3456 } });
+/**
+ * Start a NodeWebSocketServer wired to a SessionBridge via the adapter path.
+ *
+ * Returns a `waitForBackend(sessionId)` helper that resolves once
+ * `connectBackend` has completed for the given session — useful when a test
+ * needs to be sure the adapter path is wired before sending consumer messages.
+ */
+async function startWiredServer(options?: { originValidator?: OriginValidator }): Promise<{
+  bridge: SessionBridge;
+  adapter: E2EBackendAdapter;
+  port: number;
+  waitForBackend: (sessionId: string) => Promise<void>;
+}> {
+  const adapter = new E2EBackendAdapter();
+  const bridge = new SessionBridge({ config: { port: 3456 }, adapter });
+
+  // Track pending connectBackend promises so tests can await them
+  const pendingConnects = new Map<string, Promise<void>>();
 
   server = new NodeWebSocketServer({
     port: 0,
@@ -88,11 +206,31 @@ async function startWiredServer(options?: {
   });
 
   await server.listen(
-    // CLI connection handler
+    // CLI connection handler — uses adapter path (replaces handleCLIOpen/Message/Close)
     (socket, sessionId) => {
-      bridge.handleCLIOpen(socket, sessionId);
-      socket.on("message", (data) => bridge.handleCLIMessage(sessionId, data));
-      socket.on("close", () => bridge.handleCLIClose(sessionId));
+      // Connect backend and wire bidirectional message flow
+      const connectPromise = bridge.connectBackend(sessionId).then(() => {
+        const backendSession = adapter.getSession(sessionId)!;
+        backendSession.attachSocket(socket);
+
+        // CLI → bridge: translate NDJSON to UnifiedMessage and push through channel
+        socket.on("message", (data) => {
+          const raw = typeof data === "string" ? data : data.toString("utf-8");
+          const { messages } = parseNDJSON<CLIMessage>(raw);
+          for (const msg of messages) {
+            const unified = translate(msg);
+            if (unified) {
+              backendSession.pushMessage(unified);
+            }
+          }
+        });
+
+        // CLI disconnect → disconnect backend
+        socket.on("close", () => {
+          bridge.disconnectBackend(sessionId);
+        });
+      });
+      pendingConnects.set(sessionId, connectPromise);
     },
     // Consumer connection handler
     (socket, context) => {
@@ -102,7 +240,12 @@ async function startWiredServer(options?: {
     },
   );
 
-  return { bridge, port: server.port! };
+  return {
+    bridge,
+    adapter,
+    port: server.port!,
+    waitForBackend: (sessionId: string) => pendingConnects.get(sessionId) ?? Promise.resolve(),
+  };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -164,10 +307,12 @@ describe("E2E: WebSocket Server CLI+Consumer Bidirectional Flow", () => {
   // ── 2. Consumer sends user_message, CLI receives it ─────────────────────
 
   it("consumer sends user_message, CLI receives it", async () => {
-    const { port } = await startWiredServer();
+    const { port, waitForBackend } = await startWiredServer();
 
     // Connect CLI first
     const cli = await connect(`ws://localhost:${port}/ws/cli/${UUID_1}`);
+    // Ensure the backend session is fully wired before consumer sends
+    await waitForBackend(UUID_1);
     const cliMessages = collectMessages(cli, 2, 2000);
 
     // Connect consumer

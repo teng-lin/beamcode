@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const port = z.number().int().min(1).max(65535);
+const port = z.number().int().min(0).max(65535);
 const positiveMs = z.number().int().positive();
 
 export const providerConfigSchema = z.object({

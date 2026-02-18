@@ -6,6 +6,7 @@ import { WebSocket } from "ws";
 import { FileStorage } from "../adapters/file-storage.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
 import { SessionManager } from "../core/session-manager.js";
 import {
   closeWebSockets,
@@ -34,11 +35,13 @@ interface TestEnv {
  */
 async function setupTestEnv(): Promise<TestEnv> {
   const wsServer = new NodeWebSocketServer({ port: 0 });
+  const adapter = new SdkUrlAdapter();
   const manager = new SessionManager({
     config: { port: 0 },
     processManager: createProcessManager(),
     storage: new MemoryStorage(),
     server: wsServer,
+    adapter,
   });
   await manager.start();
 

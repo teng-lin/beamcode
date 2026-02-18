@@ -117,6 +117,10 @@ export class CodexSession implements BackendSession {
     }
   }
 
+  sendRaw(_ndjson: string): void {
+    throw new Error("CodexSession does not support raw NDJSON");
+  }
+
   // ---------------------------------------------------------------------------
   // BackendSession — messages (async iterable)
   // ---------------------------------------------------------------------------

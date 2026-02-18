@@ -26,7 +26,6 @@ export interface BackendLifecycleDeps {
   logger: Logger;
   metrics: MetricsCollector | null;
   broadcaster: ConsumerBroadcaster;
-  sendToCLI: (session: Session, ndjson: string) => void;
   routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   emitEvent: EmitEvent;
 }
@@ -38,7 +37,6 @@ export class BackendLifecycleManager {
   private logger: Logger;
   private metrics: MetricsCollector | null;
   private broadcaster: ConsumerBroadcaster;
-  private sendToCLI: (session: Session, ndjson: string) => void;
   private routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   private emitEvent: EmitEvent;
 
@@ -47,7 +45,6 @@ export class BackendLifecycleManager {
     this.logger = deps.logger;
     this.metrics = deps.metrics;
     this.broadcaster = deps.broadcaster;
-    this.sendToCLI = deps.sendToCLI;
     this.routeUnifiedMessage = deps.routeUnifiedMessage;
     this.emitEvent = deps.emitEvent;
   }
@@ -98,7 +95,7 @@ export class BackendLifecycleManager {
         `Flushing ${session.pendingMessages.length} queued message(s) for session ${session.id}`,
       );
       for (const ndjson of session.pendingMessages) {
-        this.sendToCLI(session, ndjson);
+        session.backendSession.sendRaw(ndjson);
       }
       session.pendingMessages = [];
     }
