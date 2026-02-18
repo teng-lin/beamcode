@@ -51,7 +51,6 @@ function MainChatContent({
       {hasPendingPermissions && !isObserver && <PermissionBanner sessionId={sessionId} />}
 
       <Composer sessionId={sessionId} />
-      <StatusBar />
     </div>
   );
 }
@@ -182,7 +181,7 @@ export function ChatView() {
             <h2 className="mb-1.5 text-lg font-semibold tracking-tight text-bc-text">BeamCode</h2>
             <p className="text-sm text-bc-text-muted">Send a message to start coding</p>
           </div>
-          <div className="w-full max-w-xl">
+          <div className="w-full max-w-3xl">
             <DisabledComposer />
             <StatusBar />
           </div>

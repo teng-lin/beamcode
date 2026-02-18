@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
-import { ModelPicker, PermissionModePicker } from "./StatusBar";
+import { ModelPicker, PermissionModePicker, StatusBar } from "./StatusBar";
 
 interface ComposerProps {
   sessionId: string;
@@ -481,6 +481,7 @@ export function Composer({ sessionId }: ComposerProps) {
           </div>
         )}
       </div>
+      <StatusBar />
     </section>
   );
 }

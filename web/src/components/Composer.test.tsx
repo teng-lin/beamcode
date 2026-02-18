@@ -690,7 +690,8 @@ describe("Composer", () => {
       );
     });
 
-    it("is disabled when only 1 model", () => {
+    it("shows fallback models when only 1 backend model", async () => {
+      const user = userEvent.setup();
       setupSessionWithModels("claude-sonnet-4-20250514", [
         { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
       ]);
@@ -698,7 +699,12 @@ describe("Composer", () => {
 
       // biome-ignore lint/style/noNonNullAssertion: test helper
       const btn = screen.getByText("Sonnet 4").closest("button")!;
-      expect(btn).toBeDisabled();
+      expect(btn).not.toBeDisabled();
+
+      // Clicking opens dropdown with fallback Claude models
+      await user.click(btn);
+      expect(screen.getByText("Claude Opus 4.6")).toBeInTheDocument();
+      expect(screen.getByText("Claude Haiku 4.5")).toBeInTheDocument();
     });
 
     it("is disabled when user is observer", () => {
