@@ -307,6 +307,7 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
       "stream-json",
       "--input-format",
       "stream-json",
+      "--include-partial-messages",
       "--verbose",
     ];
 
