@@ -46,14 +46,19 @@ export class CapabilitiesProtocol {
       }
     }, this.config.initializeTimeoutMs);
     session.pendingInitialize = { requestId, timer };
-    this.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_request",
-        request_id: requestId,
-        request: { subtype: "initialize" },
-      }),
-    );
+
+    const ndjson = JSON.stringify({
+      type: "control_request",
+      request_id: requestId,
+      request: { subtype: "initialize" },
+    });
+
+    // Use backendSession.sendRaw() when adapter path is active
+    if (session.backendSession) {
+      session.backendSession.sendRaw(ndjson);
+    } else {
+      this.sendToCLI(session, ndjson);
+    }
   }
 
   cancelPendingInitialize(session: Session): void {

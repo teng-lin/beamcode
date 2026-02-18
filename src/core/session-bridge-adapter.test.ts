@@ -5,6 +5,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
+import { makeControlRequestMsg } from "../testing/cli-message-factories.js";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -1310,6 +1311,257 @@ describe("SessionBridge (BackendAdapter path)", () => {
       // connectBackend flushes pendingMessages via backendSession.sendRaw
       const session = adapter.getSession("sess-1")!;
       expect(session.sentRawMessages.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── 15. Programmatic API dual-path ──────────────────────────────────────
+
+  describe("programmatic API dual-path", () => {
+    describe("sendUserMessage", () => {
+      it("routes through backendSession.send() when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendUserMessage("sess-1", "Hello via adapter");
+
+        // backendSession.send() should have been called with a UnifiedMessage
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("user_message");
+        expect(msg.role).toBe("user");
+        const textBlock = msg.content.find((b) => b.type === "text");
+        expect(textBlock).toBeDefined();
+        expect(textBlock!.type === "text" && textBlock!.text).toBe("Hello via adapter");
+      });
+
+      it("does NOT send to CLI socket when adapter is active", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const cliSocket = createMockSocket();
+        bridge.handleCLIOpen(cliSocket, "sess-1");
+        cliSocket.sentMessages.length = 0;
+
+        // Connect backend (this attaches backendSession)
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendUserMessage("sess-1", "Hello via adapter");
+
+        // CLI socket should NOT receive the message
+        expect(cliSocket.sentMessages).toHaveLength(0);
+        // Backend session should have received it
+        expect(backendSession.sentMessages).toHaveLength(1);
+      });
+
+      it("preserves message history and broadcast when adapter active", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const consumer = createMockSocket();
+        bridge.handleConsumerOpen(consumer, authContext("sess-1"));
+        await bridge.connectBackend("sess-1");
+        consumer.sentMessages.length = 0;
+
+        bridge.sendUserMessage("sess-1", "History test");
+
+        const snapshot = bridge.getSession("sess-1")!;
+        expect(snapshot.messageHistoryLength).toBe(1);
+
+        // Consumer should receive user_message broadcast
+        const msgs = consumer.sentMessages.map((s) => JSON.parse(s));
+        const userMsg = msgs.find((m: { type: string }) => m.type === "user_message");
+        expect(userMsg).toBeDefined();
+        expect(userMsg.content).toBe("History test");
+      });
+
+      it("includes session_id override in unified message metadata", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendUserMessage("sess-1", "Hello", { sessionIdOverride: "override-id" });
+
+        const msg = backendSession.sentMessages[0];
+        expect(msg.metadata.session_id).toBe("override-id");
+      });
+
+      it("includes images in unified message content when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendUserMessage("sess-1", "Describe this", {
+          images: [{ media_type: "image/png", data: "base64data" }],
+        });
+
+        const msg = backendSession.sentMessages[0];
+        const imageBlocks = msg.content.filter((b) => b.type === "image");
+        const textBlocks = msg.content.filter((b) => b.type === "text");
+        expect(imageBlocks).toHaveLength(1);
+        expect(textBlocks).toHaveLength(1);
+      });
+
+      it("persists session when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+
+        bridge.sendUserMessage("sess-1", "Persist test");
+
+        const saved = storage.loadAll();
+        expect(saved.some((s) => s.id === "sess-1")).toBe(true);
+      });
+    });
+
+    describe("sendPermissionResponse", () => {
+      it("routes through backendSession.send() when adapter active", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const cliSocket = createMockSocket();
+        bridge.handleCLIOpen(cliSocket, "sess-1");
+
+        // Create a pending permission request via CLI message
+        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+        cliSocket.sentMessages.length = 0;
+
+        // Connect backend adapter
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendPermissionResponse("sess-1", "perm-req-1", "allow");
+
+        // backendSession.send() should have been called
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("permission_response");
+        expect(msg.metadata.request_id).toBe("perm-req-1");
+        expect(msg.metadata.behavior).toBe("allow");
+
+        // CLI socket should NOT have received the message
+        expect(cliSocket.sentMessages).toHaveLength(0);
+      });
+
+      it("routes deny through backendSession.send() when adapter active", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const cliSocket = createMockSocket();
+        bridge.handleCLIOpen(cliSocket, "sess-1");
+
+        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+        cliSocket.sentMessages.length = 0;
+
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendPermissionResponse("sess-1", "perm-req-1", "deny", { message: "No thanks" });
+
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("permission_response");
+        expect(msg.metadata.behavior).toBe("deny");
+        expect(msg.metadata.message).toBe("No thanks");
+      });
+
+      it("still emits permission:resolved event when adapter active", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const cliSocket = createMockSocket();
+        bridge.handleCLIOpen(cliSocket, "sess-1");
+
+        bridge.handleCLIMessage("sess-1", makeControlRequestMsg());
+
+        await bridge.connectBackend("sess-1");
+
+        const resolvedHandler = vi.fn();
+        bridge.on("permission:resolved", resolvedHandler);
+
+        bridge.sendPermissionResponse("sess-1", "perm-req-1", "allow");
+
+        expect(resolvedHandler).toHaveBeenCalledWith({
+          sessionId: "sess-1",
+          requestId: "perm-req-1",
+          behavior: "allow",
+        });
+      });
+
+      it("still validates unknown request_id when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        // No pending permissions registered, so "unknown-req" should be no-op
+        bridge.sendPermissionResponse("sess-1", "unknown-req", "allow");
+
+        expect(backendSession.sentMessages).toHaveLength(0);
+      });
+    });
+
+    describe("sendControlRequest (interrupt, set_model, set_permission_mode)", () => {
+      it("routes interrupt through backendSession.send() when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendInterrupt("sess-1");
+
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("interrupt");
+        expect(msg.role).toBe("user");
+      });
+
+      it("routes set_model through backendSession.send() when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendSetModel("sess-1", "claude-opus-4-20250514");
+
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("configuration_change");
+        expect(msg.metadata.subtype).toBe("set_model");
+        expect(msg.metadata.model).toBe("claude-opus-4-20250514");
+      });
+
+      it("routes set_permission_mode through backendSession.send() when adapter active", async () => {
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendSetPermissionMode("sess-1", "plan");
+
+        expect(backendSession.sentMessages).toHaveLength(1);
+        const msg = backendSession.sentMessages[0];
+        expect(msg.type).toBe("configuration_change");
+        expect(msg.metadata.subtype).toBe("set_permission_mode");
+        expect(msg.metadata.mode).toBe("plan");
+      });
+
+      it("does NOT send to CLI socket when adapter is active for interrupt", async () => {
+        bridge.getOrCreateSession("sess-1");
+        const cliSocket = createMockSocket();
+        bridge.handleCLIOpen(cliSocket, "sess-1");
+        cliSocket.sentMessages.length = 0;
+
+        await bridge.connectBackend("sess-1");
+        const backendSession = adapter.getSession("sess-1")!;
+
+        bridge.sendInterrupt("sess-1");
+
+        expect(cliSocket.sentMessages).toHaveLength(0);
+        expect(backendSession.sentMessages).toHaveLength(1);
+      });
+    });
+  });
+
+  // ── 16. CapabilitiesProtocol dual-path ──────────────────────────────────
+
+  describe("CapabilitiesProtocol dual-path", () => {
+    it("uses backendSession.sendRaw() for initialize when adapter active", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      // Trigger session_init which calls capabilitiesProtocol.sendInitializeRequest()
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+
+      // sendRaw should have been called with the initialize request
+      expect(backendSession.sentRawMessages.length).toBeGreaterThan(0);
+      const initRaw = backendSession.sentRawMessages.find((raw) => {
+        const parsed = JSON.parse(raw);
+        return parsed.type === "control_request" && parsed.request?.subtype === "initialize";
+      });
+      expect(initRaw).toBeDefined();
+      const parsed = JSON.parse(initRaw!);
+      expect(parsed.request.subtype).toBe("initialize");
+      expect(parsed.request_id).toBeTypeOf("string");
     });
   });
 });

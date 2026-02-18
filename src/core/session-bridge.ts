@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConsoleLogger } from "../adapters/console-logger.js";
+import { normalizeInbound } from "../adapters/sdk-url/inbound-translator.js";
 import { translate as translateCLI } from "../adapters/sdk-url/message-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
@@ -626,7 +627,22 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, userMsg);
 
-    // Build content: if images are present, use content block array; otherwise plain string
+    // Route through BackendSession when adapter path is active
+    if (session.backendSession) {
+      const unified = normalizeInbound({
+        type: "user_message",
+        content,
+        session_id: options?.sessionIdOverride || session.state.session_id || "",
+        images: options?.images,
+      });
+      if (unified) {
+        session.backendSession.send(unified);
+        this.persistSession(session);
+        return;
+      }
+    }
+
+    // Legacy path: NDJSON → sendToCLI
     const images = options?.images;
     const messageContent: string | unknown[] = images?.length
       ? [
@@ -674,6 +690,25 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     this.emit("permission:resolved", { sessionId, requestId, behavior });
 
+    // Route through BackendSession when adapter path is active
+    if (session.backendSession) {
+      const unified = normalizeInbound({
+        type: "permission_response",
+        request_id: requestId,
+        behavior,
+        updated_input: options?.updatedInput,
+        updated_permissions: options?.updatedPermissions as
+          | import("../types/cli-messages.js").PermissionUpdate[]
+          | undefined,
+        message: options?.message,
+      });
+      if (unified) {
+        session.backendSession.send(unified);
+        return;
+      }
+    }
+
+    // Legacy path: NDJSON → sendToCLI
     let innerResponse: Record<string, unknown>;
     if (behavior === "allow") {
       innerResponse = {
@@ -719,6 +754,25 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private sendControlRequest(sessionId: string, request: Record<string, unknown>): void {
     const session = this.store.get(sessionId);
     if (!session) return;
+
+    // Route through BackendSession when adapter path is active
+    if (session.backendSession) {
+      let unified: UnifiedMessage | null = null;
+      if (request.subtype === "interrupt") {
+        unified = normalizeInbound({ type: "interrupt" });
+      } else if (request.subtype === "set_model") {
+        unified = normalizeInbound({ type: "set_model", model: request.model as string });
+      } else if (request.subtype === "set_permission_mode") {
+        unified = normalizeInbound({ type: "set_permission_mode", mode: request.mode as string });
+      }
+
+      if (unified) {
+        session.backendSession.send(unified);
+        return;
+      }
+    }
+
+    // Legacy path: NDJSON → sendToCLI
     const ndjson = JSON.stringify({
       type: "control_request",
       request_id: randomUUID(),
