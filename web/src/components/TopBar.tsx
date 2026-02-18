@@ -119,6 +119,21 @@ export function TopBar() {
         </span>
       )}
 
+      {/* Unencrypted warning */}
+      {encryption && !encryption.isActive && (
+        <span
+          className="flex items-center gap-1 rounded-md bg-bc-warning/10 px-2 py-0.5 text-[11px] text-bc-warning"
+          title="Connection is not encrypted — messages sent in plaintext"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+            <rect x="2.5" y="5" width="7" height="5.5" rx="1" opacity="0.5" />
+            <path d="M4 5V3.5a2 2 0 014 0" fill="none" stroke="currentColor" strokeWidth="1.2" />
+            <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+          <span>Unencrypted</span>
+        </span>
+      )}
+
       {/* Model badge / picker */}
       {model && (
         <div className="relative" ref={modelMenuRef}>
