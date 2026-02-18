@@ -97,5 +97,48 @@ describe("StreamingIndicator", () => {
       const { container } = render(<StreamingIndicator sessionId={SESSION} />);
       await checkA11y(container);
     });
+
+    it("resets to Generating after streaming clears and restarts", async () => {
+      setupStreaming("running");
+      const { rerender } = render(<StreamingIndicator sessionId={SESSION} />);
+
+      // Click stop → "Stopping..."
+      await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+      expect(screen.getByText("Stopping...")).toBeInTheDocument();
+
+      // Simulate server clearing streaming (result arrived)
+      store().setStreaming(SESSION, null);
+      store().setStreamingStarted(SESSION, null);
+      rerender(<StreamingIndicator sessionId={SESSION} />);
+
+      // Component renders nothing
+      expect(screen.queryByText("Stopping...")).not.toBeInTheDocument();
+
+      // New generation starts — should show "Generating...", not "Stopping..."
+      store().setStreamingStarted(SESSION, Date.now());
+      store().setSessionStatus(SESSION, "running");
+      rerender(<StreamingIndicator sessionId={SESSION} />);
+      expect(screen.getByText("Generating...")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop generation" })).toBeInTheDocument();
+    });
+
+    it("resets stopping state when sessionId changes", async () => {
+      const OTHER = "other-session";
+      store().ensureSessionData(OTHER);
+      store().setStreamingStarted(OTHER, Date.now());
+      store().setSessionStatus(OTHER, "running");
+
+      setupStreaming("running");
+      const { rerender } = render(<StreamingIndicator sessionId={SESSION} />);
+
+      // Click stop on first session
+      await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+      expect(screen.getByText("Stopping...")).toBeInTheDocument();
+
+      // Switch to different session — should not carry over "Stopping..."
+      rerender(<StreamingIndicator sessionId={OTHER} />);
+      expect(screen.queryByText("Stopping...")).not.toBeInTheDocument();
+      expect(screen.getByText("Generating...")).toBeInTheDocument();
+    });
   });
 });

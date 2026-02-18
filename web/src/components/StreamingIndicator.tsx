@@ -16,10 +16,14 @@ function formatStreamingStats(elapsed: number | null, outputTokens: number): str
   return `(${parts.join(" | ")})`;
 }
 
+function secondsSince(ts: number): number {
+  return Math.floor((Date.now() - ts) / 1000);
+}
+
 /** Ticks every second while startedAt is non-null, returning elapsed seconds. */
 function useElapsed(startedAt: number | null): number | null {
   const [elapsed, setElapsed] = useState<number | null>(() =>
-    startedAt !== null ? Math.floor((Date.now() - startedAt) / 1000) : null,
+    startedAt !== null ? secondsSince(startedAt) : null,
   );
 
   useEffect(() => {
@@ -29,10 +33,10 @@ function useElapsed(startedAt: number | null): number | null {
     }
 
     // Compute immediately so we don't wait 1s for the first value
-    setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    setElapsed(secondsSince(startedAt));
 
     const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+      setElapsed(secondsSince(startedAt));
     }, 1000);
     return () => clearInterval(id);
   }, [startedAt]);
@@ -51,7 +55,11 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
   const elapsed = useElapsed(streamingStartedAt);
   const [stopping, setStopping] = useState(false);
 
-  // Reset stopping state when streaming clears (component is about to unmount)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset stopping on session switch
+  useEffect(() => {
+    setStopping(false);
+  }, [sessionId]);
+
   useEffect(() => {
     if (!streaming && !streamingStartedAt) setStopping(false);
   }, [streaming, streamingStartedAt]);
@@ -64,26 +72,25 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
   if (!streaming && !streamingStartedAt) return null;
 
   const stats = formatStreamingStats(elapsed, streamingOutputTokens);
+  const showStopButton = sessionStatus === "running" && !stopping;
+
+  const dotClass = stopping
+    ? "inline-block h-1.5 w-1.5 rounded-full bg-bc-text-muted"
+    : "inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bc-accent shadow-[0_0_6px_var(--color-bc-accent-glow)]";
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3">
       {streaming && <MarkdownContent content={streaming} />}
 
       <div className="flex items-center gap-2 py-1.5 text-xs text-bc-text-muted">
-        {stopping ? (
-          <>
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-bc-text-muted" />
-            <span>Stopping...</span>
-          </>
-        ) : (
-          <>
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bc-accent shadow-[0_0_6px_var(--color-bc-accent-glow)]" />
-            <span className="text-bc-accent/80">Generating...</span>
-          </>
-        )}
+        <span className={dotClass} />
+        <span className={stopping ? undefined : "text-bc-accent/80"}>
+          {stopping ? "Stopping..." : "Generating..."}
+        </span>
+
         {stats && <span className="tabular-nums">{stats}</span>}
 
-        {sessionStatus === "running" && !stopping && (
+        {showStopButton && (
           <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
