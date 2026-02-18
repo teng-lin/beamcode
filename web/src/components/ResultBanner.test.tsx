@@ -36,6 +36,19 @@ describe("ResultBanner", () => {
     expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
+  it("renders first error detail line when provided", () => {
+    render(
+      <ResultBanner
+        data={makeResult({
+          is_error: true,
+          subtype: "error_during_execution",
+          errors: ["permission denied: sandbox"],
+        })}
+      />,
+    );
+    expect(screen.getByText("permission denied: sandbox")).toBeInTheDocument();
+  });
+
   it("displays formatted duration", () => {
     const data = makeResult({ duration_ms: 5000 });
     render(<ResultBanner data={data} />);

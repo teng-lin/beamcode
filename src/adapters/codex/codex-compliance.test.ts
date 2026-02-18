@@ -4,7 +4,7 @@
  * MockWebSocket, bypassing the launch+connect+handshake flow.
  *
  * Uses the same MockWebSocket pattern from codex-adapter.test.ts.
- * The mock WebSocket echoes turn.create requests as text delta notifications.
+ * The mock WebSocket echoes turn/start requests as text delta notifications.
  */
 
 import { EventEmitter } from "node:events";
@@ -33,10 +33,10 @@ class MockWebSocket extends EventEmitter {
   send(data: string): void {
     this.sent.push(data);
 
-    // Echo turn.create requests as text delta notifications
+    // Echo turn/start requests as text delta notifications
     try {
       const parsed = JSON.parse(data);
-      if (parsed.method === "turn.create") {
+      if (parsed.method === "turn/start") {
         setTimeout(() => {
           this.emit(
             "message",
@@ -103,6 +103,7 @@ class ComplianceCodexAdapter implements BackendAdapter {
       sessionId: options.sessionId,
       ws: ws as unknown as WebSocket,
       launcher,
+      threadId: "thread-test",
     });
   }
 }

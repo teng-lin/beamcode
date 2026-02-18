@@ -33,6 +33,7 @@ describe("E2E: CodexAdapter", () => {
       sessionId: "e2e-codex",
       ws: ws as unknown as WebSocket,
       launcher,
+      threadId: "thread-test",
       initResponse:
         options?.initResponse !== false
           ? { capabilities: { streaming: true }, version: "1.0" }
@@ -59,7 +60,7 @@ describe("E2E: CodexAdapter", () => {
     expect(ws.sent).toHaveLength(1);
 
     const sentMsg = JSON.parse(ws.sent[0]);
-    expect(sentMsg.method).toBe("turn.create");
+    expect(sentMsg.method).toBe("turn/start");
 
     // Simulate streaming response
     sendCodexNotification(ws, "response.output_text.delta", {

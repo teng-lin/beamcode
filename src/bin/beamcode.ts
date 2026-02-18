@@ -20,7 +20,24 @@ import { createBeamcodeServer } from "../http/server.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
 import { OriginValidator } from "../server/origin-validator.js";
 
-const { version } = createRequire(import.meta.url)("../../package.json") as { version: string };
+const requireFromHere = createRequire(import.meta.url);
+
+function resolvePackageVersion(): string {
+  const candidates = ["../../package.json", "../../../package.json", "../package.json"];
+  for (const candidate of candidates) {
+    try {
+      const pkg = requireFromHere(candidate) as { version?: unknown };
+      if (typeof pkg.version === "string" && pkg.version.length > 0) {
+        return pkg.version;
+      }
+    } catch {
+      // Try next path candidate.
+    }
+  }
+  return "unknown";
+}
+
+const version = resolvePackageVersion();
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

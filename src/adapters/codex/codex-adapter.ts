@@ -19,7 +19,24 @@ import { CodexLauncher } from "./codex-launcher.js";
 import type { CodexInitResponse } from "./codex-message-translator.js";
 import { CodexSession } from "./codex-session.js";
 
-const { version } = createRequire(import.meta.url)("../../../package.json") as { version: string };
+const requireFromHere = createRequire(import.meta.url);
+
+function resolvePackageVersion(): string {
+  const candidates = ["../../../package.json", "../../../../package.json", "../../package.json"];
+  for (const candidate of candidates) {
+    try {
+      const pkg = requireFromHere(candidate) as { version?: unknown };
+      if (typeof pkg.version === "string" && pkg.version.length > 0) {
+        return pkg.version;
+      }
+    } catch {
+      // Try next path candidate.
+    }
+  }
+  return "unknown";
+}
+
+const version = resolvePackageVersion();
 
 export interface CodexAdapterOptions {
   processManager: ProcessManager;

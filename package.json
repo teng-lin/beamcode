@@ -44,7 +44,7 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "beamcode": "./dist/bin/beamcode.js"
+    "beamcode": "./dist/bin/beamcode.mjs"
   },
   "files": [
     "dist",
@@ -56,7 +56,7 @@
     "build:web": "node scripts/build-web.mjs",
     "build": "pnpm build:lib && pnpm build:web",
     "dev:web": "cd web && npx vite --port 5174",
-    "start": "node dist/bin/beamcode.js",
+    "start": "node dist/bin/beamcode.mjs",
     "test": "vitest run",
     "test:e2e": "pnpm test:e2e:deterministic",
     "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
