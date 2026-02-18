@@ -438,7 +438,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const result = inboundMessageSchema.safeParse(parsed);
     if (!result.success) {
       this.logger.warn(`Invalid consumer message`, {
-        error: result.error.message,
+        error: result.error.issues,
         raw: raw.substring(0, 200),
       });
       return;
