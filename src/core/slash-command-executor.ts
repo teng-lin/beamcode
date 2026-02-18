@@ -1,7 +1,7 @@
 import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { ResolvedConfig } from "../types/config.js";
 import type { SessionState } from "../types/session-state.js";
-import type { SlashCommandRegistry } from "./slash-command-registry.js";
+import type { RegisteredCommand, SlashCommandRegistry } from "./slash-command-registry.js";
 
 export interface SlashCommandResult {
   content: string;
@@ -106,18 +106,23 @@ export class SlashCommandExecutor {
 
   /** Returns true if the command is a skill command in the registry. */
   isSkillCommand(command: string, registry: SlashCommandRegistry | null): boolean {
-    if (!registry) return false;
-    const name = commandName(command);
-    const cmd = registry.find(name);
-    return cmd?.source === "skill";
+    return this.registryMatch(command, registry, (cmd) => cmd.source === "skill");
   }
 
   /** Returns true if the command is a passthrough command (forwarded to CLI without emulation). */
   isPassthroughCommand(command: string, registry: SlashCommandRegistry | null): boolean {
+    return this.registryMatch(command, registry, (cmd) => cmd.category === "passthrough");
+  }
+
+  /** Look up a command in the registry and test it against a predicate. */
+  private registryMatch(
+    command: string,
+    registry: SlashCommandRegistry | null,
+    predicate: (cmd: RegisteredCommand) => boolean,
+  ): boolean {
     if (!registry) return false;
-    const name = commandName(command);
-    const cmd = registry.find(name);
-    return cmd?.category === "passthrough";
+    const cmd = registry.find(commandName(command));
+    return cmd !== undefined && predicate(cmd);
   }
 
   /** Returns true if the command is supported by the backend AND not emulatable locally. */
