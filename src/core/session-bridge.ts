@@ -914,7 +914,24 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session: session.state,
     });
     this.persistSession(session);
-    this.capabilitiesProtocol.sendInitializeRequest(session);
+
+    // If the adapter already provided capabilities in the init message (e.g. Codex),
+    // apply them directly instead of sending a separate control_request (SdkUrl-only).
+    if (m.capabilities && typeof m.capabilities === "object") {
+      const caps = m.capabilities as {
+        commands?: InitializeCommand[];
+        models?: InitializeModel[];
+        account?: InitializeAccount;
+      };
+      this.capabilitiesProtocol.applyCapabilities(
+        session,
+        Array.isArray(caps.commands) ? caps.commands : [],
+        Array.isArray(caps.models) ? caps.models : [],
+        caps.account ?? null,
+      );
+    } else {
+      this.capabilitiesProtocol.sendInitializeRequest(session);
+    }
   }
 
   private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {

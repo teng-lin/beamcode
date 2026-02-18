@@ -5,6 +5,7 @@
  * performs the JSON-RPC initialize handshake, and returns a CodexSession.
  */
 
+import { createRequire } from "node:module";
 import WebSocket from "ws";
 import type {
   BackendAdapter,
@@ -18,6 +19,8 @@ import { CodexLauncher } from "./codex-launcher.js";
 import type { CodexInitResponse } from "./codex-message-translator.js";
 import { CodexSession } from "./codex-session.js";
 
+const { version } = createRequire(import.meta.url)("../../../package.json") as { version: string };
+
 export interface CodexAdapterOptions {
   processManager: ProcessManager;
   logger?: Logger;
@@ -25,6 +28,10 @@ export interface CodexAdapterOptions {
   port?: number;
   /** Path to the codex binary. */
   codexBinary?: string;
+  /** Max WebSocket connection attempts (default: 20). */
+  connectRetries?: number;
+  /** Base delay between retries in ms (default: 100). */
+  connectRetryDelayMs?: number;
 }
 
 export class CodexAdapter implements BackendAdapter {
@@ -42,12 +49,16 @@ export class CodexAdapter implements BackendAdapter {
   private readonly logger?: Logger;
   private readonly port?: number;
   private readonly codexBinary?: string;
+  private readonly connectRetries: number;
+  private readonly connectRetryDelayMs: number;
 
   constructor(options: CodexAdapterOptions) {
     this.processManager = options.processManager;
     this.logger = options.logger;
     this.port = options.port;
     this.codexBinary = options.codexBinary;
+    this.connectRetries = options.connectRetries ?? 20;
+    this.connectRetryDelayMs = options.connectRetryDelayMs ?? 100;
   }
 
   async connect(options: ConnectOptions): Promise<BackendSession> {
@@ -84,9 +95,33 @@ export class CodexAdapter implements BackendAdapter {
     });
   }
 
-  private connectWebSocket(url: string): Promise<WebSocket> {
+  private async connectWebSocket(url: string): Promise<WebSocket> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= this.connectRetries; attempt++) {
+      try {
+        return await this.tryConnect(url);
+      } catch (err) {
+        lastError = err;
+        if (attempt < this.connectRetries) {
+          const delay = Math.min(this.connectRetryDelayMs * attempt, 1000);
+          this.logger?.debug?.(
+            `Codex WS connect attempt ${attempt} failed, retrying in ${delay}ms`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+
+    throw new Error(
+      `Failed to connect to codex app-server at ${url} after ${this.connectRetries} attempts`,
+      { cause: lastError },
+    );
+  }
+
+  private tryConnect(url: string): Promise<WebSocket> {
     return new Promise<WebSocket>((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, { perMessageDeflate: false });
 
       const onOpen = () => {
         cleanup();
@@ -95,7 +130,8 @@ export class CodexAdapter implements BackendAdapter {
 
       const onError = (err: Error) => {
         cleanup();
-        reject(new Error(`Failed to connect to codex app-server at ${url}: ${err.message}`));
+        ws.terminate();
+        reject(err);
       };
 
       const cleanup = () => {
@@ -111,6 +147,13 @@ export class CodexAdapter implements BackendAdapter {
   private performHandshake(ws: WebSocket): Promise<CodexInitResponse> {
     return new Promise<CodexInitResponse>((resolve, reject) => {
       const rpcId = 1;
+      const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+      const timer = setTimeout(() => {
+        cleanup();
+        ws.terminate();
+        reject(new Error("Initialize handshake timed out"));
+      }, HANDSHAKE_TIMEOUT_MS);
 
       const onMessage = (data: WebSocket.RawData) => {
         try {
@@ -122,6 +165,7 @@ export class CodexAdapter implements BackendAdapter {
           if (msg.id === rpcId) {
             cleanup();
             if (msg.error) {
+              ws.terminate();
               reject(new Error(`Initialize handshake failed: ${msg.error.message}`));
               return;
             }
@@ -138,10 +182,12 @@ export class CodexAdapter implements BackendAdapter {
 
       const onError = (err: Error) => {
         cleanup();
-        reject(new Error(`WebSocket error during handshake: ${err.message}`));
+        ws.terminate();
+        reject(new Error(`WebSocket error during handshake`, { cause: err }));
       };
 
       const cleanup = () => {
+        clearTimeout(timer);
         ws.removeListener("message", onMessage);
         ws.removeListener("error", onError);
       };
@@ -155,7 +201,9 @@ export class CodexAdapter implements BackendAdapter {
           jsonrpc: "2.0",
           id: rpcId,
           method: "initialize",
-          params: { client: "beamcode" },
+          params: {
+            clientInfo: { name: "beamcode", version },
+          },
         }),
       );
     });

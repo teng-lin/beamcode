@@ -25,6 +25,10 @@ class MockWebSocket extends EventEmitter {
     this.emit("close");
   }
 
+  terminate(): void {
+    this.readyState = 3; // CLOSED
+  }
+
   removeListener(event: string, listener: (...args: any[]) => void): this {
     return super.removeListener(event, listener);
   }
@@ -434,6 +438,8 @@ describe("CodexAdapter", () => {
     beforeEach(() => {
       adapter = new CodexAdapter({
         processManager: createMockProcessManager(),
+        connectRetries: 2,
+        connectRetryDelayMs: 0,
       });
       launchSpy = vi
         .spyOn(CodexLauncher.prototype, "launch")
@@ -490,9 +496,9 @@ describe("CodexAdapter", () => {
       expect(sentMessages.some((m: any) => m.method === "initialized")).toBe(true);
     });
 
-    it("rejects when WebSocket emits error during connection", async () => {
-      const ws = new MockWebSocket();
+    it("rejects when WebSocket emits error during connection (all retries)", async () => {
       mockWsFactory = () => {
+        const ws = new MockWebSocket();
         queueMicrotask(() => ws.emit("error", new Error("Connection refused")));
         return ws;
       };
@@ -500,6 +506,64 @@ describe("CodexAdapter", () => {
       await expect(adapter.connect({ sessionId: "err-session" })).rejects.toThrow(
         "Failed to connect to codex app-server",
       );
+    });
+
+    it("succeeds after retrying a failed WebSocket connection", async () => {
+      let attempt = 0;
+      const successWs = new MockWebSocket();
+
+      mockWsFactory = () => {
+        attempt++;
+        if (attempt === 1) {
+          const failWs = new MockWebSocket();
+          queueMicrotask(() => failWs.emit("error", new Error("Connection refused")));
+          return failWs;
+        }
+        // Second attempt succeeds
+        queueMicrotask(() => successWs.emit("open"));
+        return successWs;
+      };
+
+      // Intercept handshake on the successful WebSocket
+      const origSend = successWs.send.bind(successWs);
+      successWs.send = vi.fn((data: string) => {
+        origSend(data);
+        const parsed = JSON.parse(data);
+        if (parsed.method === "initialize") {
+          queueMicrotask(() =>
+            successWs.emit(
+              "message",
+              Buffer.from(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: parsed.id,
+                  result: { capabilities: {}, version: "1.0.0" },
+                }),
+              ),
+            ),
+          );
+        }
+      });
+
+      const session = await adapter.connect({ sessionId: "retry-success" });
+      expect(session).toBeInstanceOf(CodexSession);
+      expect(attempt).toBe(2);
+    });
+
+    it("rejects when handshake times out", async () => {
+      vi.useFakeTimers();
+      const ws = setupOpenableWs();
+      // Don't intercept initialize — let the handshake hang
+
+      const connectPromise = adapter.connect({ sessionId: "hs-timeout" });
+
+      // Attach catch handler before advancing so the rejection isn't unhandled
+      await Promise.all([
+        expect(connectPromise).rejects.toThrow("Initialize handshake timed out"),
+        vi.advanceTimersByTimeAsync(10_001),
+      ]);
+
+      vi.useRealTimers();
     });
 
     it("rejects when handshake returns an error response", async () => {
@@ -529,7 +593,7 @@ describe("CodexAdapter", () => {
       });
 
       await expect(adapter.connect({ sessionId: "hs-ws-err" })).rejects.toThrow(
-        "WebSocket error during handshake: socket hung up",
+        "WebSocket error during handshake",
       );
     });
   });

@@ -156,7 +156,17 @@ export class BackendLifecycleManager {
         `Flushing ${session.pendingMessages.length} queued message(s) for session ${session.id}`,
       );
       for (const ndjson of session.pendingMessages) {
-        session.backendSession.sendRaw(ndjson);
+        try {
+          session.backendSession.sendRaw(ndjson);
+        } catch {
+          // Adapter doesn't support raw NDJSON -- all remaining messages will
+          // also fail, so drop them. Direct-connection adapters (Codex, ACP)
+          // connect before consumers send messages, so this rarely triggers.
+          this.logger.warn(
+            `Dropping ${session.pendingMessages.length} queued NDJSON message(s) for session ${session.id}: adapter does not support sendRaw`,
+          );
+          break;
+        }
       }
       session.pendingMessages = [];
     }

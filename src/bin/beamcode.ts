@@ -1,13 +1,18 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
+import {
+  CLI_ADAPTER_NAMES,
+  type CliAdapterName,
+  createAdapter,
+} from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
+import { isInvertedConnectionAdapter } from "../core/interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
@@ -28,6 +33,7 @@ interface CliConfig {
   cwd: string;
   claudeBinary: string;
   verbose: boolean;
+  adapter?: CliAdapterName;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -46,9 +52,18 @@ function printHelp(): void {
     --model <name>         Model to pass to Claude CLI
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
+    --adapter <name>       Backend adapter: sdk-url (default), codex, acp
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 `);
+}
+
+function validateAdapterName(value: string, source: string): CliAdapterName {
+  if (!CLI_ADAPTER_NAMES.includes(value as CliAdapterName)) {
+    console.error(`Error: ${source} must be one of: ${CLI_ADAPTER_NAMES.join(", ")}`);
+    process.exit(1);
+  }
+  return value as CliAdapterName;
 }
 
 function parseArgs(argv: string[]): CliConfig {
@@ -89,6 +104,9 @@ function parseArgs(argv: string[]): CliConfig {
       case "--claude-binary":
         config.claudeBinary = argv[++i];
         break;
+      case "--adapter":
+        config.adapter = validateAdapterName(argv[++i], "--adapter");
+        break;
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -102,6 +120,10 @@ function parseArgs(argv: string[]): CliConfig {
         console.error(`Unknown option: ${arg}\nRun with --help for usage.`);
         process.exit(1);
     }
+  }
+
+  if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
+    config.adapter = validateAdapterName(process.env.BEAMCODE_ADAPTER, "BEAMCODE_ADAPTER");
   }
 
   return config;
@@ -160,6 +182,8 @@ async function main(): Promise<void> {
   // 3. Create SessionManager (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
   const metrics = new ConsoleMetricsCollector(logger);
+  const processManager = new NodeProcessManager();
+  const adapter = createAdapter(config.adapter, { processManager, logger });
   const sessionManager = new SessionManager({
     config: {
       port: config.port,
@@ -167,12 +191,12 @@ async function main(): Promise<void> {
       cliWebSocketUrlTemplate: (sessionId: string) =>
         `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
     },
-    processManager: new NodeProcessManager(),
+    processManager,
     storage,
     logger,
     metrics,
     gitResolver: new DefaultGitResolver(),
-    adapter: new SdkUrlAdapter(),
+    adapter,
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server
@@ -207,16 +231,38 @@ async function main(): Promise<void> {
   await sessionManager.start();
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
-  const session = sessionManager.launcher.launch({
-    cwd: config.cwd,
-    model: config.model,
-  });
-  const activeSessionId = session.sessionId;
-  // Seed bridge session with launch params so consumers see state immediately
+  let activeSessionId: string;
+  const isInverted = isInvertedConnectionAdapter(adapter);
+
+  if (isInverted) {
+    // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
+    activeSessionId = sessionManager.launcher.launch({
+      cwd: config.cwd,
+      model: config.model,
+    }).sessionId;
+  } else {
+    // Direct-connection flow (Codex, ACP): adapter handles spawning internally
+    activeSessionId = randomUUID();
+  }
+
   sessionManager.bridge.seedSessionState(activeSessionId, {
     cwd: config.cwd,
     model: config.model,
   });
+
+  if (!isInverted) {
+    try {
+      await sessionManager.bridge.connectBackend(activeSessionId, {
+        adapterOptions: { cwd: config.cwd },
+      });
+    } catch (err) {
+      console.error(
+        `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
+      );
+      console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
+      process.exit(1);
+    }
+  }
   httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner
@@ -228,6 +274,7 @@ async function main(): Promise<void> {
   Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
 
   Session: ${activeSessionId}
+  Adapter: ${adapter.name}
   CWD:     ${config.cwd}
   API Key: ${apiKey}
 
