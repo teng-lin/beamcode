@@ -176,10 +176,10 @@ export class SdkUrlSession implements BackendSession {
       try {
         const cliMsg = JSON.parse(raw.trim()) as CLIMessage;
         this.processCliMessage(cliMsg);
+        return;
       } catch {
         // fall through to line-buffer mode for NDJSON/chunked inputs
       }
-      return;
     }
 
     const lines = this.lineBuffer.feed(raw);
