@@ -41,6 +41,60 @@ jobs:
       - name: Build
         run: pnpm run build
 
+  e2e-deterministic:
+    name: E2E Deterministic
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run deterministic e2e lane
+        run: pnpm test:e2e:deterministic
+
+  e2e-realcli-smoke:
+    name: E2E Real CLI Smoke
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude CLI
+        run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
+
+      - name: Run real CLI smoke lane
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm test:e2e:realcli:smoke
+
   type-check:
     name: Type Check
     runs-on: ubuntu-latest

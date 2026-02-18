@@ -58,7 +58,7 @@
     "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.js",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "pnpm test:e2e:deterministic",
     "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -66,7 +66,10 @@
     "format": "biome format --write src/",
     "check": "biome check src/",
     "check:fix": "biome check --write src/",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "test:e2e:deterministic": "E2E_PROFILE=deterministic USE_MOCK_CLI=true vitest run --config vitest.e2e.config.ts",
+    "test:e2e:realcli:smoke": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=realcli-smoke USE_REAL_CLI=true vitest run --config vitest.e2e.realcli.config.ts",
+    "test:e2e:realcli:full": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=realcli-full USE_REAL_CLI=true vitest run --config vitest.e2e.realcli.config.ts"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged"
