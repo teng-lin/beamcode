@@ -1,6 +1,9 @@
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, expect } from "vitest";
+import * as vitestAxeMatchers from "vitest-axe/matchers";
+
+expect.extend(vitestAxeMatchers);
 
 // Node.js v25+ ships a built-in localStorage that shadows jsdom's
 // implementation but requires --localstorage-file to work properly.
