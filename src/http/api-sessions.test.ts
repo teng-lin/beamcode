@@ -56,14 +56,22 @@ function mockSessionManager(
     getSession: (id: string) => unknown;
     launch: (opts: unknown) => unknown;
     kill: (id: string) => Promise<boolean>;
+    deleteSession: (id: string) => Promise<boolean>;
   }> = {},
 ): SessionManager {
   return {
+    deleteSession: vi.fn(overrides.deleteSession ?? (async () => true)),
     launcher: {
       listSessions: vi.fn(overrides.listSessions ?? (() => [])),
       getSession: vi.fn(overrides.getSession ?? (() => undefined)),
       launch: vi.fn(overrides.launch ?? (() => ({ sessionId: "new-id", status: "running" }))),
       kill: vi.fn(overrides.kill ?? (async () => true)),
+      setSessionName: vi.fn(),
+      setArchived: vi.fn(),
+      removeSession: vi.fn(),
+    },
+    bridge: {
+      broadcastNameUpdate: vi.fn(),
     },
   } as unknown as SessionManager;
 }
@@ -236,8 +244,8 @@ describe("handleApiSessions", () => {
 
   // ---- DELETE /api/sessions/:id ----
 
-  it("DELETE /api/sessions/:id returns success when killed", async () => {
-    const sm = mockSessionManager({ kill: async () => true });
+  it("DELETE /api/sessions/:id returns deleted status", async () => {
+    const sm = mockSessionManager({ deleteSession: async () => true });
     const req = mockReq("DELETE");
     const res = mockRes();
 
@@ -246,11 +254,12 @@ describe("handleApiSessions", () => {
     await vi.waitFor(() => {
       expect(res._status).toBe(200);
     });
-    expect(parseBody(res)).toEqual({ status: "stopped" });
+    expect(parseBody(res)).toEqual({ status: "deleted" });
+    expect(sm.deleteSession).toHaveBeenCalledWith("abc");
   });
 
   it("DELETE /api/sessions/:id returns 404 when session not found", async () => {
-    const sm = mockSessionManager({ kill: async () => false });
+    const sm = mockSessionManager({ deleteSession: async () => false });
     const req = mockReq("DELETE");
     const res = mockRes();
 
@@ -264,8 +273,8 @@ describe("handleApiSessions", () => {
 
   it("DELETE /api/sessions/:id returns 500 on error", async () => {
     const sm = mockSessionManager({
-      kill: async () => {
-        throw new Error("Kill failed");
+      deleteSession: async () => {
+        throw new Error("Delete failed");
       },
     });
     const req = mockReq("DELETE");
@@ -276,7 +285,104 @@ describe("handleApiSessions", () => {
     await vi.waitFor(() => {
       expect(res._status).toBe(500);
     });
-    expect(parseBody(res)).toEqual({ error: "Kill failed" });
+    expect(parseBody(res)).toEqual({ error: "Delete failed" });
+  });
+
+  // ---- PUT /api/sessions/:id/rename ----
+
+  it("PUT /api/sessions/:id/rename renames a session", async () => {
+    const session = { sessionId: "abc", name: "old-name", state: "running" };
+    const sm = mockSessionManager({ getSession: () => session });
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, JSON.stringify({ name: "new-name" }));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(200);
+    });
+    expect(parseBody(res)).toEqual({ ...session, name: "new-name" });
+    expect(sm.launcher.setSessionName).toHaveBeenCalledWith("abc", "new-name");
+    expect(sm.bridge.broadcastNameUpdate).toHaveBeenCalledWith("abc", "new-name");
+  });
+
+  it("PUT /api/sessions/:id/rename returns 400 for empty name", async () => {
+    const sm = mockSessionManager();
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, JSON.stringify({ name: "   " }));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(400);
+    });
+    expect(parseBody(res)).toEqual({
+      error: "name is required and must be a non-empty string",
+    });
+  });
+
+  it("PUT /api/sessions/:id/rename returns 400 for missing name", async () => {
+    const sm = mockSessionManager();
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, JSON.stringify({}));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(400);
+    });
+    expect(parseBody(res)).toEqual({
+      error: "name is required and must be a non-empty string",
+    });
+  });
+
+  it("PUT /api/sessions/:id/rename returns 404 when session not found", async () => {
+    const sm = mockSessionManager({ getSession: () => undefined });
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, JSON.stringify({ name: "new-name" }));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(404);
+    });
+    expect(parseBody(res)).toEqual({ error: "Session not found" });
+  });
+
+  it("PUT /api/sessions/:id/rename returns 400 for invalid JSON", async () => {
+    const sm = mockSessionManager();
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, "not-json{{{");
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(400);
+    });
+    expect(parseBody(res)).toEqual({ error: "Invalid JSON" });
+  });
+
+  it("PUT /api/sessions/:id/rename trims and truncates name", async () => {
+    const session = { sessionId: "abc", name: "old", state: "running" };
+    const sm = mockSessionManager({ getSession: () => session });
+    const req = mockReq("PUT");
+    const res = mockRes();
+
+    const longName = `  ${"a".repeat(120)}  `;
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    emitBody(req, JSON.stringify({ name: longName }));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(200);
+    });
+    const body = parseBody(res) as { name: string };
+    expect(body.name).toHaveLength(100);
+    expect(sm.launcher.setSessionName).toHaveBeenCalledWith("abc", "a".repeat(100));
   });
 
   // ---- Unknown method ----

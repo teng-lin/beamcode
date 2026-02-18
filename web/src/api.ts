@@ -56,3 +56,12 @@ export async function unarchiveSession(id: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to unarchive session: ${res.status}`);
 }
+
+export async function renameSession(id: string, name: string): Promise<void> {
+  const res = await fetch(`${BASE}/sessions/${id}/rename`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Failed to rename session: ${res.status}`);
+}

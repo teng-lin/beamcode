@@ -1,5 +1,11 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { archiveSession, createSession, deleteSession, unarchiveSession } from "../api";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  archiveSession,
+  createSession,
+  deleteSession,
+  renameSession,
+  unarchiveSession,
+} from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
@@ -70,8 +76,48 @@ const SessionItem = memo(function SessionItem({
 }) {
   // Primitive return (string | null) — stable with Object.is, no derived objects.
   const sessionStatus = useStore((s) => s.sessionData[info.sessionId]?.sessionStatus ?? null);
+  const updateSession = useStore((s) => s.updateSession);
   const status = resolveStatus(info, sessionStatus);
   const name = info.name ?? cwdBasename(info.cwd ?? "untitled");
+
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commitRename = useCallback(async () => {
+    if (!editing) return;
+    setEditing(false);
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === name) return;
+    const prevName = useStore.getState().sessions[info.sessionId]?.name;
+    updateSession(info.sessionId, { name: trimmed });
+    try {
+      await renameSession(info.sessionId, trimmed);
+    } catch {
+      updateSession(info.sessionId, { name: prevName });
+    }
+  }, [editing, editValue, name, info.sessionId, updateSession]);
+
+  const cancelRename = useCallback(() => {
+    setEditing(false);
+    setEditValue(name);
+  }, [name]);
+
+  const startRename = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setEditValue(name);
+      setEditing(true);
+    },
+    [name],
+  );
 
   const handleDelete = useCallback(
     async (e: React.MouseEvent) => {
@@ -128,8 +174,44 @@ const SessionItem = memo(function SessionItem({
         <div
           className={`flex items-center gap-1 truncate text-sm ${isActive ? "font-medium text-bc-text" : "text-bc-text-muted group-hover:text-bc-text"}`}
         >
-          <span className="truncate">{name}</span>
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  inputRef.current?.blur();
+                } else if (e.key === "Escape") {
+                  cancelRename();
+                }
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="min-w-0 flex-1 truncate rounded border border-bc-accent/50 bg-bc-bg px-1 text-sm outline-none"
+              maxLength={100}
+            />
+          ) : (
+            <span className="truncate">{name}</span>
+          )}
           <span className="ml-auto flex flex-shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={startRename}
+              className="rounded p-0.5 text-bc-text-muted/0 transition-colors hover:text-bc-text-muted group-hover:text-bc-text-muted/60"
+              aria-label={`Rename session ${name}`}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path
+                  d="M8.5 1.5l2 2L4 10H2v-2l6.5-6.5z"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
             <button
               type="button"
               onClick={(e) => {
