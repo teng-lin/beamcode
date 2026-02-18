@@ -25,6 +25,10 @@ export interface CodexAdapterOptions {
   port?: number;
   /** Path to the codex binary. */
   codexBinary?: string;
+  /** Max WebSocket connection attempts (default: 20). */
+  connectRetries?: number;
+  /** Base delay between retries in ms (default: 100). */
+  connectRetryDelayMs?: number;
 }
 
 export class CodexAdapter implements BackendAdapter {
@@ -42,12 +46,16 @@ export class CodexAdapter implements BackendAdapter {
   private readonly logger?: Logger;
   private readonly port?: number;
   private readonly codexBinary?: string;
+  private readonly connectRetries: number;
+  private readonly connectRetryDelayMs: number;
 
   constructor(options: CodexAdapterOptions) {
     this.processManager = options.processManager;
     this.logger = options.logger;
     this.port = options.port;
     this.codexBinary = options.codexBinary;
+    this.connectRetries = options.connectRetries ?? 20;
+    this.connectRetryDelayMs = options.connectRetryDelayMs ?? 100;
   }
 
   async connect(options: ConnectOptions): Promise<BackendSession> {
@@ -84,7 +92,30 @@ export class CodexAdapter implements BackendAdapter {
     });
   }
 
-  private connectWebSocket(url: string): Promise<WebSocket> {
+  private async connectWebSocket(url: string): Promise<WebSocket> {
+    const maxAttempts = this.connectRetries;
+    const baseDelayMs = this.connectRetryDelayMs;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.tryConnect(url);
+      } catch (err) {
+        if (attempt === maxAttempts) {
+          throw new Error(
+            `Failed to connect to codex app-server at ${url} after ${maxAttempts} attempts: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+        const delay = Math.min(baseDelayMs * attempt, 1000);
+        this.logger?.debug?.(`Codex WS connect attempt ${attempt} failed, retrying in ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+
+    // Unreachable, but satisfies TypeScript
+    throw new Error("unreachable");
+  }
+
+  private tryConnect(url: string): Promise<WebSocket> {
     return new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(url);
 
@@ -95,7 +126,8 @@ export class CodexAdapter implements BackendAdapter {
 
       const onError = (err: Error) => {
         cleanup();
-        reject(new Error(`Failed to connect to codex app-server at ${url}: ${err.message}`));
+        ws.terminate();
+        reject(err);
       };
 
       const cleanup = () => {

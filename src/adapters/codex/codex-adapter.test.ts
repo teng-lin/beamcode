@@ -25,6 +25,10 @@ class MockWebSocket extends EventEmitter {
     this.emit("close");
   }
 
+  terminate(): void {
+    this.readyState = 3; // CLOSED
+  }
+
   removeListener(event: string, listener: (...args: any[]) => void): this {
     return super.removeListener(event, listener);
   }
@@ -434,6 +438,8 @@ describe("CodexAdapter", () => {
     beforeEach(() => {
       adapter = new CodexAdapter({
         processManager: createMockProcessManager(),
+        connectRetries: 2,
+        connectRetryDelayMs: 0,
       });
       launchSpy = vi
         .spyOn(CodexLauncher.prototype, "launch")
@@ -490,9 +496,9 @@ describe("CodexAdapter", () => {
       expect(sentMessages.some((m: any) => m.method === "initialized")).toBe(true);
     });
 
-    it("rejects when WebSocket emits error during connection", async () => {
-      const ws = new MockWebSocket();
+    it("rejects when WebSocket emits error during connection (all retries)", async () => {
       mockWsFactory = () => {
+        const ws = new MockWebSocket();
         queueMicrotask(() => ws.emit("error", new Error("Connection refused")));
         return ws;
       };
