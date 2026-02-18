@@ -55,6 +55,8 @@ export interface Session {
   teamCorrelationBuffer: TeamToolCorrelationBuffer;
   /** Per-session slash command registry. */
   registry: SlashCommandRegistry;
+  /** Tracks a passthrough slash command awaiting CLI response. */
+  pendingPassthrough: { command: string; requestId?: string } | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -193,6 +195,7 @@ export class SessionStore {
       pendingInitialize: null,
       teamCorrelationBuffer: this.factories.createCorrelationBuffer(),
       registry: this.factories.createRegistry(),
+      pendingPassthrough: null,
     };
   }
 

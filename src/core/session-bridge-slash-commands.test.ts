@@ -429,4 +429,194 @@ describe("SessionBridge — slash commands", () => {
       expect(result.content).toContain("/commit");
     });
   });
+
+  // ── passthrough command rendering ────────────────────────────────────
+
+  describe("passthrough command rendering", () => {
+    it("converts CLI user-echo into slash_command_result for passthrough commands", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg());
+
+      ws.sentMessages.length = 0;
+
+      // Send passthrough command
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/context", request_id: "req-ctx" }),
+      );
+
+      // Simulate CLI echoing back the user message with rendered output
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content:
+              "<local-command-stdout>## Context Usage\n\nModel: claude-opus-4-6\nTokens: 35k / 200k\n</local-command-stdout>",
+          },
+          parent_tool_use_id: null,
+          session_id: "sess-1",
+        }),
+      );
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.command).toBe("/context");
+      expect(result.request_id).toBe("req-ctx");
+      expect(result.content).toContain("## Context Usage");
+      expect(result.content).toContain("Tokens: 35k / 200k");
+      expect(result.source).toBe("pty");
+      // Should NOT contain the wrapper tags
+      expect(result.content).not.toContain("<local-command-stdout>");
+    });
+
+    it("does not intercept user-echo when no passthrough is pending", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg());
+
+      ws.sentMessages.length = 0;
+
+      // Send a user-echo without any pending passthrough
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "hello" },
+          parent_tool_use_id: null,
+          session_id: "sess-1",
+        }),
+      );
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      expect(msgs.find((m: any) => m.type === "slash_command_result")).toBeUndefined();
+    });
+
+    it("handles content as array of text blocks", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg());
+
+      // Send passthrough command
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/cost" }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // Simulate CLI echoing with content block array
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: "<local-command-stdout>Cost: $0.50</local-command-stdout>" },
+            ],
+          },
+          parent_tool_use_id: null,
+          session_id: "sess-1",
+        }),
+      );
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      const result = msgs.find((m: any) => m.type === "slash_command_result");
+      expect(result).toBeDefined();
+      expect(result.command).toBe("/cost");
+      expect(result.content).toBe("Cost: $0.50");
+    });
+
+    it("clears pending passthrough after interception (one-shot)", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg());
+
+      // Send passthrough command
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/context" }),
+      );
+
+      // First user echo — should be intercepted
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "context output" },
+          parent_tool_use_id: null,
+        }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // Second user echo — should NOT be intercepted (pending already cleared)
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "regular message" },
+          parent_tool_use_id: null,
+        }),
+      );
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      expect(msgs.find((m: any) => m.type === "slash_command_result")).toBeUndefined();
+    });
+
+    it("does not set pending passthrough for native (non-passthrough) commands", () => {
+      const { bridge } = createBridge();
+      const cliSocket = createMockSocket();
+      const ws = createMockSocket();
+
+      bridge.handleCLIOpen(cliSocket, "sess-1");
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      bridge.handleCLIMessage("sess-1", makeInitMsg({ slash_commands: ["/compact", "/vim"] }));
+
+      // Send native command /vim (not passthrough — it's a regular CLI command)
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "slash_command", command: "/vim" }),
+      );
+
+      ws.sentMessages.length = 0;
+
+      // User echo should NOT be intercepted
+      bridge.handleCLIMessage(
+        "sess-1",
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "vim mode enabled" },
+          parent_tool_use_id: null,
+        }),
+      );
+
+      const msgs = ws.sentMessages.map((m) => JSON.parse(m));
+      expect(msgs.find((m: any) => m.type === "slash_command_result")).toBeUndefined();
+    });
+  });
 });
