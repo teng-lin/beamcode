@@ -20,6 +20,24 @@ const MAX_IMAGES = 10;
 
 type ImagePayload = { images: { media_type: string; data: string }[] };
 
+function SendIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 12V4M8 4L4 8M8 4l4 4" />
+    </svg>
+  );
+}
+
 /** Strip preview data from attached images, keeping only the fields the server needs. */
 function imagePayload(imgs: AttachedImage[]): ImagePayload | undefined {
   if (imgs.length === 0) return undefined;
@@ -450,19 +468,7 @@ export function Composer({ sessionId }: ComposerProps) {
                 <rect width="14" height="14" rx="2" />
               </svg>
             ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M8 12V4M8 4L4 8M8 4l4 4" />
-              </svg>
+              <SendIcon />
             )}
           </button>
         </div>

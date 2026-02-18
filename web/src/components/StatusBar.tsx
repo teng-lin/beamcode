@@ -164,9 +164,7 @@ export function PermissionModePicker({ disabled }: { disabled?: boolean } = {}) 
         type="button"
         onClick={() => !isObserver && toggle()}
         disabled={isObserver}
-        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${colorClass}${
-          isBypass ? " border border-bc-warning/40" : ""
-        }${isObserver ? " cursor-default" : " cursor-pointer hover:bg-bc-hover"}`}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${colorClass} ${isBypass ? "border border-bc-warning/40" : ""} ${isObserver ? "cursor-default" : "cursor-pointer hover:bg-bc-hover"}`}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
           <path d="M5 1L8.5 3v3c0 2-1.5 3-3.5 3S1.5 8 1.5 6V3L5 1z" opacity="0.7" />
@@ -294,9 +292,7 @@ export function ModelPicker({ disabled }: { disabled?: boolean } = {}) {
         type="button"
         onClick={() => canSwitch && toggle()}
         disabled={!canSwitch}
-        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-bc-text-muted transition-colors ${
-          canSwitch ? "cursor-pointer hover:bg-bc-hover hover:text-bc-text" : "cursor-default"
-        }`}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-bc-text-muted transition-colors ${canSwitch ? "cursor-pointer hover:bg-bc-hover hover:text-bc-text" : "cursor-default"}`}
       >
         {shortName}
         {canSwitch && <ChevronDown />}
