@@ -98,23 +98,21 @@ export function Composer({ sessionId }: ComposerProps) {
   }, [images]);
 
   const processFiles = useCallback((files: FileList) => {
-    const availableSlots = MAX_IMAGES - imagesRef.current.length;
+    const availableSlots = Math.max(0, MAX_IMAGES - imagesRef.current.length);
     const allImages = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    const { addToast } = useStore.getState();
 
-    // Notify about oversized images
     for (const f of allImages) {
       if (f.size > MAX_IMAGE_SIZE) {
-        useStore
-          .getState()
-          .addToast(`Image too large (${(f.size / 1024 / 1024).toFixed(1)}MB) — max 10MB`, "error");
+        addToast(`Image too large (${(f.size / 1024 / 1024).toFixed(1)}MB) — max 10MB`, "error");
       }
     }
 
-    const eligible = allImages.filter((f) => f.size <= MAX_IMAGE_SIZE).slice(0, availableSlots);
+    const withinSizeLimit = allImages.filter((f) => f.size <= MAX_IMAGE_SIZE);
+    const eligible = withinSizeLimit.slice(0, availableSlots);
 
-    // Notify when count limit is hit
-    if (allImages.filter((f) => f.size <= MAX_IMAGE_SIZE).length > availableSlots) {
-      useStore.getState().addToast(`Maximum ${MAX_IMAGES} images allowed`, "error");
+    if (withinSizeLimit.length > availableSlots) {
+      addToast(`Maximum ${MAX_IMAGES} images allowed`, "error");
     }
 
     if (eligible.length === 0) return;

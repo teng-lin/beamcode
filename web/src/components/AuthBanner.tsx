@@ -1,6 +1,10 @@
 import { useStore } from "../store";
 
-export function AuthBanner({ sessionId }: { sessionId: string }) {
+interface AuthBannerProps {
+  sessionId: string;
+}
+
+export function AuthBanner({ sessionId }: AuthBannerProps) {
   const authStatus = useStore((s) => s.sessionData[sessionId]?.authStatus);
   if (!authStatus || (!authStatus.isAuthenticating && !authStatus.error)) return null;
 
@@ -22,7 +26,7 @@ export function AuthBanner({ sessionId }: { sessionId: string }) {
         </span>
       </div>
       {authStatus.output.length > 0 && (
-        <pre className="mt-1 font-mono-code text-[11px] opacity-80">
+        <pre className="mt-1 max-h-24 overflow-y-auto font-mono-code text-[11px] opacity-80">
           {authStatus.output.join("\n")}
         </pre>
       )}

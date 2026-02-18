@@ -339,6 +339,7 @@ export function connectToSession(sessionId: string): void {
     store.setIdentity(sessionId, null);
     store.setPresence(sessionId, []);
     store.clearPendingPermissions(sessionId);
+    store.setAuthStatus(sessionId, null);
     connections.delete(sessionId);
     scheduleReconnect(sessionId);
   };

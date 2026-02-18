@@ -122,6 +122,23 @@ describe("ws multi-connection manager", () => {
     expect(MockWebSocket.instances[2].url).toContain("/ws/consumer/s1");
   });
 
+  it("onclose clears authStatus to avoid stale banner on reconnect", () => {
+    connectToSession("s1");
+    const ws = MockWebSocket.instances[0];
+    ws.simulateOpen();
+
+    // Set authStatus as if mid-authentication
+    useStore.getState().setAuthStatus("s1", {
+      isAuthenticating: true,
+      output: ["Opening browser..."],
+    });
+    expect(useStore.getState().sessionData.s1?.authStatus).not.toBeNull();
+
+    ws.simulateClose();
+
+    expect(useStore.getState().sessionData.s1?.authStatus).toBeNull();
+  });
+
   // ── disconnectSession ────────────────────────────────────────────────────
 
   it("disconnectSession closes only the targeted connection", () => {
