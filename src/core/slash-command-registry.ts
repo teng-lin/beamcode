@@ -21,10 +21,10 @@ const BUILT_IN_COMMANDS: RegisteredCommand[] = [
   },
   {
     name: "/clear",
-    description: "Clear the message display",
+    description: "Clear conversation context",
     source: "built-in",
-    category: "consumer",
-    availableDuringTask: true,
+    category: "passthrough",
+    availableDuringTask: false,
   },
   {
     name: "/model",

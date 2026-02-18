@@ -2,7 +2,7 @@
  * SlashCommandHandler -- extracted from SessionBridge (Phase 2).
  *
  * Binary routing: commands are either forwarded to the CLI or executed locally
- * (/help, /clear). All forwarded commands get echo interception via
+ * (/help only). All forwarded commands get echo interception via
  * pendingPassthrough so the bridge can capture the CLI response.
  */
 
@@ -67,7 +67,7 @@ export class SlashCommandHandler {
       return;
     }
 
-    // Local commands: /help, /clear
+    // Local command: /help
     this.executor
       .executeLocal(session.state, command, session.registry)
       .then((result) => {

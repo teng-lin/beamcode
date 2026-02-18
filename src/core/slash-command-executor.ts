@@ -13,10 +13,10 @@ function commandName(command: string): string {
 }
 
 export class SlashCommandExecutor {
-  /** True if this command should go to the CLI (everything except /help, /clear). */
+  /** True if this command should go to the CLI (everything except /help). */
   shouldForwardToCLI(command: string): boolean {
     const name = commandName(command);
-    return name !== "/help" && name !== "/clear";
+    return name !== "/help";
   }
 
   /**

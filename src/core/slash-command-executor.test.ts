@@ -79,9 +79,9 @@ describe("SlashCommandExecutor", () => {
       expect(executor.shouldForwardToCLI("/help")).toBe(false);
     });
 
-    it("returns false for /clear", () => {
+    it("returns true for /clear (forwarded to CLI)", () => {
       const executor = createExecutor();
-      expect(executor.shouldForwardToCLI("/clear")).toBe(false);
+      expect(executor.shouldForwardToCLI("/clear")).toBe(true);
     });
 
     it("handles commands with leading whitespace", () => {
