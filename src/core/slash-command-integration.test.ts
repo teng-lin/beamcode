@@ -3,26 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { AuthContext } from "../interfaces/auth.js";
-import type { WebSocketLike } from "../interfaces/transport.js";
+import {
+  authContext,
+  createTestSocket as createMockSocket,
+  makeInitMsg,
+  noopLogger,
+} from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createMockSocket(): WebSocketLike & {
-  sentMessages: string[];
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-} {
-  const sentMessages: string[] = [];
-  return {
-    send: vi.fn((data: string) => sentMessages.push(data)),
-    close: vi.fn(),
-    sentMessages,
-  };
-}
-
-const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
 function createBridge() {
   const storage = new MemoryStorage();
@@ -36,33 +25,8 @@ function createBridge() {
   };
 }
 
-function authContext(sessionId: string): AuthContext {
-  return { sessionId, transport: {} };
-}
-
-/** Flush microtask queue deterministically (no wall-clock dependency). */
+/** Flush microtask queue (uses setTimeout for integration-level async). */
 const tick = () => new Promise<void>((r) => setTimeout(r, 10));
-
-function makeInitMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "system",
-    subtype: "init",
-    session_id: "cli-123",
-    model: "claude-sonnet-4-5-20250929",
-    cwd: "/test",
-    tools: ["Bash", "Read"],
-    permissionMode: "default",
-    claude_code_version: "1.0",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    output_style: "normal",
-    uuid: "uuid-1",
-    apiKeySource: "env",
-    ...overrides,
-  });
-}
 
 function makeControlResponse(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -290,7 +254,6 @@ describe("Slash command integration", () => {
 
   describe("end-to-end: unknown commands are forwarded to CLI", () => {
     it("unknown commands are forwarded to CLI (not rejected locally)", () => {
-      // SessionBridge created without commandRunner — doesn't matter, CLI handles routing
       const bridge = new SessionBridge({
         config: { port: 3456 },
         logger: noopLogger,

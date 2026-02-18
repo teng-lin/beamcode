@@ -8,7 +8,7 @@ export interface SlashCommandResult {
 }
 
 /** Extract the command name (e.g. "/help") from a full command string (e.g. "/help foo"). */
-function commandName(command: string): string {
+export function commandName(command: string): string {
   return command.trim().split(/\s+/)[0];
 }
 
@@ -42,9 +42,10 @@ export class SlashCommandExecutor {
   /** Build /help output from capabilities, slash_commands, and registry. */
   private buildHelp(state: SessionState, registry: SlashCommandRegistry | null): string {
     const capCmds = state.capabilities?.commands;
+    const hasCapabilities = capCmds != null && capCmds.length > 0;
     let content: string;
 
-    if (capCmds && capCmds.length > 0) {
+    if (hasCapabilities) {
       const formatted = capCmds.map((cmd) => {
         const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : "";
         return `  ${cmd.name}${hint} — ${cmd.description}`;
@@ -59,9 +60,8 @@ export class SlashCommandExecutor {
       content = ["Available commands:", ...allNames.map((name) => `  ${name}`)].join("\n");
     }
 
-    // Augment with registry commands not already listed
     if (registry) {
-      content = this.augmentHelp(content, state, registry);
+      content = this.augmentHelp(content, hasCapabilities, registry);
     }
 
     return content;
@@ -70,11 +70,10 @@ export class SlashCommandExecutor {
   /** Augment /help output with registry commands not already listed. */
   private augmentHelp(
     baseContent: string,
-    state: SessionState,
+    hasCapabilities: boolean,
     registry: SlashCommandRegistry,
   ): string {
     const registryCommands = registry.getAll();
-    const hasCapabilities = state.capabilities?.commands && state.capabilities.commands.length > 0;
 
     // Collect names already present in the help output (case-insensitive)
     const existingNames = new Set<string>();

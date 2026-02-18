@@ -464,7 +464,7 @@ describe("SessionBridge — slash commands", () => {
       expect(result.request_id).toBe("req-ctx");
       expect(result.content).toContain("## Context Usage");
       expect(result.content).toContain("Tokens: 35k / 200k");
-      expect(result.source).toBe("pty");
+      expect(result.source).toBe("cli");
       // Should NOT contain the wrapper tags
       expect(result.content).not.toContain("<local-command-stdout>");
     });

@@ -9,7 +9,7 @@
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import type { Session } from "./session-store.js";
-import type { SlashCommandExecutor } from "./slash-command-executor.js";
+import { commandName, type SlashCommandExecutor } from "./slash-command-executor.js";
 
 // -- Dependency contracts ----------------------------------------------------
 
@@ -58,12 +58,7 @@ export class SlashCommandHandler {
     const { command, request_id } = msg;
 
     if (this.executor.shouldForwardToCLI(command)) {
-      // ALL forwarded commands get echo interception (not just passthrough)
-      session.pendingPassthrough = {
-        command: command.trim().split(/\s+/)[0],
-        requestId: request_id,
-      };
-      this.sendUserMessage(session.id, command);
+      this.forwardToCLI(session, command, request_id);
       return;
     }
 
@@ -107,15 +102,20 @@ export class SlashCommandHandler {
     command: string,
   ): Promise<{ content: string; source: "emulated" } | null> {
     if (this.executor.shouldForwardToCLI(command)) {
-      // ALL forwarded commands get echo interception
-      session.pendingPassthrough = {
-        command: command.trim().split(/\s+/)[0],
-      };
-      this.sendUserMessage(session.id, command);
+      this.forwardToCLI(session, command);
       return null; // result comes back via normal CLI message flow
     }
 
     const result = await this.executor.executeLocal(session.state, command, session.registry);
     return { content: result.content, source: result.source };
+  }
+
+  /** Forward a command to the CLI and set up echo interception. */
+  private forwardToCLI(session: Session, command: string, requestId?: string): void {
+    session.pendingPassthrough = {
+      command: commandName(command),
+      requestId,
+    };
+    this.sendUserMessage(session.id, command);
   }
 }

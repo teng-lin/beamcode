@@ -166,7 +166,7 @@ export type ConsumerMessage =
       command: string;
       request_id?: string;
       content: string;
-      source: "emulated" | "pty";
+      source: "emulated" | "cli";
     }
   | {
       type: "slash_command_error";

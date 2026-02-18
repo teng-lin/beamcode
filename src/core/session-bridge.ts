@@ -725,7 +725,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   // ── CLI message routing ──────────────────────────────────────────────────
 
   private routeCLIMessage(session: Session, msg: CLIMessage): void {
-    // Intercept CLI user-echo for pending passthrough commands (/context, /cost, etc.)
+    // Intercept CLI user-echo for forwarded slash commands
     if (msg.type === "user" && session.pendingPassthrough) {
       const { command, requestId } = session.pendingPassthrough;
       session.pendingPassthrough = null;
@@ -735,11 +735,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         command,
         request_id: requestId,
         content,
-        source: "pty",
+        source: "cli",
       };
       session.messageHistory.push(consumerMsg);
       this.trimMessageHistory(session);
       this.broadcaster.broadcast(session, consumerMsg);
+      this.emit("slash_command:executed", {
+        sessionId: session.id,
+        command,
+        source: "cli",
+        durationMs: 0,
+      });
       return;
     }
 

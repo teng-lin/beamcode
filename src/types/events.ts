@@ -62,7 +62,7 @@ export interface BridgeEventMap {
   "slash_command:executed": {
     sessionId: string;
     command: string;
-    source: "emulated";
+    source: "emulated" | "cli";
     durationMs: number;
   };
   "slash_command:failed": { sessionId: string; command: string; error: string };
