@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
@@ -8,6 +8,7 @@ import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
+import { isInvertedConnectionAdapter } from "../core/interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
@@ -169,6 +170,8 @@ async function main(): Promise<void> {
   // 3. Create SessionManager (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
   const metrics = new ConsoleMetricsCollector(logger);
+  const processManager = new NodeProcessManager();
+  const adapter = createAdapter(config.adapter, { processManager, logger });
   const sessionManager = new SessionManager({
     config: {
       port: config.port,
@@ -176,12 +179,12 @@ async function main(): Promise<void> {
       cliWebSocketUrlTemplate: (sessionId: string) =>
         `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
     },
-    processManager: new NodeProcessManager(),
+    processManager,
     storage,
     logger,
     metrics,
     gitResolver: new DefaultGitResolver(),
-    adapter: new SdkUrlAdapter(),
+    adapter,
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server
@@ -216,16 +219,30 @@ async function main(): Promise<void> {
   await sessionManager.start();
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
-  const session = sessionManager.launcher.launch({
-    cwd: config.cwd,
-    model: config.model,
-  });
-  const activeSessionId = session.sessionId;
-  // Seed bridge session with launch params so consumers see state immediately
-  sessionManager.bridge.seedSessionState(activeSessionId, {
-    cwd: config.cwd,
-    model: config.model,
-  });
+  let activeSessionId: string;
+
+  if (isInvertedConnectionAdapter(adapter)) {
+    // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
+    const session = sessionManager.launcher.launch({
+      cwd: config.cwd,
+      model: config.model,
+    });
+    activeSessionId = session.sessionId;
+    sessionManager.bridge.seedSessionState(activeSessionId, {
+      cwd: config.cwd,
+      model: config.model,
+    });
+  } else {
+    // Direct-connection flow (Codex, ACP): adapter handles spawning internally
+    activeSessionId = randomUUID();
+    sessionManager.bridge.seedSessionState(activeSessionId, {
+      cwd: config.cwd,
+      model: config.model,
+    });
+    await sessionManager.bridge.connectBackend(activeSessionId, {
+      adapterOptions: { cwd: config.cwd },
+    });
+  }
   httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner
@@ -237,6 +254,7 @@ async function main(): Promise<void> {
   Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
 
   Session: ${activeSessionId}
+  Adapter: ${config.adapter ?? "sdk-url"}
   CWD:     ${config.cwd}
   API Key: ${apiKey}
 
