@@ -3,7 +3,6 @@ import { ConsoleLogger } from "../adapters/console-logger.js";
 import { translate as translateCLI } from "../adapters/sdk-url/message-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
-import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
@@ -104,7 +103,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     logger?: Logger;
     config?: ProviderConfig;
     metrics?: MetricsCollector;
-    commandRunner?: CommandRunner;
     /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
   }) {
