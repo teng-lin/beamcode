@@ -65,8 +65,8 @@ jobs:
       - name: Run deterministic e2e lane
         run: pnpm test:e2e:deterministic
 
-  e2e-realcli-smoke:
-    name: E2E Real CLI Smoke
+  e2e-realcli-smoke-process:
+    name: E2E Real CLI Smoke (Process)
     runs-on: ubuntu-latest
     if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
 
@@ -90,10 +90,40 @@ jobs:
       - name: Install Claude CLI
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
-      - name: Run real CLI smoke lane
+      - name: Run real CLI smoke process shard
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:smoke
+        run: pnpm test:e2e:realcli:smoke:process
+
+  e2e-realcli-smoke-session:
+    name: E2E Real CLI Smoke (Session)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude CLI
+        run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
+
+      - name: Run real CLI smoke session shard
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm test:e2e:realcli:smoke:session
 
   type-check:
     name: Type Check

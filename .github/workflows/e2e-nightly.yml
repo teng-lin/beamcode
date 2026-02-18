@@ -30,8 +30,8 @@ jobs:
       - name: Run deterministic e2e full lane
         run: pnpm test:e2e:deterministic
 
-  e2e-realcli-full:
-    name: E2E Real CLI Full
+  e2e-realcli-full-process:
+    name: E2E Real CLI Full (Process)
     runs-on: ubuntu-latest
     if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
 
@@ -55,7 +55,37 @@ jobs:
       - name: Install Claude CLI
         run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
 
-      - name: Run real CLI full lane
+      - name: Run real CLI full process shard
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:full
+        run: pnpm test:e2e:realcli:full:process
+
+  e2e-realcli-full-session:
+    name: E2E Real CLI Full (Session)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude CLI
+        run: npm install -g ./anthropic-ai-claude-code-2.1.45.tgz
+
+      - name: Run real CLI full session shard
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm test:e2e:realcli:full:session

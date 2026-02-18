@@ -14,6 +14,11 @@ export class NodeProcessManager implements ProcessManager {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    // Attach an early error listener immediately after spawn() so ENOENT-style
+    // failures cannot surface as unhandled exceptions before we build the handle.
+    const earlyErrorListener = () => {};
+    child.on("error", earlyErrorListener);
+
     if (typeof child.pid !== "number") {
       throw new Error(`Failed to spawn process: ${options.command}`);
     }

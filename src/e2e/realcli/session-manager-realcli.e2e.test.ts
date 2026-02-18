@@ -1,11 +1,16 @@
 import { spawnSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { FileStorage } from "../../adapters/file-storage.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
 import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
 import { SessionManager } from "../../core/session-manager.js";
+import type { Authenticator } from "../../interfaces/auth.js";
 import { getE2EProfile } from "../helpers/e2e-profile.js";
 import {
   closeWebSockets,
@@ -213,6 +218,36 @@ async function setupRealCliSession() {
   return { manager, server, sessionId: launched.sessionId, port: boundPort };
 }
 
+async function setupRealCliSessionWithOptions(options?: {
+  config?: { initializeTimeoutMs?: number; reconnectGracePeriodMs?: number };
+  storage?: MemoryStorage | FileStorage;
+  authenticator?: Authenticator;
+}): Promise<{
+  manager: SessionManager;
+  server: NodeWebSocketServer;
+  sessionId: string;
+  port: number;
+}> {
+  const port = await reservePort();
+  const server = new NodeWebSocketServer({ port });
+  const manager = new SessionManager({
+    config: {
+      port,
+      initializeTimeoutMs: options?.config?.initializeTimeoutMs ?? 20_000,
+      reconnectGracePeriodMs: options?.config?.reconnectGracePeriodMs ?? 10_000,
+    },
+    processManager: createProcessManager(),
+    storage: options?.storage ?? new MemoryStorage(),
+    server,
+    adapter: new SdkUrlAdapter(),
+    authenticator: options?.authenticator,
+  });
+  attachTrace(manager);
+  await manager.start();
+  const launched = manager.launcher.launch({ cwd: process.cwd() });
+  return { manager, server, sessionId: launched.sessionId, port: server.port ?? port };
+}
+
 async function waitForSessionExited(
   manager: SessionManager,
   sessionId: string,
@@ -293,6 +328,53 @@ async function connectConsumerAndWaitReady(
     const connected = await waitForMessageType(consumer, "cli_connected", timeoutMs);
     expect((connected as { type: string }).type).toBe("cli_connected");
   }
+  return consumer;
+}
+
+async function connectConsumerWithQuery(
+  port: number,
+  sessionId: string,
+  query: Record<string, string>,
+): Promise<WebSocket> {
+  const q = new URLSearchParams(query).toString();
+  const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?${q}`);
+  await new Promise<void>((resolve, reject) => {
+    consumer.once("open", () => resolve());
+    consumer.once("error", (err) => reject(err));
+  });
+  return consumer;
+}
+
+async function connectConsumerWithQueryAndWaitReady(
+  port: number,
+  sessionId: string,
+  query: Record<string, string>,
+  expectedRole: "participant" | "observer",
+): Promise<WebSocket> {
+  const q = new URLSearchParams(query).toString();
+  const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?${q}`);
+  const initialMessagesPromise = collectMessages(consumer, 4, 20_000);
+  await new Promise<void>((resolve, reject) => {
+    consumer.once("open", () => resolve());
+    consumer.once("error", (err) => reject(err));
+  });
+
+  const initialMessages = await initialMessagesPromise;
+  const parsed = initialMessages
+    .map((raw) => {
+      try {
+        return JSON.parse(raw) as { type?: string; role?: string };
+      } catch {
+        return { type: "raw" };
+      }
+    })
+    .filter((m) => typeof m.type === "string");
+
+  const types = parsed.map((m) => m.type);
+  expect(types).toContain("identity");
+  expect(types).toContain("session_init");
+  const identity = parsed.find((m) => m.type === "identity");
+  expect(identity?.role).toBe(expectedRole);
   return consumer;
 }
 
@@ -617,6 +699,89 @@ describe("E2E Real CLI SessionManager integration", () => {
     },
   );
 
+  it.runIf(runSessionManagerRealCli)(
+    "process_output policy: participant receives output, observer does not",
+    async () => {
+      const authenticator: Authenticator = {
+        async authenticate(context) {
+          const transport = context.transport as { query?: Record<string, string> };
+          const role = transport.query?.role === "observer" ? "observer" : "participant";
+          return {
+            userId: role === "observer" ? "obs-1" : "part-1",
+            displayName: role === "observer" ? "Observer" : "Participant",
+            role,
+          };
+        },
+      };
+
+      const { manager, sessionId, port } = await setupRealCliSessionWithOptions({
+        authenticator,
+      });
+      activeManagers.push(manager);
+      await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+
+      const participant = await connectConsumerWithQueryAndWaitReady(
+        port,
+        sessionId,
+        { role: "participant" },
+        "participant",
+      );
+      const observer = await connectConsumerWithQueryAndWaitReady(
+        port,
+        sessionId,
+        { role: "observer" },
+        "observer",
+      );
+      try {
+        const partOutput = waitForMessageType(participant, "process_output", 20_000);
+        // Deterministic RBAC policy check for process output fanout.
+        manager.bridge.broadcastProcessOutput(sessionId, "stderr", "REALCLI_RBAC_OUTPUT_CHECK");
+        await partOutput;
+        await expect(waitForMessageType(observer, "process_output", 1000)).rejects.toThrow(
+          /Timeout waiting for message/,
+        );
+      } finally {
+        await closeWebSockets(participant, observer);
+      }
+    },
+  );
+
+  it.runIf(runSessionManagerRealCli)("watchdog relaunches stale starting session", async () => {
+    const { manager, sessionId } = await setupRealCliSessionWithOptions({
+      config: { reconnectGracePeriodMs: 200 },
+    });
+    activeManagers.push(manager);
+    await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+
+    const info = manager.launcher.getSession(sessionId);
+    expect(info).toBeDefined();
+    if (!info) return;
+    info.state = "starting";
+
+    const launcherAny = manager.launcher as unknown as {
+      getStartingSessions: () => Array<{ sessionId: string; state: string; archived?: boolean }>;
+      relaunch: (id: string) => Promise<boolean>;
+    };
+    const originalGetStarting = launcherAny.getStartingSessions.bind(manager.launcher);
+    const originalRelaunch = launcherAny.relaunch.bind(manager.launcher);
+    let relaunchCount = 0;
+    launcherAny.getStartingSessions = () => [info];
+    launcherAny.relaunch = async (id: string) => {
+      if (id === sessionId) relaunchCount += 1;
+      return true;
+    };
+
+    try {
+      const managerAny = manager as unknown as { startReconnectWatchdog: () => void };
+      managerAny.startReconnectWatchdog();
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(relaunchCount).toBeGreaterThan(0);
+    } finally {
+      launcherAny.getStartingSessions = originalGetStarting;
+      launcherAny.relaunch = originalRelaunch;
+    }
+  });
+
   it.runIf(runFullOnly)(
     "control path: set_permission_mode keeps real backend healthy",
     async () => {
@@ -628,6 +793,91 @@ describe("E2E Real CLI SessionManager integration", () => {
       try {
         consumer.send(JSON.stringify({ type: "set_permission_mode", mode: "delegate" }));
         await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      } finally {
+        await closeWebSockets(consumer);
+      }
+    },
+  );
+
+  it.runIf(runFullOnly)("slash command passthrough uses CLI path", async () => {
+    const { manager, sessionId, port } = await setupRealCliSession();
+    activeManagers.push(manager);
+    await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+
+    const consumer = await connectConsumerAndWaitReady(port, sessionId);
+    try {
+      consumer.send(
+        JSON.stringify({
+          type: "slash_command",
+          command: "/cost",
+          request_id: "realcli-cost-1",
+        }),
+      );
+      const msg = (await waitForMessageType(consumer, "slash_command_result", 60_000)) as {
+        type: string;
+        source?: string;
+        request_id?: string;
+        content?: string;
+      };
+      expect(msg.type).toBe("slash_command_result");
+      expect(msg.source).toBe("cli");
+      expect(msg.request_id).toBe("realcli-cost-1");
+      expect((msg.content ?? "").length).toBeGreaterThan(0);
+    } finally {
+      await closeWebSockets(consumer);
+    }
+  });
+
+  it.runIf(runFullOnly)(
+    "delegate permission mode remains healthy and handles permission prompt when surfaced",
+    async () => {
+      const { manager, sessionId, port } = await setupRealCliSession();
+      activeManagers.push(manager);
+      await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+
+      const consumer = await connectConsumerAndWaitReady(port, sessionId);
+      try {
+        consumer.send(JSON.stringify({ type: "set_permission_mode", mode: "delegate" }));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        consumer.send(
+          JSON.stringify({
+            type: "user_message",
+            content:
+              "Use Bash to run exactly: echo REALCLI_PERMISSION_CHECK. Do not answer without the tool.",
+          }),
+        );
+
+        // In some environments/models this emits permission_request, in others
+        // the assistant responds directly. Accept either path, but keep it bounded.
+        const observed = (await waitForMessage(
+          consumer,
+          (msg) =>
+            typeof msg === "object" &&
+            msg !== null &&
+            "type" in msg &&
+            ["permission_request", "assistant", "result"].includes(
+              (msg as { type?: string }).type ?? "",
+            ),
+          15_000,
+        )) as { type: string; request?: { request_id?: string } };
+
+        if (observed.type === "permission_request") {
+          const requestId = observed.request?.request_id;
+          expect(requestId).toBeTruthy();
+          if (!requestId) return;
+          consumer.send(
+            JSON.stringify({
+              type: "permission_response",
+              request_id: requestId,
+              behavior: "deny",
+              message: "Denied by e2e test",
+            }),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+
         expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
       } finally {
         await closeWebSockets(consumer);
@@ -793,4 +1043,75 @@ describe("E2E Real CLI SessionManager integration", () => {
       await closeWebSockets(consumer);
     }
   });
+
+  it.runIf(runFullOnly)(
+    "resume across manager restart (storage-backed) preserves conversation context",
+    async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "beamcode-realcli-resume-"));
+      const storage = new FileStorage(tempDir);
+      const rememberToken = `REALCLI_REMEMBER_${Date.now()}`;
+
+      let manager1: SessionManager | null = null;
+      let manager2: SessionManager | null = null;
+      try {
+        const first = await setupRealCliSessionWithOptions({ storage });
+        manager1 = first.manager;
+        activeManagers.push(manager1);
+        await waitForBackendConnectedOrExit(manager1, first.sessionId, 20_000);
+
+        const consumer1 = await connectConsumerAndWaitReady(first.port, first.sessionId);
+        consumer1.send(
+          JSON.stringify({
+            type: "user_message",
+            content: `Remember this exact token for later: ${rememberToken}. Reply with OK.`,
+          }),
+        );
+        await waitForMessageType(consumer1, "assistant", 90_000);
+        await waitForMessageType(consumer1, "result", 90_000);
+        await closeWebSockets(consumer1);
+
+        const persistedId = first.sessionId;
+        await manager1.stop();
+        activeManagers.pop();
+        manager1 = null;
+
+        const port2 = await reservePort();
+        const server2 = new NodeWebSocketServer({ port: port2 });
+        manager2 = new SessionManager({
+          config: { port: port2, initializeTimeoutMs: 20_000 },
+          processManager: createProcessManager(),
+          storage,
+          server: server2,
+          adapter: new SdkUrlAdapter(),
+        });
+        attachTrace(manager2);
+        activeManagers.push(manager2);
+        await manager2.start();
+
+        expect(manager2.launcher.getSession(persistedId)).toBeDefined();
+        expect(await manager2.launcher.relaunch(persistedId)).toBe(true);
+        await waitForBackendConnectedOrExit(manager2, persistedId, 30_000);
+
+        const consumer2 = await connectConsumerAndWaitReady(server2.port ?? port2, persistedId);
+        consumer2.send(
+          JSON.stringify({
+            type: "user_message",
+            content: "What was the exact token I asked you to remember? Reply with the token only.",
+          }),
+        );
+        const resumed = await waitForMessage(
+          consumer2,
+          (msg) => assistantTextContains(msg, rememberToken),
+          90_000,
+        );
+        expect(assistantTextContains(resumed, rememberToken)).toBe(true);
+        await waitForMessageType(consumer2, "result", 90_000);
+        await closeWebSockets(consumer2);
+      } finally {
+        if (manager1) await manager1.stop();
+        if (manager2) await manager2.stop();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
 });
