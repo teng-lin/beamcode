@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { checkA11y } from "../test/a11y";
 import { resetStore, store } from "../test/factories";
 import { Composer } from "./Composer";
 
@@ -465,6 +466,17 @@ describe("Composer", () => {
 
       await user.type(screen.getByLabelText("Message input"), "/config ");
       expect(screen.getByText("[key]")).toBeInTheDocument();
+    });
+  });
+
+  // ── Accessibility ──────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("has no axe violations", async () => {
+      store().ensureSessionData(SESSION);
+      render(<Composer sessionId={SESSION} />);
+      const results = await checkA11y();
+      expect(results).toHaveNoViolations();
     });
   });
 

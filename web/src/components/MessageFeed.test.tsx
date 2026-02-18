@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { ConsumerMessage } from "../../../shared/consumer-types";
+import { checkA11y } from "../test/a11y";
 import { makeAssistantMessage } from "../test/factories";
 import { MessageFeed } from "./MessageFeed";
+
+// jsdom doesn't implement scrollIntoView — stub it to prevent unhandled errors
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 vi.mock("./MessageBubble", () => ({
   MessageBubble: ({ message }: { message: ConsumerMessage }) => (
@@ -98,5 +104,18 @@ describe("MessageFeed", () => {
     expect(details).toBeNull();
     const bubbles = screen.getAllByTestId("message-bubble");
     expect(bubbles).toHaveLength(2);
+  });
+
+  // ── Accessibility ──────────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("has no axe violations with messages", async () => {
+      const messages: ConsumerMessage[] = [
+        { type: "user_message", content: "Hello", timestamp: Date.now() },
+      ];
+      render(<MessageFeed messages={messages} sessionId={SESSION_ID} />);
+      const results = await checkA11y();
+      expect(results).toHaveNoViolations();
+    });
   });
 });

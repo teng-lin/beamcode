@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SdkSessionInfo } from "../store";
 import { useStore } from "../store";
+import { checkA11y } from "../test/a11y";
 import { makeSessionInfo, resetStore } from "../test/factories";
 import { Sidebar } from "./Sidebar";
 
@@ -517,6 +518,30 @@ describe("Sidebar", () => {
     it("does not show search input when no sessions exist", () => {
       render(<Sidebar />);
       expect(screen.queryByPlaceholderText("Search sessions...")).not.toBeInTheDocument();
+    });
+  });
+
+  // ── Accessibility ──────────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("has no axe violations in empty state", async () => {
+      render(<Sidebar />);
+      const results = await checkA11y();
+      expect(results).toHaveNoViolations();
+    });
+
+    it("has no axe violations with sessions (except known nested-interactive)", async () => {
+      setupSessions(
+        makeSessionInfo({ sessionId: "s1", cwd: "/home/user/alpha", createdAt: 1000 }),
+        makeSessionInfo({ sessionId: "s2", cwd: "/home/user/beta", createdAt: 2000 }),
+      );
+      render(<Sidebar />);
+      // Known issue: session rows use role="button" with nested action buttons.
+      // Disable nested-interactive to test for other violations; tracked separately.
+      const results = await checkA11y(document.body, {
+        rules: { "nested-interactive": { enabled: false } },
+      });
+      expect(results).toHaveNoViolations();
     });
   });
 

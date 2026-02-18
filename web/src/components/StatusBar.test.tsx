@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
+import { checkA11y } from "../test/a11y";
 import { makeSessionInfo, resetStore, store } from "../test/factories";
 import { StatusBar } from "./StatusBar";
 
@@ -483,6 +484,17 @@ describe("StatusBar", () => {
       setupSession({ is_worktree: false });
       render(<StatusBar />);
       expect(screen.queryByText("Worktree")).not.toBeInTheDocument();
+    });
+  });
+
+  // ── Accessibility ──────────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("has no axe violations with active session", async () => {
+      setupSession();
+      render(<StatusBar />);
+      const results = await checkA11y();
+      expect(results).toHaveNoViolations();
     });
   });
 });

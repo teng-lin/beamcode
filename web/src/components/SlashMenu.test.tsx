@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { checkA11y } from "../test/a11y";
 import { resetStore, store } from "../test/factories";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 
@@ -288,10 +289,7 @@ describe("SlashMenu", () => {
 
   describe("skills rendering", () => {
     it("renders skills with Skills category", () => {
-      setupCommands(
-        [{ name: "model", description: "Change model" }],
-        ["commit", "review-pr"],
-      );
+      setupCommands([{ name: "model", description: "Change model" }], ["commit", "review-pr"]);
       renderMenu();
 
       expect(screen.getByText("Skills")).toBeInTheDocument();
@@ -300,10 +298,7 @@ describe("SlashMenu", () => {
     });
 
     it("filters skills along with commands", () => {
-      setupCommands(
-        [{ name: "compact", description: "Compact context" }],
-        ["commit"],
-      );
+      setupCommands([{ name: "compact", description: "Compact context" }], ["commit"]);
       renderMenu("com");
 
       expect(screen.getByText("/compact")).toBeInTheDocument();
@@ -311,10 +306,7 @@ describe("SlashMenu", () => {
     });
 
     it("does not show skills that don't match filter", () => {
-      setupCommands(
-        [{ name: "model", description: "Change model" }],
-        ["commit"],
-      );
+      setupCommands([{ name: "model", description: "Change model" }], ["commit"]);
       renderMenu("mod");
 
       expect(screen.getByText("/model")).toBeInTheDocument();
@@ -331,6 +323,20 @@ describe("SlashMenu", () => {
       });
       expect(consumed!).toBe(true);
       expect(onSelect).toHaveBeenCalledWith("commit");
+    });
+  });
+
+  // ── Accessibility ──────────────────────────────────────────────────────
+
+  describe("accessibility", () => {
+    it("has no axe violations when commands are rendered", async () => {
+      setupCommands([
+        { name: "help", description: "Show help" },
+        { name: "model", description: "Change model" },
+      ]);
+      renderMenu();
+      const results = await checkA11y();
+      expect(results).toHaveNoViolations();
     });
   });
 });
