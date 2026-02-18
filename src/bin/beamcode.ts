@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
+import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";

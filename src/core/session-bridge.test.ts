@@ -3353,4 +3353,145 @@ describe("SessionBridge", () => {
       }).not.toThrow();
     });
   });
+
+  // ── seedSessionState ────────────────────────────────────────────────────
+
+  describe("seedSessionState", () => {
+    it("populates cwd and model on session state", () => {
+      bridge.seedSessionState("seed-1", { cwd: "/home/user/project", model: "opus" });
+      const snap = bridge.getSession("seed-1");
+      expect(snap).toBeDefined();
+      expect(snap!.state.cwd).toBe("/home/user/project");
+      expect(snap!.state.model).toBe("opus");
+    });
+
+    it("resolves git info when gitResolver is provided", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue({
+          branch: "feat/test",
+          isWorktree: true,
+          repoRoot: "/repo",
+          ahead: 2,
+          behind: 1,
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      gitBridge.seedSessionState("seed-2", { cwd: "/repo", model: "sonnet" });
+
+      const snap = gitBridge.getSession("seed-2");
+      expect(snap!.state.git_branch).toBe("feat/test");
+      expect(snap!.state.is_worktree).toBe(true);
+      expect(snap!.state.repo_root).toBe("/repo");
+      expect(snap!.state.git_ahead).toBe(2);
+      expect(snap!.state.git_behind).toBe(1);
+      expect(mockGitResolver.resolve).toHaveBeenCalledWith("/repo");
+    });
+
+    it("does not overwrite cwd or model when params are undefined", () => {
+      bridge.seedSessionState("seed-3", { cwd: "/first", model: "opus" });
+      bridge.seedSessionState("seed-3", {});
+
+      const snap = bridge.getSession("seed-3");
+      expect(snap!.state.cwd).toBe("/first");
+      expect(snap!.state.model).toBe("opus");
+    });
+
+    it("is idempotent: second call does not re-resolve git info", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue({
+          branch: "main",
+          isWorktree: false,
+          repoRoot: "/repo",
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      gitBridge.seedSessionState("seed-4", { cwd: "/repo" });
+      gitBridge.seedSessionState("seed-4", { cwd: "/repo" });
+
+      // resolve called only once — second call skips due to git_branch already set
+      expect(mockGitResolver.resolve).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not spawn subprocesses repeatedly for non-git directories", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue(null), // non-git dir
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      gitBridge.seedSessionState("seed-5", { cwd: "/tmp" });
+      // Simulate consumer connecting — would call resolveGitInfo again
+      const ws = createMockSocket();
+      gitBridge.handleConsumerOpen(ws, authContext("seed-5"));
+
+      // resolve called only once — second call skipped due to attempt tracking
+      expect(mockGitResolver.resolve).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not crash when gitResolver.resolve() throws", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockImplementation(() => {
+          throw new Error("git not found");
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      expect(() => {
+        gitBridge.seedSessionState("seed-6", { cwd: "/repo" });
+      }).not.toThrow();
+
+      const snap = gitBridge.getSession("seed-6");
+      expect(snap!.state.cwd).toBe("/repo");
+      expect(snap!.state.git_branch).toBe("");
+    });
+
+    it("consumer connecting before CLI receives seeded state in session_init", () => {
+      const mockGitResolver = {
+        resolve: vi.fn().mockReturnValue({
+          branch: "develop",
+          isWorktree: false,
+          repoRoot: "/project",
+          ahead: 0,
+          behind: 0,
+        }),
+      };
+      const gitBridge = new SessionBridge({
+        gitResolver: mockGitResolver,
+        config: { port: 3456 },
+        logger: noopLogger,
+      });
+
+      // Seed state (simulating launcher.launch + seedSessionState)
+      gitBridge.seedSessionState("seed-7", { cwd: "/project", model: "opus" });
+
+      // Consumer connects before CLI
+      const ws = createMockSocket();
+      gitBridge.handleConsumerOpen(ws, authContext("seed-7"));
+
+      // Consumer should receive session_init with seeded state
+      const parsed = ws.sentMessages.map((m: string) => JSON.parse(m));
+      const initMsg = parsed.find((m: any) => m.type === "session_init");
+      expect(initMsg).toBeDefined();
+      expect(initMsg.session.cwd).toBe("/project");
+      expect(initMsg.session.model).toBe("opus");
+      expect(initMsg.session.git_branch).toBe("develop");
+    });
+  });
 });
