@@ -1,18 +1,21 @@
 /**
- * SdkUrlAdapter — Phase 1a.1 skeleton
+ * SdkUrlAdapter — BackendAdapter for the SDK-URL (NDJSON over WebSocket) protocol.
  *
- * Implements BackendAdapter for the SDK-URL (NDJSON over WebSocket) protocol
- * used by Claude Code CLI. Full wiring deferred to Phase 1b.
+ * Uses an inverted connection pattern: connect() registers a pending socket,
+ * and deliverSocket() is called later when the CLI connects back to our WS server.
  */
 
+import type WebSocket from "ws";
 import type {
-  BackendAdapter,
   BackendCapabilities,
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
+import type { InvertedConnectionAdapter } from "../../core/interfaces/inverted-connection-adapter.js";
+import { SdkUrlSession } from "./sdk-url-session.js";
+import { SocketRegistry } from "./socket-registry.js";
 
-export class SdkUrlAdapter implements BackendAdapter {
+export class SdkUrlAdapter implements InvertedConnectionAdapter {
   readonly name = "sdk-url" as const;
 
   readonly capabilities: BackendCapabilities = {
@@ -23,7 +26,20 @@ export class SdkUrlAdapter implements BackendAdapter {
     teams: true,
   };
 
-  async connect(_options: ConnectOptions): Promise<BackendSession> {
-    throw new Error("SdkUrlAdapter.connect() not yet implemented — will be wired in Phase 1b");
+  private readonly registry = new SocketRegistry();
+
+  async connect(options: ConnectOptions): Promise<BackendSession> {
+    const timeoutMs = (options.adapterOptions?.socketTimeoutMs as number | undefined) ?? 30_000;
+
+    const socketPromise = this.registry.register(options.sessionId, timeoutMs);
+    return new SdkUrlSession({ sessionId: options.sessionId, socketPromise });
+  }
+
+  deliverSocket(sessionId: string, ws: WebSocket): boolean {
+    return this.registry.deliverSocket(sessionId, ws);
+  }
+
+  cancelPending(sessionId: string): void {
+    this.registry.cancel(sessionId);
   }
 }

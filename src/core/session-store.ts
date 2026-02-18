@@ -136,7 +136,7 @@ export class SessionStore {
     return {
       id: session.id,
       state: session.state,
-      cliConnected: session.cliSocket !== null,
+      cliConnected: session.cliSocket !== null || session.backendSession !== null,
       consumerCount: session.consumerSockets.size,
       consumers: Array.from(session.consumerSockets.values()).map(toPresenceEntry),
       pendingPermissions: Array.from(session.pendingPermissions.values()),
@@ -150,7 +150,8 @@ export class SessionStore {
   }
 
   isCliConnected(id: string): boolean {
-    return !!this.sessions.get(id)?.cliSocket;
+    const session = this.sessions.get(id);
+    return !!(session?.cliSocket || session?.backendSession);
   }
 
   /** Remove a session from the map and storage (does NOT close sockets). */

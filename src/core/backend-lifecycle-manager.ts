@@ -97,8 +97,14 @@ export class BackendLifecycleManager {
       this.logger.info(
         `Flushing ${session.pendingMessages.length} queued message(s) for session ${session.id}`,
       );
-      for (const ndjson of session.pendingMessages) {
-        this.sendToCLI(session, ndjson);
+      if (session.backendSession) {
+        for (const ndjson of session.pendingMessages) {
+          session.backendSession.sendRaw(ndjson);
+        }
+      } else {
+        for (const ndjson of session.pendingMessages) {
+          this.sendToCLI(session, ndjson);
+        }
       }
       session.pendingMessages = [];
     }
