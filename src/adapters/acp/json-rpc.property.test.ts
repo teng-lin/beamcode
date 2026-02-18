@@ -8,7 +8,11 @@ import {
 } from "./json-rpc.js";
 
 const arbMethod = fc.stringMatching(/^[a-z./]+$/).filter((s) => s.length > 0);
-const arbParams = fc.option(fc.jsonValue(), { nil: undefined });
+// Normalize through JSON to ensure values are JSON-stable (e.g. -0 → 0)
+const arbParams = fc.option(
+  fc.jsonValue().map((v) => JSON.parse(JSON.stringify(v))),
+  { nil: undefined },
+);
 const arbId = fc.oneof(fc.nat(), fc.string({ minLength: 1 }));
 
 describe("JsonRpcCodec property tests", () => {
@@ -37,11 +41,15 @@ describe("JsonRpcCodec property tests", () => {
   it("encode → decode roundtrip preserves response fields", () => {
     const codec = new JsonRpcCodec();
     fc.assert(
-      fc.property(arbId, fc.jsonValue(), (id, result) => {
-        const resp = codec.createResponse(id, result);
-        const decoded = codec.decode(codec.encode(resp));
-        expect(decoded).toEqual(resp);
-      }),
+      fc.property(
+        arbId,
+        fc.jsonValue().map((v) => JSON.parse(JSON.stringify(v))),
+        (id, result) => {
+          const resp = codec.createResponse(id, result);
+          const decoded = codec.decode(codec.encode(resp));
+          expect(decoded).toEqual(resp);
+        },
+      ),
     );
   });
 
