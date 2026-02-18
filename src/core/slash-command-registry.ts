@@ -1,4 +1,4 @@
-export type CommandCategory = "consumer" | "relay" | "passthrough";
+export type CommandCategory = "consumer" | "passthrough";
 export type CommandSource = "built-in" | "cli" | "skill";
 
 export interface RegisteredCommand {
@@ -21,30 +21,30 @@ const BUILT_IN_COMMANDS: RegisteredCommand[] = [
   },
   {
     name: "/clear",
-    description: "Clear the message display",
+    description: "Clear conversation context",
     source: "built-in",
-    category: "consumer",
-    availableDuringTask: true,
+    category: "passthrough",
+    availableDuringTask: false,
   },
   {
     name: "/model",
     description: "Show the current model",
     source: "built-in",
-    category: "relay",
+    category: "passthrough",
     availableDuringTask: true,
   },
   {
     name: "/status",
     description: "Show session status summary",
     source: "built-in",
-    category: "relay",
+    category: "passthrough",
     availableDuringTask: true,
   },
   {
     name: "/config",
     description: "Show session configuration",
     source: "built-in",
-    category: "relay",
+    category: "passthrough",
     availableDuringTask: true,
   },
   {

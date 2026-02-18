@@ -3,26 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import type { AuthContext } from "../interfaces/auth.js";
-import type { WebSocketLike } from "../interfaces/transport.js";
+import {
+  authContext,
+  createTestSocket as createMockSocket,
+  makeInitMsg,
+  noopLogger,
+} from "../testing/cli-message-factories.js";
 import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createMockSocket(): WebSocketLike & {
-  sentMessages: string[];
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-} {
-  const sentMessages: string[] = [];
-  return {
-    send: vi.fn((data: string) => sentMessages.push(data)),
-    close: vi.fn(),
-    sentMessages,
-  };
-}
-
-const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
 function createBridge() {
   const storage = new MemoryStorage();
@@ -36,33 +25,8 @@ function createBridge() {
   };
 }
 
-function authContext(sessionId: string): AuthContext {
-  return { sessionId, transport: {} };
-}
-
-/** Flush microtask queue deterministically (no wall-clock dependency). */
+/** Flush microtask queue (uses setTimeout for integration-level async). */
 const tick = () => new Promise<void>((r) => setTimeout(r, 10));
-
-function makeInitMsg(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    type: "system",
-    subtype: "init",
-    session_id: "cli-123",
-    model: "claude-sonnet-4-5-20250929",
-    cwd: "/test",
-    tools: ["Bash", "Read"],
-    permissionMode: "default",
-    claude_code_version: "1.0",
-    mcp_servers: [],
-    agents: [],
-    slash_commands: [],
-    skills: [],
-    output_style: "normal",
-    uuid: "uuid-1",
-    apiKeySource: "env",
-    ...overrides,
-  });
-}
 
 function makeControlResponse(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -188,8 +152,8 @@ describe("Slash command integration", () => {
     });
   });
 
-  describe("end-to-end: emulated commands still work with registry", () => {
-    it("/status returns emulated result", async () => {
+  describe("end-to-end: non-help commands are forwarded to CLI", () => {
+    it("/status is forwarded to CLI (not emulated locally)", () => {
       const { bridge } = createBridge();
       const cliSocket = createMockSocket();
       const consumerSocket = createMockSocket();
@@ -204,6 +168,7 @@ describe("Slash command integration", () => {
         }),
       );
 
+      cliSocket.sentMessages.length = 0;
       consumerSocket.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
@@ -212,16 +177,16 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/status", request_id: "r1" }),
       );
 
-      await tick();
+      // CLI should receive a user message with "/status"
+      const cliMsgs = parseSent(cliSocket);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/status")).toBe(true);
 
-      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.source).toBe("emulated");
-      expect(result.request_id).toBe("r1");
-      expect(result.content).toContain("Model: claude-opus-4-6");
+      // Consumer should NOT get a local emulated result
+      const consumerMsgs = parseSent(consumerSocket);
+      expect(consumerMsgs.some((m) => m.type === "slash_command_result")).toBe(false);
     });
 
-    it("/model returns current model even when skills are registered", async () => {
+    it("/model is forwarded to CLI (not emulated locally)", () => {
       const { bridge } = createBridge();
       const cliSocket = createMockSocket();
       const consumerSocket = createMockSocket();
@@ -236,6 +201,7 @@ describe("Slash command integration", () => {
         }),
       );
 
+      cliSocket.sentMessages.length = 0;
       consumerSocket.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
@@ -244,12 +210,13 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await tick();
+      // CLI should receive a user message with "/model"
+      const cliMsgs = parseSent(cliSocket);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/model")).toBe(true);
 
-      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.content).toBe("claude-sonnet-4-5-20250929");
-      expect(result.source).toBe("emulated");
+      // Consumer should NOT get a local emulated result
+      const consumerMsgs = parseSent(consumerSocket);
+      expect(consumerMsgs.some((m) => m.type === "slash_command_result")).toBe(false);
     });
 
     it.each([
@@ -285,9 +252,8 @@ describe("Slash command integration", () => {
     });
   });
 
-  describe("end-to-end: unknown commands produce errors when PTY unavailable", () => {
-    it("returns slash_command_error for unknown commands without PTY", async () => {
-      // SessionBridge created without commandRunner → no PTY fallback
+  describe("end-to-end: unknown commands are forwarded to CLI", () => {
+    it("unknown commands are forwarded to CLI (not rejected locally)", () => {
       const bridge = new SessionBridge({
         config: { port: 3456 },
         logger: noopLogger,
@@ -299,6 +265,7 @@ describe("Slash command integration", () => {
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
       bridge.handleCLIMessage("sess-1", makeInitMsg());
 
+      cliSocket.sentMessages.length = 0;
       consumerSocket.sentMessages.length = 0;
 
       bridge.handleConsumerMessage(
@@ -307,13 +274,15 @@ describe("Slash command integration", () => {
         JSON.stringify({ type: "slash_command", command: "/custom-unknown", request_id: "r2" }),
       );
 
-      await tick();
+      // CLI should receive a user message with the unknown command
+      const cliMsgs = parseSent(cliSocket);
+      expect(
+        cliMsgs.some((m) => m.type === "user" && m.message.content === "/custom-unknown"),
+      ).toBe(true);
 
-      const errorMsg = parseSent(consumerSocket).find((m) => m.type === "slash_command_error");
-      expect(errorMsg).toBeDefined();
-      expect(errorMsg.command).toBe("/custom-unknown");
-      expect(errorMsg.request_id).toBe("r2");
-      expect(errorMsg.error).toContain("Unknown slash command");
+      // Consumer should NOT get a local slash_command_error
+      const consumerMsgs = parseSent(consumerSocket);
+      expect(consumerMsgs.some((m) => m.type === "slash_command_error")).toBe(false);
     });
   });
 
@@ -409,7 +378,7 @@ describe("Slash command integration", () => {
   });
 
   describe("dispatch priority", () => {
-    it("emulated commands take priority over same-name CLI commands", async () => {
+    it("all non-help commands are forwarded to CLI (no local emulation priority)", () => {
       const { bridge } = createBridge();
       const cliSocket = createMockSocket();
       const consumerSocket = createMockSocket();
@@ -419,7 +388,7 @@ describe("Slash command integration", () => {
       bridge.handleCLIMessage(
         "sess-1",
         makeInitMsg({
-          // /model is both emulatable AND in CLI's slash_commands
+          // /model is in CLI's slash_commands — it gets forwarded
           slash_commands: ["/model", "/compact"],
         }),
       );
@@ -427,25 +396,20 @@ describe("Slash command integration", () => {
       consumerSocket.sentMessages.length = 0;
       cliSocket.sentMessages.length = 0;
 
-      // /model should be emulated, not forwarded to CLI
+      // /model should be forwarded to CLI, not emulated locally
       bridge.handleConsumerMessage(
         consumerSocket,
         "sess-1",
         JSON.stringify({ type: "slash_command", command: "/model" }),
       );
 
-      await tick();
+      // CLI should receive a user message for /model
+      const cliMsgs = parseSent(cliSocket);
+      expect(cliMsgs.some((m) => m.type === "user" && m.message.content === "/model")).toBe(true);
 
-      // Consumer should get an emulated result
-      const result = parseSent(consumerSocket).find((m) => m.type === "slash_command_result");
-      expect(result).toBeDefined();
-      expect(result.source).toBe("emulated");
-
-      // CLI should NOT have received a user message for /model
-      const cliUserMsgs = parseSent(cliSocket).filter(
-        (m) => m.type === "user" && m.message?.content === "/model",
-      );
-      expect(cliUserMsgs).toHaveLength(0);
+      // Consumer should NOT get a local emulated result
+      const consumerMsgs = parseSent(consumerSocket);
+      expect(consumerMsgs.some((m) => m.type === "slash_command_result")).toBe(false);
     });
 
     it("native (CLI) commands are forwarded, not emulated", () => {

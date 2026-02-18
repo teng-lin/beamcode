@@ -1,7 +1,6 @@
 import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
-import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
@@ -54,7 +53,6 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     beforeSpawn?: (sessionId: string, spawnOptions: SpawnOptions) => void;
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
-    commandRunner?: CommandRunner;
   }) {
     super();
 
@@ -71,7 +69,6 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       logger: options.logger,
       config: options.config,
       metrics: options.metrics,
-      commandRunner: options.commandRunner,
     });
 
     this.launcher = new SdkUrlLauncher({
@@ -336,7 +333,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   async executeSlashCommand(
     sessionId: string,
     command: string,
-  ): Promise<{ content: string; source: "emulated" | "pty" } | null> {
+  ): Promise<{ content: string; source: "emulated" } | null> {
     return this.bridge.executeSlashCommand(sessionId, command);
   }
 
