@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
+import { tick } from "../../testing/adapter-test-helpers.js";
 import { SdkUrlSession } from "./sdk-url-session.js";
 
 // ---------------------------------------------------------------------------
@@ -32,10 +33,6 @@ function makeUserMsg(text = "hello"): UnifiedMessage {
     role: "user",
     content: [{ type: "text", text }],
   });
-}
-
-function tick(ms = 10): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ---------------------------------------------------------------------------

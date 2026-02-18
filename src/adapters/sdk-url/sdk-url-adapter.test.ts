@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { isInvertedConnectionAdapter } from "../../core/interfaces/inverted-connection-adapter.js";
+import { tick } from "../../testing/adapter-test-helpers.js";
 import { SdkUrlAdapter } from "./sdk-url-adapter.js";
 import { SdkUrlSession } from "./sdk-url-session.js";
 
@@ -15,10 +16,6 @@ class MockWebSocket extends EventEmitter {
     this.readyState = 3;
     this.emit("close");
   }
-}
-
-function tick(ms = 10): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 describe("SdkUrlAdapter", () => {
