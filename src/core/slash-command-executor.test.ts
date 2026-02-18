@@ -44,7 +44,7 @@ function makeStateWithSlashCommands(extra: Partial<SessionState> = {}): SessionS
 /** State with capabilities.commands (authoritative). */
 function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionState {
   return makeState({
-    slash_commands: ["/compact", "/files", "/release-notes"],
+    slash_commands: ["/compact", "/files", "/release-notes", "/cost", "/context"],
     capabilities: {
       commands: [
         { name: "/compact", description: "Compact conversation history" },
@@ -53,6 +53,8 @@ function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionSt
         { name: "/vim", description: "Toggle vim mode", argumentHint: "[on|off]" },
         { name: "/help", description: "Show available commands" },
         { name: "/model", description: "Show or switch model", argumentHint: "[model]" },
+        { name: "/cost", description: "Show cost and token usage" },
+        { name: "/context", description: "Show context window usage" },
       ],
       models: [],
       account: null,
@@ -89,6 +91,8 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/files", state)).toBe(true);
       expect(executor.isNativeCommand("/release-notes", state)).toBe(true);
       expect(executor.isNativeCommand("/vim", state)).toBe(true);
+      expect(executor.isNativeCommand("/cost", state)).toBe(true);
+      expect(executor.isNativeCommand("/context", state)).toBe(true);
     });
 
     it("identifies native commands from slash_commands fallback", () => {
@@ -105,8 +109,6 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/model", state)).toBe(false);
       expect(executor.isNativeCommand("/help", state)).toBe(false);
       expect(executor.isNativeCommand("/status", state)).toBe(false);
-      expect(executor.isNativeCommand("/cost", state)).toBe(false);
-      expect(executor.isNativeCommand("/context", state)).toBe(false);
     });
 
     it("rejects unknown commands", () => {
@@ -123,6 +125,31 @@ describe("SlashCommandExecutor", () => {
     });
   });
 
+  describe("isPassthroughCommand", () => {
+    it("identifies passthrough commands from registry", () => {
+      const { executor } = createExecutor();
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("/cost", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/context", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/compact", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/files", registry)).toBe(true);
+      expect(executor.isPassthroughCommand("/release-notes", registry)).toBe(true);
+    });
+
+    it("rejects non-passthrough commands", () => {
+      const { executor } = createExecutor();
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("/help", registry)).toBe(false);
+      expect(executor.isPassthroughCommand("/model", registry)).toBe(false);
+      expect(executor.isPassthroughCommand("/status", registry)).toBe(false);
+    });
+
+    it("returns false when registry is null", () => {
+      const { executor } = createExecutor();
+      expect(executor.isPassthroughCommand("/cost", null)).toBe(false);
+    });
+  });
+
   describe("canHandle", () => {
     it("handles emulatable commands regardless of backend state", () => {
       const { executor } = createExecutor();
@@ -130,8 +157,6 @@ describe("SlashCommandExecutor", () => {
       expect(executor.canHandle("/model", state)).toBe(true);
       expect(executor.canHandle("/status", state)).toBe(true);
       expect(executor.canHandle("/config", state)).toBe(true);
-      expect(executor.canHandle("/cost", state)).toBe(true);
-      expect(executor.canHandle("/context", state)).toBe(true);
       expect(executor.canHandle("/help", state)).toBe(true);
     });
 
@@ -197,50 +222,6 @@ describe("SlashCommandExecutor", () => {
       expect(result.content).toContain("Model: claude-sonnet-4-5-20250929");
       expect(result.content).toContain("Permission mode: default");
       expect(result.content).toContain("Version: 1.0.0");
-    });
-
-    it("/cost returns cost breakdown", async () => {
-      const { executor } = createExecutor();
-      const state = makeState({
-        total_cost_usd: 0.5,
-        last_duration_ms: 3000,
-        last_model_usage: {
-          "claude-sonnet-4-5-20250929": {
-            inputTokens: 1000,
-            outputTokens: 500,
-            cacheReadInputTokens: 200,
-            cacheCreationInputTokens: 100,
-            contextWindow: 200000,
-            costUSD: 0.05,
-          },
-        },
-      });
-      const result = await executor.execute(state, "/cost", "cli-123");
-      expect(result.source).toBe("emulated");
-      expect(result.content).toContain("Total cost: $0.5000");
-      expect(result.content).toContain("Last turn duration: 3.0s");
-      expect(result.content).toContain("claude-sonnet-4-5-20250929:");
-    });
-
-    it("/context returns context usage", async () => {
-      const { executor } = createExecutor();
-      const state = makeState({
-        context_used_percent: 65,
-        last_model_usage: {
-          "claude-sonnet-4-5-20250929": {
-            inputTokens: 100000,
-            outputTokens: 30000,
-            cacheReadInputTokens: 0,
-            cacheCreationInputTokens: 0,
-            contextWindow: 200000,
-            costUSD: 0.1,
-          },
-        },
-      });
-      const result = await executor.execute(state, "/context", "cli-123");
-      expect(result.source).toBe("emulated");
-      expect(result.content).toContain("Context used: 65%");
-      expect(result.content).toContain("130000/200000 tokens (65%)");
     });
   });
 
@@ -382,6 +363,8 @@ describe("SlashCommandExecutor", () => {
       expect(result.content).toContain("/model");
       expect(result.content).toContain("/status");
       expect(result.content).not.toContain("/compact");
+      expect(result.content).not.toContain("/cost");
+      expect(result.content).not.toContain("/context");
     });
 
     it("treats empty capabilities.commands as unavailable (falls back to slash_commands)", () => {
@@ -400,6 +383,16 @@ describe("SlashCommandExecutor", () => {
       expect(executor.isNativeCommand("/vim on", state)).toBe(true);
       expect(executor.isNativeCommand("/compact --force", state)).toBe(true);
       expect(executor.canHandle("/model gpt-4", state)).toBe(true);
+    });
+
+    it("handles commands with leading whitespace", () => {
+      const { executor } = createExecutor();
+      const state = makeStateWithCapabilities();
+      expect(executor.isNativeCommand("  /compact", state)).toBe(true);
+      expect(executor.canHandle("  /model", state)).toBe(true);
+
+      const registry = new SlashCommandRegistry();
+      expect(executor.isPassthroughCommand("  /cost", registry)).toBe(true);
     });
   });
 

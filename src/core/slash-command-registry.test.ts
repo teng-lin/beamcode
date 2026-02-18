@@ -16,7 +16,11 @@ describe("SlashCommandRegistry", () => {
 
     const cost = registry.find("/cost");
     expect(cost).toBeDefined();
-    expect(cost!.category).toBe("relay");
+    expect(cost!.category).toBe("passthrough");
+
+    const context = registry.find("/context");
+    expect(context).toBeDefined();
+    expect(context!.category).toBe("passthrough");
 
     const compact = registry.find("/compact");
     expect(compact).toBeDefined();

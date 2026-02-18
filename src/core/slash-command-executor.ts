@@ -1,7 +1,7 @@
 import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { ResolvedConfig } from "../types/config.js";
 import type { SessionState } from "../types/session-state.js";
-import type { SlashCommandRegistry } from "./slash-command-registry.js";
+import type { RegisteredCommand, SlashCommandRegistry } from "./slash-command-registry.js";
 
 export interface SlashCommandResult {
   content: string;
@@ -13,7 +13,7 @@ type EmulatorFn = (state: SessionState) => string;
 
 /** Extract the command name (e.g. "/help") from a full command string (e.g. "/help foo"). */
 function commandName(command: string): string {
-  return command.split(/\s+/)[0];
+  return command.trim().split(/\s+/)[0];
 }
 
 /**
@@ -88,36 +88,6 @@ const EMULATABLE_COMMANDS: Record<string, EmulatorFn> = {
     }
     return lines.join("\n");
   },
-
-  "/cost": (state) => {
-    const lines = [`Total cost: $${state.total_cost_usd.toFixed(4)}`];
-    if (state.last_duration_ms != null) {
-      lines.push(`Last turn duration: ${(state.last_duration_ms / 1000).toFixed(1)}s`);
-    }
-    if (state.last_duration_api_ms != null) {
-      lines.push(`Last turn API duration: ${(state.last_duration_api_ms / 1000).toFixed(1)}s`);
-    }
-    if (state.last_model_usage) {
-      for (const [model, usage] of Object.entries(state.last_model_usage)) {
-        lines.push(
-          `  ${model}: in=${usage.inputTokens} out=${usage.outputTokens} cache_read=${usage.cacheReadInputTokens} cache_create=${usage.cacheCreationInputTokens} cost=$${usage.costUSD.toFixed(4)}`,
-        );
-      }
-    }
-    return lines.join("\n");
-  },
-
-  "/context": (state) => {
-    const lines = [`Context used: ${state.context_used_percent}%`];
-    if (state.last_model_usage) {
-      for (const [model, usage] of Object.entries(state.last_model_usage)) {
-        const total = usage.inputTokens + usage.outputTokens;
-        const pct = usage.contextWindow > 0 ? Math.round((total / usage.contextWindow) * 100) : 0;
-        lines.push(`  ${model}: ${total}/${usage.contextWindow} tokens (${pct}%)`);
-      }
-    }
-    return lines.join("\n");
-  },
 };
 
 export class SlashCommandExecutor {
@@ -136,10 +106,23 @@ export class SlashCommandExecutor {
 
   /** Returns true if the command is a skill command in the registry. */
   isSkillCommand(command: string, registry: SlashCommandRegistry | null): boolean {
+    return this.registryMatch(command, registry, (cmd) => cmd.source === "skill");
+  }
+
+  /** Returns true if the command is a passthrough command (forwarded to CLI without emulation). */
+  isPassthroughCommand(command: string, registry: SlashCommandRegistry | null): boolean {
+    return this.registryMatch(command, registry, (cmd) => cmd.category === "passthrough");
+  }
+
+  /** Look up a command in the registry and test it against a predicate. */
+  private registryMatch(
+    command: string,
+    registry: SlashCommandRegistry | null,
+    predicate: (cmd: RegisteredCommand) => boolean,
+  ): boolean {
     if (!registry) return false;
-    const name = commandName(command);
-    const cmd = registry.find(name);
-    return cmd?.source === "skill";
+    const cmd = registry.find(commandName(command));
+    return cmd !== undefined && predicate(cmd);
   }
 
   /** Returns true if the command is supported by the backend AND not emulatable locally. */
