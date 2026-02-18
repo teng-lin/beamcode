@@ -355,6 +355,193 @@ describe("SdkUrlSession", () => {
   });
 
   // -------------------------------------------------------------------------
+  // passthrough handler
+  // -------------------------------------------------------------------------
+
+  describe("passthrough handler", () => {
+    it("suppresses user messages when handler returns true", async () => {
+      const { resolve, promise } = Promise.withResolvers<any>();
+      const session = new SdkUrlSession({ sessionId: "pt-1", socketPromise: promise });
+
+      const intercepted: any[] = [];
+      session.setPassthroughHandler((msg) => {
+        intercepted.push(msg);
+        return true; // intercept
+      });
+
+      const ws = new MockWebSocket();
+      resolve(ws);
+      await tick();
+
+      const iter = session.messages[Symbol.asyncIterator]();
+
+      // Send a user echo message
+      ws.emit(
+        "message",
+        JSON.stringify({ type: "user", message: { role: "user", content: "echo" } }),
+      );
+
+      // Also send a system message to verify the iterable still works
+      ws.emit(
+        "message",
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "pt-1",
+          model: "test",
+          cwd: "/tmp",
+          tools: [],
+          mcp_servers: [],
+        }),
+      );
+
+      const result = await iter.next();
+      expect(result.done).toBe(false);
+      expect(result.value.type).toBe("session_init");
+
+      // The user message was intercepted, not yielded
+      expect(intercepted).toHaveLength(1);
+      expect(intercepted[0].type).toBe("user");
+
+      await session.close();
+    });
+
+    it("yields user messages when no handler is set (translate returns null)", async () => {
+      const { resolve, promise } = Promise.withResolvers<any>();
+      const session = new SdkUrlSession({ sessionId: "pt-2", socketPromise: promise });
+      // No handler set
+
+      const ws = new MockWebSocket();
+      resolve(ws);
+      await tick();
+
+      const iter = session.messages[Symbol.asyncIterator]();
+
+      // User messages are filtered by translate() returning null
+      ws.emit(
+        "message",
+        JSON.stringify({ type: "user", message: { role: "user", content: "test" } }),
+      );
+
+      // Send a real message to unblock
+      ws.emit(
+        "message",
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "pt-2",
+          model: "test",
+          cwd: "/tmp",
+          tools: [],
+          mcp_servers: [],
+        }),
+      );
+
+      const result = await iter.next();
+      expect(result.value.type).toBe("session_init"); // user was filtered by translate
+
+      await session.close();
+    });
+
+    it("yields user messages when handler returns false", async () => {
+      const { resolve, promise } = Promise.withResolvers<any>();
+      const session = new SdkUrlSession({ sessionId: "pt-3", socketPromise: promise });
+
+      session.setPassthroughHandler(() => false); // don't intercept
+
+      const ws = new MockWebSocket();
+      resolve(ws);
+      await tick();
+
+      const iter = session.messages[Symbol.asyncIterator]();
+
+      // User message not intercepted, goes to translate() which returns null
+      ws.emit(
+        "message",
+        JSON.stringify({ type: "user", message: { role: "user", content: "test" } }),
+      );
+
+      // Send real message
+      ws.emit(
+        "message",
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "pt-3",
+          model: "test",
+          cwd: "/tmp",
+          tools: [],
+          mcp_servers: [],
+        }),
+      );
+
+      const result = await iter.next();
+      expect(result.value.type).toBe("session_init"); // user filtered by translate
+
+      await session.close();
+    });
+
+    it("handler receives the raw parsed CLI message", async () => {
+      const { resolve, promise } = Promise.withResolvers<any>();
+      const session = new SdkUrlSession({ sessionId: "pt-4", socketPromise: promise });
+
+      let received: any = null;
+      session.setPassthroughHandler((msg) => {
+        received = msg;
+        return true;
+      });
+
+      const ws = new MockWebSocket();
+      resolve(ws);
+      await tick();
+
+      const userMsg = { type: "user", message: { role: "user", content: "/cost response" } };
+      ws.emit("message", JSON.stringify(userMsg));
+      await tick();
+
+      expect(received).toEqual(userMsg);
+
+      await session.close();
+    });
+
+    it("handler can be cleared by setting null", async () => {
+      const { resolve, promise } = Promise.withResolvers<any>();
+      const session = new SdkUrlSession({ sessionId: "pt-5", socketPromise: promise });
+
+      session.setPassthroughHandler(() => true);
+      session.setPassthroughHandler(null); // clear
+
+      const ws = new MockWebSocket();
+      resolve(ws);
+      await tick();
+
+      // Now user messages go through translate (which returns null for user type)
+      ws.emit(
+        "message",
+        JSON.stringify({ type: "user", message: { role: "user", content: "test" } }),
+      );
+      ws.emit(
+        "message",
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "pt-5",
+          model: "test",
+          cwd: "/tmp",
+          tools: [],
+          mcp_servers: [],
+        }),
+      );
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      const result = await iter.next();
+      expect(result.value.type).toBe("session_init");
+
+      await session.close();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // socket promise rejection triggers finish
   // -------------------------------------------------------------------------
 

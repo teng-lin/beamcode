@@ -27,6 +27,7 @@ export class SdkUrlSession implements BackendSession {
   private socket: WebSocket | null = null;
   private readonly outboundQueue: string[] = [];
   private closed = false;
+  private passthroughHandler: ((rawMsg: CLIMessage) => boolean) | null = null;
 
   // Async iterable queue (same pattern as CodexSession)
   private readonly messageQueue: UnifiedMessage[] = [];
@@ -39,6 +40,15 @@ export class SdkUrlSession implements BackendSession {
       (ws) => this.attachSocket(ws),
       () => this.finish(), // socket delivery failed (timeout/cancel)
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Passthrough interception
+  // ---------------------------------------------------------------------------
+
+  /** Set a handler for intercepting passthrough CLI echo messages (e.g., /cost, /context). */
+  setPassthroughHandler(handler: ((rawMsg: CLIMessage) => boolean) | null): void {
+    this.passthroughHandler = handler;
   }
 
   // ---------------------------------------------------------------------------
@@ -160,6 +170,11 @@ export class SdkUrlSession implements BackendSession {
     const { messages } = parseNDJSON<CLIMessage>(raw);
 
     for (const cliMsg of messages) {
+      // Check passthrough handler before translation
+      if (cliMsg.type === "user" && this.passthroughHandler?.(cliMsg)) {
+        continue; // intercepted — don't yield to async iterable
+      }
+
       const unified = translate(cliMsg);
       if (unified) {
         this.enqueue(unified);
