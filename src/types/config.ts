@@ -1,3 +1,5 @@
+import { providerConfigSchema } from "../config/config-schema.js";
+
 /** Provider configuration with sensible defaults */
 export interface ProviderConfig {
   /** Port the WebSocket server listens on (required) */
@@ -131,6 +133,12 @@ function deepMerge<T extends Record<string, unknown>>(defaults: T, userConfig?: 
 }
 
 export function resolveConfig(config: ProviderConfig): ResolvedConfig {
+  // Validate user-provided config before merging
+  const validation = providerConfigSchema.safeParse(config);
+  if (!validation.success) {
+    throw new Error(`Invalid configuration: ${validation.error.message}`);
+  }
+
   const resolved = deepMerge(DEFAULT_CONFIG, config);
   // Never let user config erase the security deny list (S6 hardening)
   if (!resolved.envDenyList || resolved.envDenyList.length === 0) {

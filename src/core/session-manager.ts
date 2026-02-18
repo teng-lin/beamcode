@@ -1,5 +1,5 @@
-import { NoopLogger } from "../adapters/noop-logger.js";
 import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
+import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { CommandRunner } from "../interfaces/command-runner.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
@@ -59,7 +59,9 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     super();
 
     this.config = resolveConfig(options.config);
-    this.logger = options.logger ?? new NoopLogger();
+    this.logger =
+      options.logger ??
+      new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
     this.server = options.server ?? null;
 
     this.bridge = new SessionBridge({

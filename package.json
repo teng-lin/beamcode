@@ -96,7 +96,8 @@
   },
   "dependencies": {
     "libsodium-wrappers-sumo": "0.7.15",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",
