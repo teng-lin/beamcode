@@ -83,6 +83,11 @@ export function handleApiSessions(
           cwd,
           model: opts.model as string | undefined,
         });
+        // Seed bridge session so consumers see state before CLI's system.init
+        sessionManager.bridge.seedSessionState(session.sessionId, {
+          cwd: session.cwd,
+          model: opts.model as string | undefined,
+        });
         json(res, 201, session);
       })
       .catch((err) => {

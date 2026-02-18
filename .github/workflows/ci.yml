@@ -33,7 +33,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm -r --include-workspace-root test
 
       - name: Run linter
         run: pnpm run lint
@@ -88,7 +88,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests with coverage
-        run: pnpm test -- --coverage
+        run: pnpm -r --include-workspace-root test -- --coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
+import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
@@ -166,6 +167,7 @@ async function main(): Promise<void> {
     storage,
     logger,
     metrics,
+    gitResolver: new DefaultGitResolver(),
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server
@@ -205,6 +207,11 @@ async function main(): Promise<void> {
     model: config.model,
   });
   const activeSessionId = session.sessionId;
+  // Seed bridge session with launch params so consumers see state immediately
+  sessionManager.bridge.seedSessionState(activeSessionId, {
+    cwd: config.cwd,
+    model: config.model,
+  });
   httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner

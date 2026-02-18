@@ -72,6 +72,7 @@ function mockSessionManager(
     },
     bridge: {
       broadcastNameUpdate: vi.fn(),
+      seedSessionState: vi.fn(),
     },
   } as unknown as SessionManager;
 }
@@ -117,7 +118,7 @@ describe("handleApiSessions", () => {
   // ---- POST /api/sessions ----
 
   it("POST /api/sessions with valid JSON creates a session", async () => {
-    const launched = { sessionId: "new-1", status: "running" };
+    const launched = { sessionId: "new-1", status: "running", cwd: "/tmp" };
     const sm = mockSessionManager({ launch: () => launched });
     const req = mockReq("POST");
     const res = mockRes();
@@ -131,6 +132,10 @@ describe("handleApiSessions", () => {
     });
     expect(parseBody(res)).toEqual(launched);
     expect(sm.launcher.launch).toHaveBeenCalledWith({ cwd: "/tmp", model: "opus" });
+    expect(sm.bridge.seedSessionState).toHaveBeenCalledWith("new-1", {
+      cwd: "/tmp",
+      model: "opus",
+    });
   });
 
   it("POST /api/sessions with empty body creates a session with defaults", async () => {

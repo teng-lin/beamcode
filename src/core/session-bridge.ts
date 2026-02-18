@@ -44,6 +44,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private broadcaster: ConsumerBroadcaster;
   private gatekeeper: ConsumerGatekeeper;
   private gitResolver: GitInfoResolver | null;
+  /** Track sessions where git resolution was already attempted (avoids repeated execFileSync for non-git dirs). */
+  private gitResolveAttempted = new Set<string>();
   private logger: Logger;
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
@@ -110,6 +112,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       });
     }
     return session;
+  }
+
+  /**
+   * Seed a session's state with known launch parameters (cwd, model, etc.)
+   * and eagerly resolve git info. Call this right after launcher.launch()
+   * so consumers connecting before the CLI's system.init see useful state.
+   */
+  seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
+    const session = this.getOrCreateSession(sessionId);
+    if (params.cwd) session.state.cwd = params.cwd;
+    if (params.model) session.state.model = params.model;
+    this.resolveGitInfo(session);
   }
 
   /** Get a read-only snapshot of a session's state. */
@@ -338,6 +352,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       displayName: identity.displayName,
       role: identity.role,
     });
+
+    // Eagerly resolve git info if cwd is known but git info is missing
+    // (e.g. resumed session where CLI hasn't reconnected yet)
+    this.resolveGitInfo(session);
 
     // Send current session state as snapshot
     this.broadcaster.sendTo(ws, {
@@ -1312,16 +1330,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       });
     }
 
-    // Resolve git info
+    // Resolve git info (unconditional: CLI is authoritative, cwd may differ from seed)
+    this.gitResolveAttempted.delete(session.id);
     if (session.state.cwd && this.gitResolver) {
       const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) {
-        session.state.git_branch = gitInfo.branch;
-        session.state.is_worktree = gitInfo.isWorktree;
-        session.state.repo_root = gitInfo.repoRoot;
-        session.state.git_ahead = gitInfo.ahead ?? 0;
-        session.state.git_behind = gitInfo.behind ?? 0;
-      }
+      if (gitInfo) this.applyGitInfo(session, gitInfo);
     }
 
     // Populate registry from init data (per-session)
@@ -1502,6 +1515,37 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.refreshGitInfo(session);
   }
 
+  /** Apply resolved git info fields to session state. */
+  private applyGitInfo(
+    session: Session,
+    gitInfo: {
+      branch: string;
+      isWorktree: boolean;
+      repoRoot: string;
+      ahead?: number;
+      behind?: number;
+    },
+  ): void {
+    session.state.git_branch = gitInfo.branch;
+    session.state.is_worktree = gitInfo.isWorktree;
+    session.state.repo_root = gitInfo.repoRoot;
+    session.state.git_ahead = gitInfo.ahead ?? 0;
+    session.state.git_behind = gitInfo.behind ?? 0;
+  }
+
+  /** Resolve git info from cwd if not already attempted (no broadcast). */
+  private resolveGitInfo(session: Session): void {
+    if (!session.state.cwd || !this.gitResolver) return;
+    if (session.state.git_branch || this.gitResolveAttempted.has(session.id)) return;
+    this.gitResolveAttempted.add(session.id);
+    try {
+      const gitInfo = this.gitResolver.resolve(session.state.cwd);
+      if (gitInfo) this.applyGitInfo(session, gitInfo);
+    } catch {
+      // Best-effort: git resolution failure should never crash consumer connections
+    }
+  }
+
   /** Re-resolve git info and broadcast session_update if anything changed. */
   private refreshGitInfo(session: Session): void {
     if (!session.state.cwd || !this.gitResolver) return;
@@ -1517,11 +1561,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     if (!changed) return;
 
-    session.state.git_branch = gitInfo.branch;
-    session.state.is_worktree = gitInfo.isWorktree;
-    session.state.repo_root = gitInfo.repoRoot;
-    session.state.git_ahead = gitInfo.ahead ?? 0;
-    session.state.git_behind = gitInfo.behind ?? 0;
+    this.applyGitInfo(session, gitInfo);
 
     this.broadcaster.broadcast(session, {
       type: "session_update",

@@ -427,6 +427,7 @@ export function Composer({ sessionId }: ComposerProps) {
             type="file"
             accept="image/*"
             multiple
+            aria-label="Upload images"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) processFiles(e.target.files);

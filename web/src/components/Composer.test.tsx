@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useStore } from "../store";
 import { checkA11y } from "../test/a11y";
-import { resetStore, store } from "../test/factories";
+import { makeSessionInfo, resetStore, store } from "../test/factories";
 import { Composer } from "./Composer";
 
 vi.mock("../ws", () => ({ send: vi.fn() }));
@@ -132,14 +133,19 @@ describe("Composer", () => {
     expect(send).toHaveBeenCalledWith({ type: "interrupt" }, SESSION);
   });
 
+  // ── Image test helpers ──────────────────────────────────────────────
+
+  /** Render Composer and return the drop zone element (inner div with drag handlers). */
+  function renderComposerWithDropZone() {
+    store().ensureSessionData(SESSION);
+    const result = render(<Composer sessionId={SESSION} />);
+    const dropZone = result.container.querySelector("section > div") as HTMLElement;
+    return { ...result, dropZone };
+  }
+
   // ── Image handling ──────────────────────────────────────────────────
 
   describe("image handling", () => {
-    function renderComposer() {
-      store().ensureSessionData(SESSION);
-      return render(<Composer sessionId={SESSION} />);
-    }
-
     /** Create a mock FileReader that captures onload and exposes it for triggering. */
     function mockFileReader(dataUrl: string) {
       const original = global.FileReader;
@@ -176,10 +182,9 @@ describe("Composer", () => {
     }
 
     it("renders a drop zone indicator on dragover", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
-      fireEvent.dragOver(composer, {
+      fireEvent.dragOver(dropZone, {
         dataTransfer: { types: ["Files"] },
       });
 
@@ -187,26 +192,24 @@ describe("Composer", () => {
     });
 
     it("hides drop zone on dragleave", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
-      fireEvent.dragOver(composer, {
+      fireEvent.dragOver(dropZone, {
         dataTransfer: { types: ["Files"] },
       });
       expect(screen.getByText(/drop image/i)).toBeInTheDocument();
 
-      fireEvent.dragLeave(composer);
+      fireEvent.dragLeave(dropZone);
       expect(screen.queryByText(/drop image/i)).not.toBeInTheDocument();
     });
 
     it("shows image preview after dropping an image file", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["(binary)"], "screenshot.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,iVBOR");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -216,13 +219,12 @@ describe("Composer", () => {
     });
 
     it("ignores non-image files on drop", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["text"], "readme.txt", { type: "text/plain" });
       const mock = mockFileReader("data:text/plain;base64,dGV4dA==");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       mock.restore();
@@ -231,13 +233,12 @@ describe("Composer", () => {
     });
 
     it("removes image preview when clicking the remove button", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["(binary)"], "photo.jpg", { type: "image/jpeg" });
       const mock = mockFileReader("data:image/jpeg;base64,/9j/4");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -251,13 +252,12 @@ describe("Composer", () => {
 
     it("sends images array with user_message on submit", async () => {
       const user = userEvent.setup();
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,abc123");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -277,13 +277,12 @@ describe("Composer", () => {
 
     it("clears image previews after sending", async () => {
       const user = userEvent.setup();
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,xyz");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -297,13 +296,12 @@ describe("Composer", () => {
     });
 
     it("enables send button when images are attached even with empty text", () => {
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       const file = new File(["(binary)"], "img.png", { type: "image/png" });
       const mock = mockFileReader("data:image/png;base64,abc");
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [file], types: ["Files"] },
       });
       act(() => mock.triggerOnload());
@@ -316,21 +314,15 @@ describe("Composer", () => {
   // ── Image upload error toasts ────────────────────────────────────
 
   describe("image upload error toasts", () => {
-    function renderComposer() {
-      store().ensureSessionData(SESSION);
-      return render(<Composer sessionId={SESSION} />);
-    }
-
     it("shows toast when image exceeds size limit", () => {
       const addToast = vi.spyOn(store(), "addToast");
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
       // Create a file that reports > 10MB size
       const bigFile = new File(["x"], "huge.png", { type: "image/png" });
       Object.defineProperty(bigFile, "size", { value: 11 * 1024 * 1024 });
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files: [bigFile], types: ["Files"] },
       });
 
@@ -339,22 +331,15 @@ describe("Composer", () => {
 
     it("shows toast when max images reached", () => {
       const addToast = vi.spyOn(store(), "addToast");
-      const { container } = renderComposer();
-      const composer = container.firstChild as HTMLElement;
+      const { dropZone } = renderComposerWithDropZone();
 
-      // Fill up the image slots by repeatedly dropping files
-      // We'll use a mock FileReader approach — but for this test, we just
-      // need processFiles to detect the limit. The images state must be full.
-      // Easiest: drop 10 images first, then try to drop one more.
-      // Since processFiles uses imagesRef.current, we can set the state directly.
-      // Instead, let's verify via the addToast call when slots are full.
-      // The simplest approach: mock imagesRef by dropping once with > MAX files.
+      // Drop 11 images at once — exceeds MAX_IMAGES (10)
       const files: File[] = [];
       for (let i = 0; i < 11; i++) {
         files.push(new File(["x"], `img${i}.png`, { type: "image/png" }));
       }
 
-      fireEvent.drop(composer, {
+      fireEvent.drop(dropZone, {
         dataTransfer: { files, types: ["Files"] },
       });
 
@@ -563,6 +548,170 @@ describe("Composer", () => {
       await user.keyboard("{Enter}");
 
       expect(send).toHaveBeenCalledWith({ type: "cancel_queued_message" }, SESSION);
+    });
+  });
+
+  // ── PermissionModePicker (rendered inside Composer toolbar) ──────────
+
+  describe("PermissionModePicker", () => {
+    function setupSessionWithState(
+      options?: Partial<{ permissionMode: string; model: string }>,
+    ): void {
+      store().ensureSessionData(SESSION);
+      useStore.setState({
+        currentSessionId: SESSION,
+        sessions: {
+          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
+        },
+      });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model: options?.model ?? "claude-sonnet-4-20250514",
+        cwd: "/home/user/project",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        permissionMode: options?.permissionMode ?? "default",
+      });
+    }
+
+    it("renders the current permission mode label", () => {
+      setupSessionWithState({ permissionMode: "default" });
+      render(<Composer sessionId={SESSION} />);
+      expect(screen.getByText("Default")).toBeInTheDocument();
+    });
+
+    it("renders Auto-Approve mode label", () => {
+      setupSessionWithState({ permissionMode: "bypassPermissions" });
+      render(<Composer sessionId={SESSION} />);
+      expect(screen.getByText("Auto-Approve")).toBeInTheDocument();
+    });
+
+    it("opens dropdown with all mode options on click", async () => {
+      const user = userEvent.setup();
+      setupSessionWithState({ permissionMode: "default" });
+      render(<Composer sessionId={SESSION} />);
+
+      await user.click(screen.getByText("Default"));
+      expect(screen.getByText("Plan")).toBeInTheDocument();
+      expect(screen.getByText("Auto-Approve")).toBeInTheDocument();
+    });
+
+    it("sends set_permission_mode on selecting a mode", async () => {
+      const user = userEvent.setup();
+      setupSessionWithState({ permissionMode: "default" });
+      render(<Composer sessionId={SESSION} />);
+
+      await user.click(screen.getByText("Default"));
+      const dropdownButtons = screen.getAllByRole("button");
+      const planButton = dropdownButtons.find(
+        (b) => b.textContent?.includes("Plan") && b.textContent?.includes("Require plan approval"),
+      );
+      expect(planButton).toBeDefined();
+      // biome-ignore lint/style/noNonNullAssertion: test helper
+      await user.click(planButton!);
+
+      expect(send).toHaveBeenCalledWith({ type: "set_permission_mode", mode: "plan" }, SESSION);
+    });
+
+    it("is disabled when user is observer", () => {
+      setupSessionWithState({ permissionMode: "default" });
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<Composer sessionId={SESSION} />);
+
+      // biome-ignore lint/style/noNonNullAssertion: test helper
+      const btn = screen.getByText("Default").closest("button")!;
+      expect(btn).toBeDisabled();
+    });
+  });
+
+  // ── ModelPicker (rendered inside Composer toolbar) ──────────────────
+
+  describe("ModelPicker", () => {
+    function setupSessionWithModels(
+      model: string,
+      models: { value: string; displayName: string }[],
+    ): void {
+      store().ensureSessionData(SESSION);
+      useStore.setState({
+        currentSessionId: SESSION,
+        sessions: {
+          [SESSION]: makeSessionInfo({ sessionId: SESSION, adapterType: "claude" }),
+        },
+      });
+      store().setSessionState(SESSION, {
+        session_id: SESSION,
+        model,
+        cwd: "/home/user/project",
+        total_cost_usd: 0,
+        num_turns: 0,
+        context_used_percent: 0,
+        is_compacting: false,
+        permissionMode: "default",
+      });
+      store().setCapabilities(SESSION, { commands: [], models, skills: [] });
+    }
+
+    it("abbreviates Anthropic model names", () => {
+      setupSessionWithModels("claude-sonnet-4-20250514", [
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+      ]);
+      render(<Composer sessionId={SESSION} />);
+      expect(screen.getByText("Sonnet 4")).toBeInTheDocument();
+    });
+
+    it("opens dropdown when 2+ models are available", async () => {
+      const user = userEvent.setup();
+      setupSessionWithModels("claude-sonnet-4-20250514", [
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      ]);
+      render(<Composer sessionId={SESSION} />);
+
+      await user.click(screen.getByText("Sonnet 4"));
+      expect(screen.getByText("Claude Opus 4")).toBeInTheDocument();
+    });
+
+    it("sends set_model message on selection", async () => {
+      const user = userEvent.setup();
+      setupSessionWithModels("claude-sonnet-4-20250514", [
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      ]);
+      render(<Composer sessionId={SESSION} />);
+
+      await user.click(screen.getByText("Sonnet 4"));
+      await user.click(screen.getByText("Claude Opus 4"));
+
+      expect(send).toHaveBeenCalledWith(
+        { type: "set_model", model: "claude-opus-4-20250514" },
+        SESSION,
+      );
+    });
+
+    it("is disabled when only 1 model", () => {
+      setupSessionWithModels("claude-sonnet-4-20250514", [
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+      ]);
+      render(<Composer sessionId={SESSION} />);
+
+      // biome-ignore lint/style/noNonNullAssertion: test helper
+      const btn = screen.getByText("Sonnet 4").closest("button")!;
+      expect(btn).toBeDisabled();
+    });
+
+    it("is disabled when user is observer", () => {
+      setupSessionWithModels("claude-sonnet-4-20250514", [
+        { value: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+        { value: "claude-opus-4-20250514", displayName: "Claude Opus 4" },
+      ]);
+      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
+      render(<Composer sessionId={SESSION} />);
+
+      // biome-ignore lint/style/noNonNullAssertion: test helper
+      const btn = screen.getByText("Sonnet 4").closest("button")!;
+      expect(btn).toBeDisabled();
     });
   });
 });
