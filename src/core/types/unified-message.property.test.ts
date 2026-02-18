@@ -161,8 +161,10 @@ describe("canonicalize property tests", () => {
   });
 
   it("roundtrip: JSON.parse(canonicalize(v)) deep-equals the original", () => {
+    // Normalize through JSON to ensure values are JSON-stable (e.g. -0 → 0)
+    const arbJsonStable = fc.jsonValue().map((v) => JSON.parse(JSON.stringify(v)));
     fc.assert(
-      fc.property(fc.jsonValue(), (value) => {
+      fc.property(arbJsonStable, (value) => {
         const parsed = JSON.parse(canonicalize(value));
         expect(parsed).toEqual(value);
       }),
