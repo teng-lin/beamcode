@@ -98,7 +98,33 @@ describe("StreamingIndicator", () => {
       await checkA11y(container);
     });
 
-    it("resets to Generating after streaming clears and restarts", async () => {
+    it("stays visible during tool execution gaps while session is running", () => {
+      setupStreaming("running");
+      const { rerender } = render(<StreamingIndicator sessionId={SESSION} />);
+      expect(screen.getByText("Generating...")).toBeInTheDocument();
+
+      // Streaming clears (assistant message done) but session still running (tool executing)
+      store().clearStreaming(SESSION);
+      rerender(<StreamingIndicator sessionId={SESSION} />);
+
+      // Indicator stays visible with stop button
+      expect(screen.getByText("Generating...")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop generation" })).toBeInTheDocument();
+    });
+
+    it("disappears when session goes idle after streaming clears", () => {
+      setupStreaming("running");
+      const { rerender } = render(<StreamingIndicator sessionId={SESSION} />);
+
+      // Streaming clears and session goes idle (task complete)
+      store().clearStreaming(SESSION);
+      store().setSessionStatus(SESSION, "idle");
+      rerender(<StreamingIndicator sessionId={SESSION} />);
+
+      expect(screen.queryByText("Generating...")).not.toBeInTheDocument();
+    });
+
+    it("resets to Generating after task completes and restarts", async () => {
       setupStreaming("running");
       const { rerender } = render(<StreamingIndicator sessionId={SESSION} />);
 
@@ -106,12 +132,10 @@ describe("StreamingIndicator", () => {
       await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
       expect(screen.getByText("Stopping...")).toBeInTheDocument();
 
-      // Simulate server clearing streaming (result arrived)
-      store().setStreaming(SESSION, null);
-      store().setStreamingStarted(SESSION, null);
+      // Task completes — streaming clears and session goes idle
+      store().clearStreaming(SESSION);
+      store().setSessionStatus(SESSION, "idle");
       rerender(<StreamingIndicator sessionId={SESSION} />);
-
-      // Component renders nothing
       expect(screen.queryByText("Stopping...")).not.toBeInTheDocument();
 
       // New generation starts — should show "Generating...", not "Stopping..."

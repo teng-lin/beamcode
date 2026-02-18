@@ -61,15 +61,15 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!streaming && !streamingStartedAt) setStopping(false);
-  }, [streaming, streamingStartedAt]);
+    if (!streaming && !streamingStartedAt && sessionStatus !== "running") setStopping(false);
+  }, [streaming, streamingStartedAt, sessionStatus]);
 
   const handleStop = useCallback(() => {
     send({ type: "interrupt" }, sessionId);
     setStopping(true);
   }, [sessionId]);
 
-  if (!streaming && !streamingStartedAt) return null;
+  if (!streaming && !streamingStartedAt && sessionStatus !== "running") return null;
 
   const stats = formatStreamingStats(elapsed, streamingOutputTokens);
   const showStopButton = sessionStatus === "running" && !stopping;
