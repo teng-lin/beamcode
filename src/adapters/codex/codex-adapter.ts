@@ -117,7 +117,7 @@ export class CodexAdapter implements BackendAdapter {
 
   private tryConnect(url: string): Promise<WebSocket> {
     return new Promise<WebSocket>((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, { perMessageDeflate: false });
 
       const onOpen = () => {
         cleanup();
@@ -187,7 +187,9 @@ export class CodexAdapter implements BackendAdapter {
           jsonrpc: "2.0",
           id: rpcId,
           method: "initialize",
-          params: { client: "beamcode" },
+          params: {
+            clientInfo: { name: "beamcode", version: "0.1.0" },
+          },
         }),
       );
     });
