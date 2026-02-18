@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { send } from "../ws";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
+import { ModelPicker, PermissionModePicker } from "./StatusBar";
 
 interface ComposerProps {
   sessionId: string;
@@ -16,6 +17,14 @@ interface AttachedImage {
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_IMAGES = 10;
+
+type ImagePayload = { images: { media_type: string; data: string }[] };
+
+/** Strip preview data from attached images, keeping only the fields the server needs. */
+function imagePayload(imgs: AttachedImage[]): ImagePayload | undefined {
+  if (imgs.length === 0) return undefined;
+  return { images: imgs.map(({ media_type, data }) => ({ media_type, data })) };
+}
 
 function composerPlaceholder(
   isObserver: boolean,
@@ -39,6 +48,7 @@ export function Composer({ sessionId }: ComposerProps) {
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<SlashMenuHandle>(null);
   const sessionStatus = useStore((s) => s.sessionData[sessionId]?.sessionStatus);
   const capabilities = useStore((s) => s.sessionData[sessionId]?.capabilities);
@@ -102,14 +112,13 @@ export function Composer({ sessionId }: ComposerProps) {
     const allImages = Array.from(files).filter((f) => f.type.startsWith("image/"));
     const { addToast } = useStore.getState();
 
-    const withinSizeLimit = allImages.reduce<File[]>((acc, f) => {
+    const withinSizeLimit = allImages.filter((f) => {
       if (f.size > MAX_IMAGE_SIZE) {
         addToast(`Image too large (${(f.size / 1024 / 1024).toFixed(1)}MB) — max 10MB`, "error");
-        return acc;
+        return false;
       }
-      acc.push(f);
-      return acc;
-    }, []);
+      return true;
+    });
     const eligible = withinSizeLimit.slice(0, availableSlots);
 
     if (withinSizeLimit.length > availableSlots) {
@@ -179,13 +188,7 @@ export function Composer({ sessionId }: ComposerProps) {
     if (isEditingQueue) {
       if (trimmed) {
         send(
-          {
-            type: "update_queued_message",
-            content: trimmed,
-            ...(images.length > 0 && {
-              images: images.map(({ media_type, data }) => ({ media_type, data })),
-            }),
-          },
+          { type: "update_queued_message", content: trimmed, ...imagePayload(images) },
           sessionId,
         );
       } else {
@@ -203,28 +206,9 @@ export function Composer({ sessionId }: ComposerProps) {
     if (trimmed.startsWith("/")) {
       send({ type: "slash_command", command: trimmed }, sessionId);
     } else if (isRunning && !hasQueuedMessage) {
-      // Queue the message
-      send(
-        {
-          type: "queue_message",
-          content: trimmed,
-          ...(images.length > 0 && {
-            images: images.map(({ media_type, data }) => ({ media_type, data })),
-          }),
-        },
-        sessionId,
-      );
+      send({ type: "queue_message", content: trimmed, ...imagePayload(images) }, sessionId);
     } else {
-      send(
-        {
-          type: "user_message",
-          content: trimmed,
-          ...(images.length > 0 && {
-            images: images.map(({ media_type, data }) => ({ media_type, data })),
-          }),
-        },
-        sessionId,
-      );
+      send({ type: "user_message", content: trimmed, ...imagePayload(images) }, sessionId);
       // Optimistically mark running — the CLI will process this message, but
       // message_start won't arrive until the API starts streaming (1-5s gap).
       // Without this, the next Enter would send user_message instead of
@@ -249,10 +233,10 @@ export function Composer({ sessionId }: ComposerProps) {
       // Up arrow to edit own queued message
       if (e.key === "ArrowUp" && isOwnQueue && !isEditingQueue && !value) {
         e.preventDefault();
-        setValue(queuedMessage!.content);
-        if (queuedMessage!.images && queuedMessage!.images.length > 0) {
+        setValue(queuedMessage?.content ?? "");
+        if (queuedMessage?.images && queuedMessage.images.length > 0) {
           setImages(
-            queuedMessage!.images.map((img) => ({
+            queuedMessage.images.map((img) => ({
               id: crypto.randomUUID(),
               media_type: img.media_type,
               data: img.data,
@@ -274,16 +258,8 @@ export function Composer({ sessionId }: ComposerProps) {
 
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (isEditingQueue) {
-          handleSubmit();
-        } else if (isRunning && !hasQueuedMessage) {
-          // Queue the message (or interrupt if empty)
-          if (value.trim()) {
-            handleSubmit();
-          } else {
-            handleInterrupt();
-          }
-        } else if (isRunning && hasQueuedMessage) {
+        // Interrupt when running and there is nothing new to send
+        if (!isEditingQueue && isRunning && (hasQueuedMessage || !value.trim())) {
           handleInterrupt();
         } else {
           handleSubmit();
@@ -322,28 +298,33 @@ export function Composer({ sessionId }: ComposerProps) {
     textareaRef.current?.focus();
   }, []);
 
+  const showInterrupt = isRunning && hasQueuedMessage && !isEditingQueue;
+
   return (
     <section
       aria-label="Message composer"
-      className="relative border-t border-bc-border bg-bc-surface px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      className="px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      {showSlash && (
-        <SlashMenu
-          ref={slashMenuRef}
-          sessionId={sessionId}
-          query={value.slice(1)}
-          onSelect={handleSlashSelect}
-          onClose={() => setShowSlash(false)}
-        />
-      )}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-drop zone on container */}
+      <div
+        className="relative mx-auto max-w-3xl rounded-xl border border-bc-border bg-bc-surface transition-colors focus-within:border-bc-accent/50 focus-within:shadow-[0_0_0_1px_rgba(232,160,64,0.15)]"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {showSlash && (
+          <SlashMenu
+            ref={slashMenuRef}
+            sessionId={sessionId}
+            query={value.slice(1)}
+            onSelect={handleSlashSelect}
+            onClose={() => setShowSlash(false)}
+          />
+        )}
 
-      <div className="mx-auto max-w-3xl">
         {/* Image previews */}
         {images.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 px-3 pt-3">
             {images.map((img, i) => (
               <div
                 key={img.id}
@@ -367,88 +348,132 @@ export function Composer({ sessionId }: ComposerProps) {
           </div>
         )}
 
-        <div className="flex items-end gap-2">
-          <div className="relative flex-1">
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={composerPlaceholder(
-                isObserver,
-                isRunning,
-                hasQueuedMessage,
-                isOwnQueue,
-                isEditingQueue,
-                queuedMessage?.displayName,
-              )}
-              rows={3}
-              disabled={isObserver || (hasQueuedMessage && !isOwnQueue && !isEditingQueue)}
-              readOnly={isOwnQueue && !isEditingQueue}
-              className={`min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 pr-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 transition-colors focus:border-bc-accent/50 focus:shadow-[0_0_0_1px_rgba(232,160,64,0.15)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50${isOwnQueue && !isEditingQueue ? " cursor-default opacity-50" : ""}`}
-              aria-label="Message input"
-            />
-            {argumentHint && (
-              <div
-                data-testid="argument-hint"
-                className="pointer-events-none absolute inset-0 overflow-hidden px-4 py-2.5 text-sm"
-              >
-                <span className="invisible">{value}</span>
-                <span className="text-bc-text-muted/40">{argumentHint}</span>
-              </div>
+        {/* Textarea */}
+        <div className={`relative${isOwnQueue && !isEditingQueue ? " opacity-50" : ""}`}>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={composerPlaceholder(
+              isObserver,
+              isRunning,
+              hasQueuedMessage,
+              isOwnQueue,
+              isEditingQueue,
+              queuedMessage?.displayName,
             )}
-          </div>
-          {(() => {
-            const showInterrupt = isRunning && hasQueuedMessage && !isEditingQueue;
-            return (
-              <button
-                type="button"
-                onClick={showInterrupt ? handleInterrupt : handleSubmit}
-                disabled={
-                  isObserver ||
-                  (!showInterrupt && !isEditingQueue && !value.trim() && images.length === 0)
-                }
-                className={`flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl transition-all ${
-                  showInterrupt
-                    ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
-                    : "bg-bc-accent text-bc-bg shadow-sm hover:bg-bc-accent-hover disabled:bg-bc-surface-2 disabled:text-bc-text-muted/30 disabled:shadow-none"
-                }`}
-                aria-label={showInterrupt ? "Interrupt" : "Send message"}
-              >
-                {showInterrupt ? (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <rect width="14" height="14" rx="2" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M3 13l10-5L3 3v4l6 1-6 1z" />
-                  </svg>
-                )}
-              </button>
-            );
-          })()}
+            rows={3}
+            disabled={isObserver || (hasQueuedMessage && !isOwnQueue && !isEditingQueue)}
+            readOnly={isOwnQueue && !isEditingQueue}
+            className={`min-h-[80px] w-full resize-none bg-transparent px-4 py-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50${isOwnQueue && !isEditingQueue ? " cursor-default" : ""}`}
+            aria-label="Message input"
+          />
+          {argumentHint && (
+            <div
+              data-testid="argument-hint"
+              className="pointer-events-none absolute inset-0 overflow-hidden px-4 py-2.5 text-sm"
+            >
+              <span className="invisible">{value}</span>
+              <span className="text-bc-text-muted/40">{argumentHint}</span>
+            </div>
+          )}
         </div>
-      </div>
 
-      {/* Drag overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-bc-accent bg-bc-accent/10">
-          <span className="text-sm text-bc-accent">Drop image here</span>
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-3 pb-2 pt-1">
+          {/* Attach image button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isObserver || images.length >= MAX_IMAGES}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Attach image"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) processFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+
+          {/* Permission mode picker */}
+          <PermissionModePicker disabled={isObserver} />
+
+          <div className="flex-1" />
+
+          {/* Model picker */}
+          <ModelPicker disabled={isObserver} />
+
+          {/* Submit / Interrupt button */}
+          <button
+            type="button"
+            onClick={showInterrupt ? handleInterrupt : handleSubmit}
+            disabled={
+              isObserver ||
+              (!showInterrupt && !isEditingQueue && !value.trim() && images.length === 0)
+            }
+            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-all ${
+              showInterrupt
+                ? "bg-bc-error text-white shadow-sm hover:bg-bc-error/80"
+                : "bg-bc-accent text-bc-bg shadow-sm hover:bg-bc-accent-hover disabled:bg-bc-surface-2 disabled:text-bc-text-muted/30 disabled:shadow-none"
+            }`}
+            aria-label={showInterrupt ? "Interrupt" : "Send message"}
+          >
+            {showInterrupt ? (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect width="14" height="14" rx="2" />
+              </svg>
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 12V4M8 4L4 8M8 4l4 4" />
+              </svg>
+            )}
+          </button>
         </div>
-      )}
+
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-bc-accent bg-bc-accent/10">
+            <span className="text-sm text-bc-accent">Drop image here</span>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

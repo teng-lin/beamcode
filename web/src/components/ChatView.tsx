@@ -86,6 +86,65 @@ function SplitLayout({
   );
 }
 
+const MIN_MAIN_RATIO = 0.3;
+const MAX_MAIN_RATIO = 0.6;
+
+/** Static disabled composer shown when no session is selected. */
+function DisabledComposer() {
+  return (
+    <div className="rounded-xl border border-bc-border bg-bc-surface opacity-60">
+      <textarea
+        disabled
+        rows={3}
+        placeholder="Create a session to start..."
+        className="min-h-[80px] w-full resize-none bg-transparent px-4 py-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 disabled:cursor-not-allowed"
+      />
+      <div className="flex items-center gap-1 px-3 pb-2 pt-1">
+        <button
+          type="button"
+          disabled
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-bc-text-muted/30"
+          aria-label="Attach image"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
+          disabled
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-bc-surface-2 text-bc-text-muted/30 shadow-none"
+          aria-label="Send message"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M8 12V4M8 4L4 8M8 4l4 4" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ChatView() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessionData = useStore((s) =>
@@ -97,8 +156,6 @@ export function ChatView() {
   const [splitRatio, setSplitRatio] = useState(0.45);
   const splitRef = useRef<HTMLDivElement>(null);
 
-  const MIN_MAIN_RATIO = 0.3;
-  const MAX_MAIN_RATIO = 0.6;
   const handleResize = useCallback((delta: number) => {
     setSplitRatio((prev) => Math.max(MIN_MAIN_RATIO, Math.min(MAX_MAIN_RATIO, prev + delta)));
   }, []);
@@ -126,29 +183,7 @@ export function ChatView() {
             <p className="text-sm text-bc-text-muted">Send a message to start coding</p>
           </div>
           <div className="w-full max-w-xl">
-            <div className="flex items-end gap-2">
-              <textarea
-                disabled
-                rows={3}
-                placeholder="Create a session to start..."
-                className="min-h-[80px] w-full resize-none rounded-xl border border-bc-border bg-bc-bg px-4 py-3 text-sm text-bc-text placeholder:text-bc-text-muted/60 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <button
-                type="button"
-                disabled
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-bc-surface-2 text-bc-text-muted/30 shadow-none"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M3 13l10-5L3 3v4l6 1-6 1z" />
-                </svg>
-              </button>
-            </div>
+            <DisabledComposer />
             <StatusBar />
           </div>
         </div>
