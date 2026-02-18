@@ -14,11 +14,10 @@ import type {
   InitializeAccount,
   InitializeCommand,
   InitializeModel,
-  PermissionRequest,
 } from "../types/cli-messages.js";
 import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
-import type { ConsumerMessage, ConsumerPermissionRequest } from "../types/consumer-messages.js";
+import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
@@ -26,6 +25,15 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { parseNDJSON, serializeNDJSON } from "../utils/ndjson.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper } from "./consumer-gatekeeper.js";
+import {
+  mapAssistantMessage,
+  mapAuthStatus,
+  mapPermissionRequest,
+  mapResultMessage,
+  mapStreamEvent,
+  mapToolProgress,
+  mapToolUseSummary,
+} from "./consumer-message-mapper.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
@@ -1389,51 +1397,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private handleUnifiedAssistant(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    const consumerMsg: ConsumerMessage = {
-      type: "assistant",
-      message: {
-        id: (m.message_id as string) ?? msg.id,
-        type: "message",
-        role: "assistant",
-        model: (m.model as string) ?? "",
-        content: msg.content.map((block) => {
-          switch (block.type) {
-            case "text":
-              return { type: "text" as const, text: block.text };
-            case "tool_use":
-              return {
-                type: "tool_use" as const,
-                id: block.id,
-                name: block.name,
-                input: block.input,
-              };
-            case "tool_result":
-              return {
-                type: "tool_result" as const,
-                tool_use_id: block.tool_use_id,
-                content: block.content,
-                is_error: block.is_error,
-              };
-            default:
-              return { type: "text" as const, text: "" };
-          }
-        }),
-        stop_reason: (m.stop_reason as string | null) ?? null,
-        usage: (m.usage as {
-          input_tokens: number;
-          output_tokens: number;
-          cache_creation_input_tokens: number;
-          cache_read_input_tokens: number;
-        }) ?? {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-      parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
-    };
+    const consumerMsg = mapAssistantMessage(msg);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -1441,53 +1405,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private handleUnifiedResult(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    const consumerMsg: ConsumerMessage = {
-      type: "result",
-      data: {
-        subtype: m.subtype as string as
-          | "success"
-          | "error_during_execution"
-          | "error_max_turns"
-          | "error_max_budget_usd"
-          | "error_max_structured_output_retries",
-        is_error: (m.is_error as boolean) ?? false,
-        result: m.result as string | undefined,
-        errors: m.errors as string[] | undefined,
-        duration_ms: (m.duration_ms as number) ?? 0,
-        duration_api_ms: (m.duration_api_ms as number) ?? 0,
-        num_turns: (m.num_turns as number) ?? 0,
-        total_cost_usd: (m.total_cost_usd as number) ?? 0,
-        stop_reason: (m.stop_reason as string | null) ?? null,
-        usage: (m.usage as {
-          input_tokens: number;
-          output_tokens: number;
-          cache_creation_input_tokens: number;
-          cache_read_input_tokens: number;
-        }) ?? {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        modelUsage: m.modelUsage as
-          | Record<
-              string,
-              {
-                inputTokens: number;
-                outputTokens: number;
-                cacheReadInputTokens: number;
-                cacheCreationInputTokens: number;
-                contextWindow: number;
-                maxOutputTokens: number;
-                costUSD: number;
-              }
-            >
-          | undefined,
-        total_lines_added: m.total_lines_added as number | undefined,
-        total_lines_removed: m.total_lines_removed as number | undefined,
-      },
-    };
+    const consumerMsg = mapResultMessage(msg);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -1499,6 +1417,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.autoSendQueuedMessage(session);
 
     // Trigger auto-naming after first turn
+    const m = msg.metadata;
     const numTurns = (m.num_turns as number) ?? 0;
     const isError = (m.is_error as boolean) ?? false;
     if (numTurns === 1 && !isError) {
@@ -1585,41 +1504,19 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       session.lastStatus = "running";
     }
 
-    this.broadcaster.broadcast(session, {
-      type: "stream_event",
-      event: m.event,
-      parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
-    });
+    this.broadcaster.broadcast(session, mapStreamEvent(msg));
   }
 
   private handleUnifiedPermissionRequest(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
+    const mapped = mapPermissionRequest(msg);
+    if (!mapped) return;
 
-    // Only store can_use_tool permission requests (matches CLI path guard)
-    if (m.subtype && m.subtype !== "can_use_tool") return;
-
-    const perm: ConsumerPermissionRequest = {
-      request_id: m.request_id as string,
-      tool_name: m.tool_name as string,
-      input: (m.input as Record<string, unknown>) ?? {},
-      permission_suggestions: m.permission_suggestions as unknown[] | undefined,
-      description: m.description as string | undefined,
-      tool_use_id: m.tool_use_id as string,
-      agent_id: m.agent_id as string | undefined,
-      timestamp: Date.now(),
-    };
-
-    // Store as CLI-compatible PermissionRequest for pendingPermissions map
-    const cliPerm: PermissionRequest = {
-      ...perm,
-      permission_suggestions:
-        m.permission_suggestions as PermissionRequest["permission_suggestions"],
-    };
-    session.pendingPermissions.set(perm.request_id, cliPerm);
+    const { consumerPerm, cliPerm } = mapped;
+    session.pendingPermissions.set(consumerPerm.request_id, cliPerm);
 
     this.broadcaster.broadcastToParticipants(session, {
       type: "permission_request",
-      request: perm,
+      request: consumerPerm,
     });
     this.emit("permission:requested", {
       sessionId: session.id,
@@ -1675,33 +1572,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    this.broadcaster.broadcast(session, {
-      type: "tool_progress",
-      tool_use_id: m.tool_use_id as string,
-      tool_name: m.tool_name as string,
-      elapsed_time_seconds: m.elapsed_time_seconds as number,
-    });
+    this.broadcaster.broadcast(session, mapToolProgress(msg));
   }
 
   private handleUnifiedToolUseSummary(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    this.broadcaster.broadcast(session, {
-      type: "tool_use_summary",
-      summary: m.summary as string,
-      tool_use_ids: m.tool_use_ids as string[],
-    });
+    this.broadcaster.broadcast(session, mapToolUseSummary(msg));
   }
 
   private handleUnifiedAuthStatus(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    const consumerMsg: ConsumerMessage = {
-      type: "auth_status",
-      isAuthenticating: m.isAuthenticating as boolean,
-      output: m.output as string[],
-      error: m.error as string | undefined,
-    };
+    const consumerMsg = mapAuthStatus(msg);
     this.broadcaster.broadcast(session, consumerMsg);
+    const m = msg.metadata;
     this.emit("auth_status", {
       sessionId: session.id,
       isAuthenticating: m.isAuthenticating as boolean,
