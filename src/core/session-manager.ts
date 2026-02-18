@@ -1,3 +1,4 @@
+import type WebSocket from "ws";
 import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
@@ -17,6 +18,8 @@ import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
+import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
@@ -35,6 +38,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
   readonly launcher: SdkUrlLauncher;
 
+  private adapter: BackendAdapter | null;
   private config: ResolvedConfig;
   private logger: Logger;
   private server: WebSocketServerLike | null;
@@ -55,6 +59,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
     commandRunner?: CommandRunner;
+    adapter?: BackendAdapter;
   }) {
     super();
 
@@ -63,6 +68,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       options.logger ??
       new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
     this.server = options.server ?? null;
+    this.adapter = options.adapter ?? null;
 
     this.bridge = new SessionBridge({
       storage: options.storage,
@@ -72,6 +78,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       config: options.config,
       metrics: options.metrics,
       commandRunner: options.commandRunner,
+      adapter: options.adapter,
     });
 
     this.launcher = new SdkUrlLauncher({
@@ -107,14 +114,35 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     if (this.server) {
       await this.server.listen(
         (socket, sessionId) => {
-          this.bridge.handleCLIOpen(socket, sessionId);
-          socket.on("message", (data) => {
-            this.bridge.handleCLIMessage(
-              sessionId,
-              typeof data === "string" ? data : data.toString("utf-8"),
-            );
-          });
-          socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+          if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
+            // Adapter path: deliver the socket to the adapter's pending registration
+            const delivered = this.adapter.deliverSocket(sessionId, socket as unknown as WebSocket);
+            if (!delivered) {
+              this.logger.warn(
+                `No pending socket registration for session ${sessionId}, falling back to legacy`,
+              );
+              this.bridge.handleCLIOpen(socket, sessionId);
+              socket.on("message", (data) => {
+                this.bridge.handleCLIMessage(
+                  sessionId,
+                  typeof data === "string" ? data : data.toString("utf-8"),
+                );
+              });
+              socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+            }
+            // When adapter handles it, no need for message/close handlers on the socket
+            // — SdkUrlSession wires those up internally via attachSocket()
+          } else {
+            // Legacy path
+            this.bridge.handleCLIOpen(socket, sessionId);
+            socket.on("message", (data) => {
+              this.bridge.handleCLIMessage(
+                sessionId,
+                typeof data === "string" ? data : data.toString("utf-8"),
+              );
+            });
+            socket.on("close", () => this.bridge.handleCLIClose(sessionId));
+          }
         },
         (socket, context) => {
           this.bridge.handleConsumerOpen(socket, context);

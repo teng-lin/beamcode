@@ -4,9 +4,17 @@ const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
+import type WebSocket from "ws";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
+import type {
+  BackendAdapter,
+  BackendCapabilities,
+  BackendSession,
+  ConnectOptions,
+} from "./interfaces/backend-adapter.js";
+import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "./session-manager.js";
 
 // ---------------------------------------------------------------------------
@@ -660,6 +668,172 @@ describe("SessionManager", () => {
             logger: noopLogger,
           }),
       ).toThrow("Invalid configuration");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Adapter-aware CLI routing
+  // -----------------------------------------------------------------------
+
+  describe("adapter-aware CLI routing", () => {
+    const defaultCapabilities: BackendCapabilities = {
+      streaming: true,
+      permissions: true,
+      slashCommands: true,
+      availability: "local" as const,
+      teams: true,
+    };
+
+    class MockInvertedAdapter implements InvertedConnectionAdapter {
+      readonly name = "mock-inverted";
+      readonly capabilities = defaultCapabilities;
+      deliverSocketCalls: Array<{ sessionId: string; ws: unknown }> = [];
+      deliverSocketResult = true;
+
+      async connect(_options: ConnectOptions): Promise<BackendSession> {
+        throw new Error("Not needed for this test");
+      }
+
+      deliverSocket(sessionId: string, ws: WebSocket): boolean {
+        this.deliverSocketCalls.push({ sessionId, ws });
+        return this.deliverSocketResult;
+      }
+
+      cancelPending(_sessionId: string): void {}
+    }
+
+    function createMockServer(): {
+      server: WebSocketServerLike;
+      getCapturedOnCLI: () => OnCLIConnection | null;
+    } {
+      let capturedOnCLI: OnCLIConnection | null = null;
+      return {
+        server: {
+          async listen(onCLI) {
+            capturedOnCLI = onCLI;
+          },
+          async close() {},
+        },
+        getCapturedOnCLI: () => capturedOnCLI,
+      };
+    }
+
+    function createMockSocket() {
+      const events: Record<string, Array<(...args: unknown[]) => void>> = {};
+      return {
+        socket: {
+          send: vi.fn(),
+          close: vi.fn(),
+          on: (event: string, handler: (...args: unknown[]) => void) => {
+            events[event] = events[event] || [];
+            events[event].push(handler);
+          },
+        },
+        events,
+      };
+    }
+
+    it("with InvertedConnectionAdapter, CLI WS connection calls adapter.deliverSocket", async () => {
+      const adapter = new MockInvertedAdapter();
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const adapterMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        adapter,
+      });
+
+      await adapterMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "adapter-session-1");
+
+      // Should have called deliverSocket
+      expect(adapter.deliverSocketCalls).toHaveLength(1);
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe("adapter-session-1");
+      expect(adapter.deliverSocketCalls[0].ws).toBe(socket);
+
+      // Should NOT have called bridge.handleCLIOpen (adapter handled it)
+      expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(false);
+
+      await adapterMgr.stop();
+    });
+
+    it("falls back to legacy when deliverSocket returns false", async () => {
+      const adapter = new MockInvertedAdapter();
+      adapter.deliverSocketResult = false;
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const adapterMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        adapter,
+      });
+
+      await adapterMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket, events } = createMockSocket();
+      onCLI!(socket as any, "fallback-session");
+
+      // deliverSocket was called but returned false
+      expect(adapter.deliverSocketCalls).toHaveLength(1);
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe("fallback-session");
+
+      // Should have fallen back to bridge.handleCLIOpen
+      expect(adapterMgr.bridge.isCliConnected("fallback-session")).toBe(true);
+
+      // Message and close handlers should be wired
+      expect(events.message).toBeDefined();
+      expect(events.close).toBeDefined();
+
+      // Simulate close
+      events.close[0]();
+      expect(adapterMgr.bridge.isCliConnected("fallback-session")).toBe(false);
+
+      await adapterMgr.stop();
+    });
+
+    it("without adapter, uses legacy handleCLIOpen path", async () => {
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const legacyMgr = new SessionManager({
+        config: { port: 3456 },
+        processManager: pm,
+        storage,
+        logger: noopLogger,
+        server,
+        // No adapter provided
+      });
+
+      await legacyMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket, events } = createMockSocket();
+      onCLI!(socket as any, "legacy-session");
+
+      // Should use bridge.handleCLIOpen directly
+      expect(legacyMgr.bridge.isCliConnected("legacy-session")).toBe(true);
+
+      // Message and close handlers should be wired
+      expect(events.message).toBeDefined();
+      expect(events.close).toBeDefined();
+
+      // Simulate close
+      events.close[0]();
+      expect(legacyMgr.bridge.isCliConnected("legacy-session")).toBe(false);
+
+      await legacyMgr.stop();
     });
   });
 });
