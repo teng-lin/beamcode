@@ -895,6 +895,45 @@ describe("handleMessage", () => {
     expect(getSessionData()?.presence[0].userId).toBe("u1");
   });
 
+  // ── auth_status ────────────────────────────────────────────────────────
+
+  it("auth_status: sets authStatus in session data", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "auth_status",
+        isAuthenticating: true,
+        output: ["Opening browser for authentication..."],
+      }),
+    );
+
+    expect(getSessionData()?.authStatus).toEqual({
+      isAuthenticating: true,
+      output: ["Opening browser for authentication..."],
+      error: undefined,
+    });
+  });
+
+  it("auth_status with error: sets error in authStatus", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "auth_status",
+        isAuthenticating: false,
+        output: [],
+        error: "Token expired",
+      }),
+    );
+
+    expect(getSessionData()?.authStatus).toEqual({
+      isAuthenticating: false,
+      output: [],
+      error: "Token expired",
+    });
+  });
+
   // ── resume_failed ───────────────────────────────────────────────────────
 
   it("resume_failed: shows error toast", () => {

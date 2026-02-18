@@ -10,6 +10,7 @@ import {
 } from "../test/factories";
 import { ChatView } from "./ChatView";
 
+vi.mock("./AuthBanner", () => ({ AuthBanner: () => null }));
 vi.mock("./EmptyState", () => ({ EmptyState: () => <div data-testid="empty-state" /> }));
 vi.mock("./MessageFeed", () => ({ MessageFeed: () => <div data-testid="message-feed" /> }));
 vi.mock("./Composer", () => ({ Composer: () => <div data-testid="composer" /> }));

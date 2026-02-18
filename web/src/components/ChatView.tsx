@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { SessionData } from "../store";
 import { useStore } from "../store";
 import { AgentPane } from "./AgentPane";
+import { AuthBanner } from "./AuthBanner";
 import { Composer } from "./Composer";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { EmptyState } from "./EmptyState";
@@ -36,6 +37,8 @@ function MainChatContent({
       {!cliConnected && connectionStatus === "connected" && (
         <ConnectionBanner reconnectAttempt={sessionData.reconnectAttempt} />
       )}
+
+      <AuthBanner sessionId={sessionId} />
 
       {messages.length === 0 ? (
         <EmptyState />
