@@ -13,7 +13,7 @@ import type { RawData } from "ws";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import type { CLIMessage } from "../../types/cli-messages.js";
-import { parseNDJSON } from "../../utils/ndjson.js";
+import { NDJSONLineBuffer } from "../../utils/ndjson.js";
 import { toNDJSON } from "./inbound-translator.js";
 import { translate } from "./message-translator.js";
 
@@ -28,6 +28,7 @@ export class SdkUrlSession implements BackendSession {
   private readonly outboundQueue: string[] = [];
   private closed = false;
   private passthroughHandler: ((rawMsg: CLIMessage) => boolean) | null = null;
+  private readonly lineBuffer = new NDJSONLineBuffer();
 
   // Async iterable queue (same pattern as CodexSession)
   private readonly messageQueue: UnifiedMessage[] = [];
@@ -141,6 +142,7 @@ export class SdkUrlSession implements BackendSession {
     });
 
     ws.on("close", () => {
+      this.handleBufferedRemainder();
       this.finish();
     });
 
@@ -154,10 +156,11 @@ export class SdkUrlSession implements BackendSession {
   // ---------------------------------------------------------------------------
 
   private sendToSocket(ndjson: string): void {
+    const line = ndjson.endsWith("\n") ? ndjson : `${ndjson}\n`;
     if (this.socket) {
-      this.socket.send(ndjson);
+      this.socket.send(line);
     } else {
-      this.outboundQueue.push(ndjson);
+      this.outboundQueue.push(line);
     }
   }
 
@@ -167,18 +170,48 @@ export class SdkUrlSession implements BackendSession {
 
   private handleIncoming(data: RawData): void {
     const raw = typeof data === "string" ? data : data.toString();
-    const { messages } = parseNDJSON<CLIMessage>(raw);
-
-    for (const cliMsg of messages) {
-      // Check passthrough handler before translation
-      if (cliMsg.type === "user" && this.passthroughHandler?.(cliMsg)) {
-        continue; // intercepted — don't yield to async iterable
+    // Some transports deliver one complete JSON object per WebSocket frame
+    // (without newline delimiters). Fast-path that shape first.
+    if (!raw.includes("\n")) {
+      try {
+        const cliMsg = JSON.parse(raw.trim()) as CLIMessage;
+        this.processCliMessage(cliMsg);
+        return;
+      } catch {
+        // fall through to line-buffer mode for NDJSON/chunked inputs
       }
+    }
 
-      const unified = translate(cliMsg);
-      if (unified) {
-        this.enqueue(unified);
+    const lines = this.lineBuffer.feed(raw);
+    for (const line of lines) {
+      let cliMsg: CLIMessage;
+      try {
+        cliMsg = JSON.parse(line) as CLIMessage;
+      } catch {
+        continue;
       }
+      this.processCliMessage(cliMsg);
+    }
+  }
+
+  private handleBufferedRemainder(): void {
+    const line = this.lineBuffer.flush();
+    if (!line) return;
+    try {
+      const cliMsg = JSON.parse(line) as CLIMessage;
+      this.processCliMessage(cliMsg);
+    } catch {
+      // ignore invalid/incomplete trailing fragment
+    }
+  }
+
+  private processCliMessage(cliMsg: CLIMessage): void {
+    if (cliMsg.type === "user" && this.passthroughHandler?.(cliMsg)) {
+      return;
+    }
+    const unified = translate(cliMsg);
+    if (unified) {
+      this.enqueue(unified);
     }
   }
 

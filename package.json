@@ -53,7 +53,7 @@
   ],
   "scripts": {
     "build:lib": "tsdown && node scripts/fix-dts.js",
-    "build:web": "cd web && npx vite build",
+    "build:web": "node scripts/build-web.mjs",
     "build": "pnpm build:lib && pnpm build:web",
     "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.js",

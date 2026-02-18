@@ -8,9 +8,10 @@
 
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
+import type { CLIMessage } from "../types/cli-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
-import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
 import type { Session } from "./session-store.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
@@ -49,6 +50,41 @@ export class BackendLifecycleManager {
     this.emitEvent = deps.emitEvent;
   }
 
+  private supportsPassthroughHandler(session: BackendSession): session is BackendSession & {
+    setPassthroughHandler: (handler: ((rawMsg: CLIMessage) => boolean) | null) => void;
+  } {
+    return (
+      "setPassthroughHandler" in session && typeof session.setPassthroughHandler === "function"
+    );
+  }
+
+  private cliUserEchoToText(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (
+            item &&
+            typeof item === "object" &&
+            "type" in item &&
+            (item as { type?: string }).type === "text" &&
+            "text" in item &&
+            typeof (item as { text?: unknown }).text === "string"
+          ) {
+            return (item as { text: string }).text;
+          }
+          return "";
+        })
+        .join("");
+    }
+    if (content && typeof content === "object" && "text" in content) {
+      const text = (content as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    }
+    return "";
+  }
+
   /** Whether a BackendAdapter is configured. */
   get hasAdapter(): boolean {
     return this.adapter !== null;
@@ -76,6 +112,31 @@ export class BackendLifecycleManager {
     });
 
     session.backendSession = backendSession;
+    if (this.supportsPassthroughHandler(backendSession)) {
+      backendSession.setPassthroughHandler((rawMsg) => {
+        if (rawMsg.type !== "user") return false;
+        const pending = session.pendingPassthrough;
+        if (!pending) return false;
+
+        const content = this.cliUserEchoToText(rawMsg.message.content);
+        this.broadcaster.broadcast(session, {
+          type: "slash_command_result",
+          command: pending.command,
+          request_id: pending.requestId,
+          content,
+          source: "cli",
+        });
+        this.emitEvent("slash_command:executed", {
+          sessionId: session.id,
+          command: pending.command,
+          source: "cli",
+          durationMs: 0,
+        });
+        session.pendingPassthrough = null;
+        return true;
+      });
+    }
+
     const abort = new AbortController();
     session.backendAbort = abort;
 
