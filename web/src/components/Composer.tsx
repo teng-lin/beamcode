@@ -99,11 +99,25 @@ export function Composer({ sessionId }: ComposerProps) {
 
   const processFiles = useCallback((files: FileList) => {
     const availableSlots = MAX_IMAGES - imagesRef.current.length;
-    if (availableSlots <= 0) return;
+    const allImages = Array.from(files).filter((f) => f.type.startsWith("image/"));
 
-    const eligible = Array.from(files)
-      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_IMAGE_SIZE)
-      .slice(0, availableSlots);
+    // Notify about oversized images
+    for (const f of allImages) {
+      if (f.size > MAX_IMAGE_SIZE) {
+        useStore
+          .getState()
+          .addToast(`Image too large (${(f.size / 1024 / 1024).toFixed(1)}MB) — max 10MB`, "error");
+      }
+    }
+
+    const eligible = allImages.filter((f) => f.size <= MAX_IMAGE_SIZE).slice(0, availableSlots);
+
+    // Notify when count limit is hit
+    if (allImages.filter((f) => f.size <= MAX_IMAGE_SIZE).length > availableSlots) {
+      useStore.getState().addToast(`Maximum ${MAX_IMAGES} images allowed`, "error");
+    }
+
+    if (eligible.length === 0) return;
 
     for (const file of eligible) {
       const reader = new FileReader();
