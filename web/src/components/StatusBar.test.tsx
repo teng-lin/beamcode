@@ -181,6 +181,17 @@ describe("StatusBar", () => {
       expect(label.tagName).toBe("SPAN");
       expect(label.closest("button")).toBeNull();
     });
+
+    it("optimistically updates adapterType on selection", async () => {
+      const user = userEvent.setup();
+      setupSession({ adapterType: "claude" });
+      render(<StatusBar />);
+
+      await user.click(screen.getByText("Claude Code"));
+      await user.click(screen.getByText("Codex"));
+
+      expect(useStore.getState().sessions[SESSION]?.adapterType).toBe("codex");
+    });
   });
 
   // ── PermissionModePicker ────────────────────────────────────────────────────

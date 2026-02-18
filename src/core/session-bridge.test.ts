@@ -942,6 +942,16 @@ describe("SessionBridge", () => {
         ),
       ).toBe(true);
     });
+
+    it("set_adapter is handled without throwing (no-op)", () => {
+      expect(() => {
+        bridge.handleConsumerMessage(
+          consumerWs,
+          "sess-1",
+          JSON.stringify({ type: "set_adapter", adapter: "codex" }),
+        );
+      }).not.toThrow();
+    });
   });
 
   // ── 7. Persistence ─────────────────────────────────────────────────────

@@ -747,6 +747,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       case "cancel_queued_message":
         this.handleCancelQueuedMessage(session, ws);
         break;
+      case "set_adapter":
+        this.logger.info(
+          `[set_adapter] session=${session.id} adapter=${msg.adapter} (no-op: adapter switching not yet supported)`,
+        );
+        break;
     }
   }
 

@@ -26,6 +26,9 @@ function AdapterSelector({ type }: { type: string }) {
 
   const handleSelect = useCallback(
     (adapter: string) => {
+      if (currentSessionId) {
+        useStore.getState().updateSession(currentSessionId, { adapterType: adapter });
+      }
       send({ type: "set_adapter", adapter }, currentSessionId ?? undefined);
       close();
     },
