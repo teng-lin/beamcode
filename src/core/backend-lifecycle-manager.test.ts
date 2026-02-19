@@ -224,7 +224,7 @@ describe("BackendLifecycleManager", () => {
       await mgr.connectBackend(session);
 
       expect(metrics.recordEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "cli:connected", sessionId: "sess-1" }),
+        expect.objectContaining({ type: "backend:connected", sessionId: "sess-1" }),
       );
     });
 
@@ -233,28 +233,16 @@ describe("BackendLifecycleManager", () => {
       const adapter = new TestAdapter();
       adapter.nextSession = testSession;
 
-      const deps = createDeps({ adapter });
-      const mgr = new BackendLifecycleManager(deps);
-      const session = createSession({ pendingMessages: ["msg1\n", "msg2\n"] });
-
-      await mgr.connectBackend(session);
-
-      expect(testSession.sentRaw).toEqual(["msg1\n", "msg2\n"]);
-      expect(session.pendingMessages).toEqual([]);
-    });
-
-    it("drops remaining queued messages when sendRaw throws", async () => {
-      const testSession = new TestBackendSession("sess-1", { sendRawFail: true });
-      const adapter = new TestAdapter();
-      adapter.nextSession = testSession;
+      const msg1 = createUnifiedMessage({ type: "user_message", role: "user" });
+      const msg2 = createUnifiedMessage({ type: "user_message", role: "user" });
 
       const deps = createDeps({ adapter });
       const mgr = new BackendLifecycleManager(deps);
-      const session = createSession({ pendingMessages: ["msg1\n", "msg2\n", "msg3\n"] });
+      const session = createSession({ pendingMessages: [msg1, msg2] as any });
 
       await mgr.connectBackend(session);
 
-      expect(noopLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Dropping"));
+      expect(testSession.sentMessages).toEqual([msg1, msg2]);
       expect(session.pendingMessages).toEqual([]);
     });
 
@@ -413,7 +401,7 @@ describe("BackendLifecycleManager", () => {
       await mgr.disconnectBackend(session);
 
       expect(metrics.recordEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "cli:disconnected" }),
+        expect.objectContaining({ type: "backend:disconnected" }),
       );
     });
   });

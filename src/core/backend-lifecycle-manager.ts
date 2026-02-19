@@ -179,30 +179,19 @@ export class BackendLifecycleManager {
     this.logger.info(`Backend connected for session ${session.id} via ${adapter.name}`);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
-      type: "cli:connected",
+      type: "backend:connected",
       sessionId: session.id,
     });
     this.broadcaster.broadcast(session, { type: "cli_connected" });
     this.emitEvent("backend:connected", { sessionId: session.id });
-    this.emitEvent("cli:connected", { sessionId: session.id });
 
     // Flush any pending messages
     if (session.pendingMessages.length > 0) {
       this.logger.info(
         `Flushing ${session.pendingMessages.length} queued message(s) for session ${session.id}`,
       );
-      for (const ndjson of session.pendingMessages) {
-        try {
-          session.backendSession.sendRaw(ndjson);
-        } catch {
-          // Adapter doesn't support raw NDJSON -- all remaining messages will
-          // also fail, so drop them. Direct-connection adapters (Codex, ACP)
-          // connect before consumers send messages, so this rarely triggers.
-          this.logger.warn(
-            `Dropping ${session.pendingMessages.length} queued NDJSON message(s) for session ${session.id}: adapter does not support sendRaw`,
-          );
-          break;
-        }
+      for (const msg of session.pendingMessages) {
+        session.backendSession.send(msg);
       }
       session.pendingMessages = [];
     }
@@ -223,7 +212,7 @@ export class BackendLifecycleManager {
     this.logger.info(`Backend disconnected for session ${session.id}`);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
-      type: "cli:disconnected",
+      type: "backend:disconnected",
       sessionId: session.id,
     });
     this.broadcaster.broadcast(session, { type: "cli_disconnected" });
@@ -232,7 +221,6 @@ export class BackendLifecycleManager {
       code: 1000,
       reason: "normal",
     });
-    this.emitEvent("cli:disconnected", { sessionId: session.id });
 
     this.cancelPendingPermissions(session);
   }
@@ -304,8 +292,6 @@ export class BackendLifecycleManager {
           code: 1000,
           reason: "stream ended",
         });
-        this.emitEvent("cli:disconnected", { sessionId });
-
         this.cancelPendingPermissions(session);
       }
     })();

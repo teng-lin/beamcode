@@ -90,7 +90,7 @@ export interface SdkSessionInfo {
   permissionMode?: string;
   cwd: string;
   createdAt: number;
-  cliSessionId?: string;
+  backendSessionId?: string;
   archived?: boolean;
   isWorktree?: boolean;
   repoRoot?: string;
@@ -114,7 +114,8 @@ export interface PersistedSession {
   id: string;
   state: SessionState;
   messageHistory: ConsumerMessage[];
-  pendingMessages: string[];
+  /** UnifiedMessage[] after schema v2; string[] (NDJSON) in legacy v1 data. */
+  pendingMessages: unknown[];
   pendingPermissions: [string, PermissionRequest][];
   archived?: boolean;
   adapterName?: string;

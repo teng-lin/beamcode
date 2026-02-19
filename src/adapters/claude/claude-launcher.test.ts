@@ -169,8 +169,8 @@ describe("ClaudeLauncher", () => {
       proc.resolveExit(0);
       await flushPromises();
 
-      // Set a cliSessionId for resume
-      launcher.setCLISessionId("test-uuid-0", "cli-sess-1");
+      // Set a backendSessionId for resume
+      launcher.setBackendSessionId("test-uuid-0", "cli-sess-1");
       const result = await launcher.relaunch("test-uuid-0");
       expect(result).toBe(true);
       expect(launcher.getSession("test-uuid-0")!.state).toBe("starting");
@@ -215,7 +215,7 @@ describe("ClaudeLauncher", () => {
   // ─── Resume failure detection ─────────────────────────────────────────
 
   describe("resume failure detection", () => {
-    it("quick exit after --resume clears cliSessionId and emits process:resume_failed", async () => {
+    it("quick exit after --resume clears backendSessionId and emits process:resume_failed", async () => {
       const { launcher, pm } = createLauncher({
         config: {
           port: 3456,
@@ -223,7 +223,7 @@ describe("ClaudeLauncher", () => {
         },
       });
       launcher.launch({});
-      launcher.setCLISessionId("test-uuid-0", "cli-sess-1");
+      launcher.setBackendSessionId("test-uuid-0", "cli-sess-1");
 
       // Force a relaunch with --resume
       pm.lastProcess!.resolveExit(0);
@@ -240,7 +240,7 @@ describe("ClaudeLauncher", () => {
       expect(resumeFailedHandler).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: "test-uuid-0" }),
       );
-      expect(launcher.getSession("test-uuid-0")!.cliSessionId).toBeUndefined();
+      expect(launcher.getSession("test-uuid-0")!.backendSessionId).toBeUndefined();
     });
   });
 
@@ -269,11 +269,11 @@ describe("ClaudeLauncher", () => {
       expect(launcher.getSession("test-uuid-0")!.state).toBe("exited");
     });
 
-    it("setCLISessionId persists", () => {
+    it("setBackendSessionId persists", () => {
       const { launcher, storage } = createLauncher();
       launcher.launch({});
-      launcher.setCLISessionId("test-uuid-0", "cli-abc");
-      expect(launcher.getSession("test-uuid-0")!.cliSessionId).toBe("cli-abc");
+      launcher.setBackendSessionId("test-uuid-0", "cli-abc");
+      expect(launcher.getSession("test-uuid-0")!.backendSessionId).toBe("cli-abc");
       expect(storage.saveLauncherState).toHaveBeenCalled();
     });
 

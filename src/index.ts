@@ -114,8 +114,8 @@ export type {
 export type { GitInfo, GitInfoResolver } from "./interfaces/git-resolver.js";
 export type { Logger } from "./interfaces/logger.js";
 export type {
-  CLIConnectedEvent,
-  CLIDisconnectedEvent,
+  BackendConnectedEvent,
+  BackendDisconnectedEvent,
   ConsumerConnectedEvent,
   ConsumerDisconnectedEvent,
   ErrorEvent,

@@ -5,6 +5,7 @@ import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js"
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager, SpawnOptions } from "../../interfaces/process-manager.js";
+import { SlidingWindowBreaker } from "../sliding-window-breaker.js";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
 import type { ProviderConfig, ResolvedConfig } from "../../types/config.js";
 import { resolveConfig } from "../../types/config.js";
@@ -69,12 +70,12 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
       logger: options.logger,
       killGracePeriodMs: config.killGracePeriodMs,
       crashThresholdMs: config.resumeFailureThresholdMs,
-      circuitBreaker: {
+      circuitBreaker: new SlidingWindowBreaker({
         failureThreshold: cbConfig.failureThreshold,
         windowMs: cbConfig.windowMs,
         recoveryTimeMs: cbConfig.recoveryTimeMs,
         successThreshold: cbConfig.successThreshold,
-      },
+      }),
     };
 
     super(supervisorOptions);
@@ -111,14 +112,14 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
       session.exitCode = exitCode;
 
       // Detect resume failures: if the process exited almost immediately
-      // after --resume, clear cliSessionId so the next relaunch starts fresh
+      // after --resume, clear backendSessionId so the next relaunch starts fresh
       const resumeId = this.pendingResumes.get(sessionId);
       if (uptimeMs < this.config.resumeFailureThresholdMs && resumeId) {
         this.logger.error(
           `Session ${sessionId} exited immediately after --resume ` +
-            `(${uptimeMs}ms). Clearing cliSessionId for fresh start.`,
+            `(${uptimeMs}ms). Clearing backendSessionId for fresh start.`,
         );
-        session.cliSessionId = undefined;
+        session.backendSessionId = undefined;
         this.emit("process:resume_failed", { sessionId });
       }
 
@@ -252,7 +253,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
       model: info.model,
       permissionMode: info.permissionMode,
       cwd: info.cwd,
-      resumeSessionId: info.cliSessionId,
+      resumeSessionId: info.backendSessionId,
     });
     return true;
   }
@@ -425,14 +426,14 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   setBackendSessionId(sessionId: string, backendSessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.cliSessionId = backendSessionId;
+      session.backendSessionId = backendSessionId;
       this.persistState();
     }
   }
 
   /** @deprecated Use setBackendSessionId */
-  setCLISessionId(sessionId: string, cliSessionId: string): void {
-    this.setBackendSessionId(sessionId, cliSessionId);
+  setCLISessionId(sessionId: string, backendSessionId: string): void {
+    this.setBackendSessionId(sessionId, backendSessionId);
   }
 
   // ---------------------------------------------------------------------------

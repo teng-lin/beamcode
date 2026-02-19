@@ -48,7 +48,7 @@ describe("ConsoleMetricsCollector", () => {
       expect(logger.info).toHaveBeenCalledWith("[METRICS] Session created: sess-1");
 
       const stats = collector.getStats({ sessionId: "sess-1" });
-      expect(stats.connections).toEqual({ cli: 0, consumers: 0 });
+      expect(stats.connections).toEqual({ backend: 0, consumers: 0 });
       expect(stats.eventCount).toBe(1);
     });
   });
@@ -66,7 +66,7 @@ describe("ConsoleMetricsCollector", () => {
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect(stats.eventCount).toBe(0);
-      expect(stats.connections).toEqual({ cli: 0, consumers: 0 });
+      expect(stats.connections).toEqual({ backend: 0, consumers: 0 });
     });
 
     it("logs info with optional reason", () => {
@@ -159,52 +159,54 @@ describe("ConsoleMetricsCollector", () => {
   });
 
   // -----------------------------------------------------------------------
-  // cli:connected
+  // backend:connected
   // -----------------------------------------------------------------------
 
-  describe("cli:connected", () => {
-    it("sets cli=1 and logs debug", () => {
+  describe("backend:connected", () => {
+    it("sets backend=1 and logs debug", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
-      collector.recordEvent({ type: "cli:connected", sessionId: "sess-1", timestamp: ts });
+      collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
 
-      expect(logger.debug).toHaveBeenCalledWith("[METRICS] CLI connected: session=sess-1");
+      expect(logger.debug).toHaveBeenCalledWith("[METRICS] Backend connected: session=sess-1");
 
       const stats = collector.getStats({ sessionId: "sess-1" });
-      expect((stats.connections as { cli: number }).cli).toBe(1);
+      expect((stats.connections as { backend: number }).backend).toBe(1);
     });
 
     it("initializes connection tracking when session not previously created", () => {
-      collector.recordEvent({ type: "cli:connected", sessionId: "sess-3", timestamp: ts });
+      collector.recordEvent({ type: "backend:connected", sessionId: "sess-3", timestamp: ts });
 
       const stats = collector.getStats({ sessionId: "sess-3" });
-      expect((stats.connections as { cli: number }).cli).toBe(1);
+      expect((stats.connections as { backend: number }).backend).toBe(1);
     });
   });
 
   // -----------------------------------------------------------------------
-  // cli:disconnected
+  // backend:disconnected
   // -----------------------------------------------------------------------
 
-  describe("cli:disconnected", () => {
-    it("sets cli=0 and logs debug", () => {
+  describe("backend:disconnected", () => {
+    it("sets backend=0 and logs debug", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
-      collector.recordEvent({ type: "cli:connected", sessionId: "sess-1", timestamp: ts });
-      collector.recordEvent({ type: "cli:disconnected", sessionId: "sess-1", timestamp: ts });
+      collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
+      collector.recordEvent({ type: "backend:disconnected", sessionId: "sess-1", timestamp: ts });
 
-      expect(logger.debug).toHaveBeenCalledWith("[METRICS] CLI disconnected: session=sess-1");
+      expect(logger.debug).toHaveBeenCalledWith("[METRICS] Backend disconnected: session=sess-1");
 
       const stats = collector.getStats({ sessionId: "sess-1" });
-      expect((stats.connections as { cli: number }).cli).toBe(0);
+      expect((stats.connections as { backend: number }).backend).toBe(0);
     });
 
     it("handles disconnect when no connection tracking exists", () => {
       collector.recordEvent({
-        type: "cli:disconnected",
+        type: "backend:disconnected",
         sessionId: "sess-unknown",
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith("[METRICS] CLI disconnected: session=sess-unknown");
+      expect(logger.debug).toHaveBeenCalledWith(
+        "[METRICS] Backend disconnected: session=sess-unknown",
+      );
     });
   });
 
@@ -474,7 +476,7 @@ describe("ConsoleMetricsCollector", () => {
       expect(stats).toEqual({
         sessionId: "sess-1",
         eventCount: 2,
-        connections: { cli: 0, consumers: 1 },
+        connections: { backend: 0, consumers: 1 },
       });
     });
 
@@ -484,14 +486,14 @@ describe("ConsoleMetricsCollector", () => {
       expect(stats).toEqual({
         sessionId: "unknown",
         eventCount: 0,
-        connections: { cli: 0, consumers: 0 },
+        connections: { backend: 0, consumers: 0 },
       });
     });
 
     it("returns global stats when no sessionId is provided", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
       collector.recordEvent({ type: "session:created", sessionId: "sess-2", timestamp: ts });
-      collector.recordEvent({ type: "cli:connected", sessionId: "sess-1", timestamp: ts });
+      collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
       collector.recordEvent({
         type: "consumer:connected",
         sessionId: "sess-2",
@@ -509,7 +511,7 @@ describe("ConsoleMetricsCollector", () => {
 
       expect(stats).toEqual({
         totalSessions: 2,
-        cliConnected: 1,
+        backendConnected: 1,
         totalConsumers: 2,
         totalEvents: 5,
       });
@@ -523,14 +525,14 @@ describe("ConsoleMetricsCollector", () => {
   describe("reset", () => {
     it("clears all session data", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
-      collector.recordEvent({ type: "cli:connected", sessionId: "sess-1", timestamp: ts });
+      collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
 
       collector.reset();
 
       const stats = collector.getStats();
       expect(stats).toEqual({
         totalSessions: 0,
-        cliConnected: 0,
+        backendConnected: 0,
         totalConsumers: 0,
         totalEvents: 0,
       });

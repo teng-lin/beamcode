@@ -82,7 +82,7 @@ describe("FileStorage", () => {
     it("preserves all fields through round-trip", () => {
       const session = makeSession(VALID_UUID, {
         messageHistory: [{ type: "user_message", content: "hello", timestamp: 123 }],
-        pendingMessages: ["msg-1"],
+        pendingMessages: [{ type: "user_message", role: "user", content: [], metadata: {} }] as any,
         pendingPermissions: [
           [
             "perm-1",
@@ -101,7 +101,7 @@ describe("FileStorage", () => {
 
       const loaded = storage.load(VALID_UUID);
       expect(loaded!.messageHistory).toHaveLength(1);
-      expect(loaded!.pendingMessages).toEqual(["msg-1"]);
+      expect(loaded!.pendingMessages).toEqual([{ type: "user_message", role: "user", content: [], metadata: {} }]);
       expect(loaded!.pendingPermissions).toHaveLength(1);
       expect(loaded!.archived).toBe(true);
     });
@@ -488,7 +488,7 @@ describe("FileStorage", () => {
 
       const loaded = storage.load(VALID_UUID);
       expect(loaded).not.toBeNull();
-      expect(loaded!.schemaVersion).toBe(1);
+      expect(loaded!.schemaVersion).toBe(2);
       expect(loaded!.pendingMessages).toEqual([]);
       expect(loaded!.pendingPermissions).toEqual([]);
     });
@@ -499,7 +499,7 @@ describe("FileStorage", () => {
 
       // Read raw file to check schemaVersion was stamped
       const raw = JSON.parse(readFileSync(join(dir, `${VALID_UUID}.json`), "utf-8"));
-      expect(raw.schemaVersion).toBe(1);
+      expect(raw.schemaVersion).toBe(2);
     });
 
     it("migrates unversioned sessions in loadAll", () => {
@@ -509,7 +509,7 @@ describe("FileStorage", () => {
       const all = storage.loadAll();
       expect(all).toHaveLength(2);
       for (const session of all) {
-        expect(session.schemaVersion).toBe(1);
+        expect(session.schemaVersion).toBe(2);
       }
     });
 

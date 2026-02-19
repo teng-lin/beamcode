@@ -121,11 +121,11 @@ describe("SessionManager", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Wiring: backend:session_id → launcher.setCLISessionId
+  // Wiring: backend:session_id → launcher.setBackendSessionId
   // -----------------------------------------------------------------------
 
   describe("backend:session_id wiring", () => {
-    it("forwards to launcher.setCLISessionId", () => {
+    it("forwards to launcher.setBackendSessionId", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
       // Simulate the bridge emitting backend:session_id
@@ -135,7 +135,7 @@ describe("SessionManager", () => {
       });
 
       const session = mgr.launcher.getSession(info.sessionId);
-      expect(session?.cliSessionId).toBe("cli-abc-123");
+      expect(session?.backendSessionId).toBe("cli-abc-123");
     });
   });
 
@@ -216,11 +216,11 @@ describe("SessionManager", () => {
     it("re-emits bridge events", () => {
       mgr.start();
       const received: string[] = [];
-      mgr.on("cli:connected", () => received.push("cli:connected"));
+      mgr.on("backend:connected", () => received.push("backend:connected"));
 
-      mgr.bridge.emit("cli:connected" as any, { sessionId: "s1" });
+      mgr.bridge.emit("backend:connected" as any, { sessionId: "s1" });
 
-      expect(received).toContain("cli:connected");
+      expect(received).toContain("backend:connected");
     });
 
     it("re-emits launcher events", () => {

@@ -32,54 +32,58 @@ describe("SessionBridge — Event emission", () => {
     adapter = created.adapter;
   });
 
-  it("emits cli:session_id on system init", async () => {
+  it("emits backend:session_id on system init", async () => {
     await bridge.connectBackend("sess-1");
     const backendSession = adapter.getSession("sess-1")!;
 
     const handler = vi.fn();
-    bridge.on("cli:session_id", handler);
+    bridge.on("backend:session_id", handler);
 
     backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-xyz" }));
     await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
-      cliSessionId: "cli-xyz",
+      backendSessionId: "cli-xyz",
     });
   });
 
-  it("emits cli:connected on connectBackend", async () => {
+  it("emits backend:connected on connectBackend", async () => {
     const handler = vi.fn();
-    bridge.on("cli:connected", handler);
+    bridge.on("backend:connected", handler);
 
     await bridge.connectBackend("sess-1");
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
-  it("emits cli:disconnected on disconnectBackend", async () => {
+  it("emits backend:disconnected on disconnectBackend", async () => {
     await bridge.connectBackend("sess-1");
 
     const handler = vi.fn();
-    bridge.on("cli:disconnected", handler);
+    bridge.on("backend:disconnected", handler);
 
     await bridge.disconnectBackend("sess-1");
-    expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+    expect(handler).toHaveBeenCalledWith({
+      sessionId: "sess-1",
+      code: 1000,
+      reason: "normal",
+    });
   });
 
-  it("emits cli:relaunch_needed when consumer opens and CLI is dead", () => {
+  it("emits backend:relaunch_needed when consumer opens and backend is dead", () => {
     bridge.getOrCreateSession("sess-1");
     const handler = vi.fn();
-    bridge.on("cli:relaunch_needed", handler);
+    bridge.on("backend:relaunch_needed", handler);
 
     bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
     expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
   });
 
-  it("does not emit cli:relaunch_needed when CLI is connected", async () => {
+  it("does not emit backend:relaunch_needed when backend is connected", async () => {
     await bridge.connectBackend("sess-1");
 
     const handler = vi.fn();
-    bridge.on("cli:relaunch_needed", handler);
+    bridge.on("backend:relaunch_needed", handler);
 
     bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
     expect(handler).not.toHaveBeenCalled();

@@ -125,10 +125,10 @@ describe("SessionBridge", () => {
   // ── 2. Backend connection handlers ──────────────────────────────────────
 
   describe("Backend connection handlers", () => {
-    it("connectBackend sets backend session and emits cli:connected", async () => {
+    it("connectBackend sets backend session and emits backend:connected", async () => {
       bridge.getOrCreateSession("sess-1");
       const handler = vi.fn();
-      bridge.on("cli:connected", handler);
+      bridge.on("backend:connected", handler);
 
       await bridge.connectBackend("sess-1");
 
@@ -159,9 +159,9 @@ describe("SessionBridge", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed via sendRaw
-      expect(backendSession.sentRawMessages.length).toBeGreaterThanOrEqual(1);
-      const flushed = backendSession.sentRawMessages.some((m) => m.includes('"type":"user"'));
+      // The queued user message should have been flushed via send()
+      expect(backendSession.sentMessages.length).toBeGreaterThanOrEqual(1);
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 
@@ -211,12 +211,16 @@ describe("SessionBridge", () => {
       consumerSocket.sentMessages.length = 0;
 
       const handler = vi.fn();
-      bridge.on("cli:disconnected", handler);
+      bridge.on("backend:disconnected", handler);
 
       await bridge.disconnectBackend("sess-1");
 
       expect(bridge.isCliConnected("sess-1")).toBe(false);
-      expect(handler).toHaveBeenCalledWith({ sessionId: "sess-1" });
+      expect(handler).toHaveBeenCalledWith({
+        sessionId: "sess-1",
+        code: 1000,
+        reason: "normal",
+      });
 
       const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
       expect(parsed.some((m: any) => m.type === "cli_disconnected")).toBe(true);
@@ -288,7 +292,7 @@ describe("SessionBridge", () => {
     it("handleConsumerOpen sends cli_disconnected and emits relaunch_needed when backend is not connected", () => {
       bridge.getOrCreateSession("sess-1");
       const relaunchHandler = vi.fn();
-      bridge.on("cli:relaunch_needed", relaunchHandler);
+      bridge.on("backend:relaunch_needed", relaunchHandler);
 
       const consumerSocket = createMockSocket();
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
@@ -741,10 +745,8 @@ describe("SessionBridge", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed via sendRaw
-      const flushed = backendSession.sentRawMessages.some((m: string) =>
-        m.includes('"type":"user"'),
-      );
+      // The queued user message should have been flushed via send()
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 
@@ -1005,33 +1007,27 @@ describe("SessionBridge", () => {
     });
   });
 
-  // ── backend:* dual-emit events ──────────────────────────────────────────
+  // ── backend:* events ────────────────────────────────────────────────────
 
-  describe("backend:* dual-emit events", () => {
-    it("emits backend:connected alongside cli:connected on connectBackend", async () => {
+  describe("backend:* events", () => {
+    it("emits backend:connected on connectBackend", async () => {
       bridge.getOrCreateSession("sess-1");
-      const cliHandler = vi.fn();
       const backendHandler = vi.fn();
-      bridge.on("cli:connected", cliHandler);
       bridge.on("backend:connected", backendHandler);
 
       await bridge.connectBackend("sess-1");
 
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
       expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
-    it("emits backend:disconnected alongside cli:disconnected on disconnectBackend", async () => {
+    it("emits backend:disconnected on disconnectBackend", async () => {
       await bridge.connectBackend("sess-1");
 
-      const cliHandler = vi.fn();
       const backendHandler = vi.fn();
-      bridge.on("cli:disconnected", cliHandler);
       bridge.on("backend:disconnected", backendHandler);
 
       await bridge.disconnectBackend("sess-1");
 
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
       expect(backendHandler).toHaveBeenCalledWith({
         sessionId: "sess-1",
         code: 1000,
@@ -1039,38 +1035,29 @@ describe("SessionBridge", () => {
       });
     });
 
-    it("emits backend:session_id alongside cli:session_id on system init", async () => {
+    it("emits backend:session_id on system init", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
 
-      const cliHandler = vi.fn();
       const backendHandler = vi.fn();
-      bridge.on("cli:session_id", cliHandler);
       bridge.on("backend:session_id", backendHandler);
 
       backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
       await tick();
 
-      expect(cliHandler).toHaveBeenCalledWith({
-        sessionId: "sess-1",
-        cliSessionId: "cli-abc",
-      });
       expect(backendHandler).toHaveBeenCalledWith({
         sessionId: "sess-1",
         backendSessionId: "cli-abc",
       });
     });
 
-    it("emits backend:relaunch_needed alongside cli:relaunch_needed when consumer opens and backend is dead", () => {
+    it("emits backend:relaunch_needed when consumer opens and backend is dead", () => {
       bridge.getOrCreateSession("sess-1");
-      const cliHandler = vi.fn();
       const backendHandler = vi.fn();
-      bridge.on("cli:relaunch_needed", cliHandler);
       bridge.on("backend:relaunch_needed", backendHandler);
 
       bridge.handleConsumerOpen(createMockSocket(), authContext("sess-1"));
 
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
       expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
@@ -1122,10 +1109,8 @@ describe("SessionBridge", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      // After backend connects, queued messages should have been flushed via sendRaw
-      const flushed = backendSession.sentRawMessages.some((m: string) =>
-        m.includes('"type":"user"'),
-      );
+      // After backend connects, queued messages should have been flushed via send()
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 

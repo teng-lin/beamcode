@@ -41,7 +41,7 @@ export interface SessionLauncher extends TypedEventEmitter<LauncherEventMap> {
   setBackendSessionId(sessionId: string, backendSessionId: string): void;
 
   /** @deprecated Use setBackendSessionId. Alias for backward compatibility. */
-  setCLISessionId?(sessionId: string, cliSessionId: string): void;
+  setCLISessionId?(sessionId: string, backendSessionId: string): void;
 
   /** Set display name. */
   setSessionName(sessionId: string, name: string): void;

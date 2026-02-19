@@ -209,13 +209,13 @@ describe("SessionBridge — slash commands", () => {
       expect(events[0].source).toBe("emulated");
     });
 
-    it("stores cliSessionId from init message", async () => {
+    it("stores backendSessionId from init message", async () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
       backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
       await tick();
 
-      // Verify via programmatic API — executeSlashCommand uses the stored cliSessionId
+      // Verify via programmatic API — executeSlashCommand uses the stored backendSessionId
       const snapshot = bridge.getSession("sess-1");
       expect(snapshot).toBeDefined();
     });

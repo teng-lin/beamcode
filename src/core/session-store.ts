@@ -16,6 +16,7 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import type { AdapterSlashExecutor, BackendSession } from "./interfaces/backend-adapter.js";
 import type { SlashCommandRegistry } from "./slash-command-registry.js";
 import type { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
+import type { UnifiedMessage } from "./types/unified-message.js";
 
 export type { AdapterSlashExecutor };
 
@@ -31,7 +32,7 @@ export interface QueuedMessage {
 
 export interface Session {
   id: string;
-  cliSessionId?: string;
+  backendSessionId?: string;
   /** BackendSession from BackendAdapter. */
   backendSession: BackendSession | null;
   /** AbortController for the backend message consumption loop. */
@@ -42,7 +43,7 @@ export interface Session {
   state: SessionState;
   pendingPermissions: Map<string, PermissionRequest>;
   messageHistory: ConsumerMessage[];
-  pendingMessages: string[];
+  pendingMessages: UnifiedMessage[];
   /** Single-slot queue: a user message waiting to be sent when the session becomes idle. */
   queuedMessage: QueuedMessage | null;
   /** Last known CLI status (idle, running, compacting, or null if unknown). */
@@ -180,7 +181,7 @@ export class SessionStore {
     overrides?: {
       pendingPermissions?: Map<string, PermissionRequest>;
       messageHistory?: ConsumerMessage[];
-      pendingMessages?: string[];
+      pendingMessages?: UnifiedMessage[];
     },
   ): Session {
     return {
@@ -230,7 +231,7 @@ export class SessionStore {
       const session = this.createSession(p.id, p.state, {
         pendingPermissions: new Map(p.pendingPermissions || []),
         messageHistory: p.messageHistory || [],
-        pendingMessages: p.pendingMessages || [],
+        pendingMessages: (p.pendingMessages || []) as UnifiedMessage[],
       });
 
       // Restore adapter name from persisted data

@@ -50,7 +50,7 @@ function toSyntheticSessionInfo(
     cwd: snapshot.state.cwd || process.cwd(),
     model: snapshot.state.model || undefined,
     permissionMode: snapshot.state.permissionMode || undefined,
-    cliSessionId: snapshot.state.session_id || undefined,
+    backendSessionId: snapshot.state.session_id || undefined,
     createdAt: snapshot.lastActivity || Date.now(),
   };
 }

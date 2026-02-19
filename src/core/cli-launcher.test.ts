@@ -236,9 +236,9 @@ describe("relaunch", () => {
     expect(pm.spawnCalls).toHaveLength(2);
   });
 
-  it("passes --resume when cliSessionId is set", async () => {
+  it("passes --resume when backendSessionId is set", async () => {
     launcher.launch();
-    launcher.setCLISessionId("test-session-id", "cli-internal-id-123");
+    launcher.setBackendSessionId("test-session-id", "cli-internal-id-123");
     const oldProc = pm.lastProcess!;
     const relaunchPromise = launcher.relaunch("test-session-id");
     oldProc.resolveExit(0);
@@ -257,7 +257,7 @@ describe("relaunch", () => {
       logger: { info() {}, warn() {}, error() {} },
     });
     quickLauncher.launch();
-    quickLauncher.setCLISessionId("test-session-id", "cli-sess-abc");
+    quickLauncher.setBackendSessionId("test-session-id", "cli-sess-abc");
     const oldProc = pm.lastProcess!;
     const events: string[] = [];
     quickLauncher.on("process:resume_failed", () => {
@@ -272,9 +272,9 @@ describe("relaunch", () => {
     // Give the exit handler time to run
     await new Promise((r) => setTimeout(r, 50));
     expect(events).toContain("resume_failed");
-    // cliSessionId should be cleared
+    // backendSessionId should be cleared
     const session = quickLauncher.getSession("test-session-id");
-    expect(session?.cliSessionId).toBeUndefined();
+    expect(session?.backendSessionId).toBeUndefined();
   });
 
   it("handles relaunch when process was from a previous server (no managed handle)", async () => {
@@ -538,11 +538,11 @@ describe("persistence", () => {
     expect(data![0].state).toBe("connected");
   });
 
-  it("persistState is called when setCLISessionId is set", () => {
+  it("persistState is called when setBackendSessionId is set", () => {
     launcher.launch();
-    launcher.setCLISessionId("test-session-id", "cli-abc");
+    launcher.setBackendSessionId("test-session-id", "cli-abc");
     const data = storage.loadLauncherState<any[]>();
-    expect(data![0].cliSessionId).toBe("cli-abc");
+    expect(data![0].backendSessionId).toBe("cli-abc");
   });
 });
 
@@ -781,10 +781,10 @@ describe("process events", () => {
 });
 
 // ===========================================================================
-// 10. markConnected and setCLISessionId
+// 10. markConnected and setBackendSessionId
 // ===========================================================================
 
-describe("markConnected and setCLISessionId", () => {
+describe("markConnected and setBackendSessionId", () => {
   it("markConnected transitions state from starting to connected", () => {
     launcher.launch();
     launcher.markConnected("test-session-id");
@@ -804,15 +804,15 @@ describe("markConnected and setCLISessionId", () => {
     expect(launcher.getSession("test-session-id")?.state).toBe("exited");
   });
 
-  it("setCLISessionId stores the CLI internal session ID", () => {
+  it("setBackendSessionId stores the CLI internal session ID", () => {
     launcher.launch();
-    launcher.setCLISessionId("test-session-id", "internal-abc-123");
-    expect(launcher.getSession("test-session-id")?.cliSessionId).toBe("internal-abc-123");
+    launcher.setBackendSessionId("test-session-id", "internal-abc-123");
+    expect(launcher.getSession("test-session-id")?.backendSessionId).toBe("internal-abc-123");
   });
 
-  it("setCLISessionId does nothing for unknown session", () => {
+  it("setBackendSessionId does nothing for unknown session", () => {
     // Should not throw
-    launcher.setCLISessionId("nonexistent", "abc");
+    launcher.setBackendSessionId("nonexistent", "abc");
   });
 });
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import { SessionBridge } from "./session-bridge.js";
 
@@ -32,6 +33,8 @@ describe("SessionBridge Integration - Rate Limiting", () => {
           burstSize: 5, // Allow 5 burst
         },
       },
+      rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
+        new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
     });
   });
 
