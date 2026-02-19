@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { ClaudeAdapter } from "../../adapters/claude/claude-adapter.js";
+import { ClaudeLauncher } from "../../adapters/claude/claude-launcher.js";
 import { FileStorage } from "../../adapters/file-storage.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
-import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
-import { SdkUrlLauncher } from "../../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import { getE2EProfile } from "../helpers/e2e-profile.js";
@@ -42,8 +42,8 @@ async function setupRealCliSession() {
     config,
     storage,
     server,
-    adapter: new SdkUrlAdapter(),
-    launcher: new SdkUrlLauncher({ processManager, config, storage }),
+    adapter: new ClaudeAdapter(),
+    launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
   attachTrace(manager);
 
@@ -78,9 +78,9 @@ async function setupRealCliSessionWithOptions(options?: {
     config,
     storage,
     server,
-    adapter: new SdkUrlAdapter(),
+    adapter: new ClaudeAdapter(),
     authenticator: options?.authenticator,
-    launcher: new SdkUrlLauncher({ processManager, config, storage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
   attachTrace(manager);
   await manager.start();
@@ -98,7 +98,7 @@ describe("E2E Real SDK-URL SessionManager", () => {
   const activeManagers: SessionManager[] = [];
 
   afterEach(async (context: TestContextLike) => {
-    dumpTraceOnFailure(context, activeManagers, "sdk-url-e2e-debug");
+    dumpTraceOnFailure(context, activeManagers, "claude-e2e-debug");
 
     while (activeManagers.length > 0) {
       const manager = activeManagers.pop();
@@ -314,8 +314,8 @@ describe("E2E Real SDK-URL SessionManager", () => {
         config,
         storage,
         server,
-        adapter: new SdkUrlAdapter(),
-        launcher: new SdkUrlLauncher({ processManager, config, storage }),
+        adapter: new ClaudeAdapter(),
+        launcher: new ClaudeLauncher({ processManager, config, storage }),
       });
       attachTrace(manager);
       activeManagers.push(manager);
@@ -346,8 +346,8 @@ describe("E2E Real SDK-URL SessionManager", () => {
         config,
         storage,
         server,
-        adapter: new SdkUrlAdapter(),
-        launcher: new SdkUrlLauncher({ processManager, config, storage }),
+        adapter: new ClaudeAdapter(),
+        launcher: new ClaudeLauncher({ processManager, config, storage }),
       });
       attachTrace(manager);
       activeManagers.push(manager);
@@ -770,8 +770,8 @@ describe("E2E Real SDK-URL SessionManager", () => {
           config: config2,
           storage,
           server: server2,
-          adapter: new SdkUrlAdapter(),
-          launcher: new SdkUrlLauncher({ processManager: pm2, config: config2, storage }),
+          adapter: new ClaudeAdapter(),
+          launcher: new ClaudeLauncher({ processManager: pm2, config: config2, storage }),
         });
         attachTrace(manager2);
         activeManagers.push(manager2);

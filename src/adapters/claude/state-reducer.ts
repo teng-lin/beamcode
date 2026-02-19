@@ -1,5 +1,5 @@
 /**
- * SdkUrl State Reducer — Phase 1a.1, extended Phase 5.6
+ * Claude State Reducer — Phase 1a.1, extended Phase 5.6
  *
  * Pure function that applies a UnifiedMessage to SessionState, returning a new
  * state object. Extracted from SessionBridge handler methods.

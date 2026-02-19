@@ -1,5 +1,5 @@
 /**
- * SdkUrlAdapter compliance — runs the BackendAdapter compliance suite.
+ * ClaudeAdapter compliance — runs the BackendAdapter compliance suite.
  *
  * Uses a wrapper adapter that immediately delivers a mock WebSocket
  * after connect(), enabling the compliance harness's synchronous
@@ -15,7 +15,7 @@ import type {
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
 import { runBackendAdapterComplianceTests } from "../../core/interfaces/backend-adapter-compliance.js";
-import { SdkUrlSession } from "./sdk-url-session.js";
+import { ClaudeSession } from "./claude-session.js";
 import { SocketRegistry } from "./socket-registry.js";
 
 // ---------------------------------------------------------------------------
@@ -60,11 +60,11 @@ class MockWebSocket extends EventEmitter {
 }
 
 // ---------------------------------------------------------------------------
-// Compliance wrapper — creates SdkUrlSession + delivers mock socket immediately
+// Compliance wrapper — creates ClaudeSession + delivers mock socket immediately
 // ---------------------------------------------------------------------------
 
-class ComplianceSdkUrlAdapter implements BackendAdapter {
-  readonly name = "sdk-url";
+class ComplianceClaudeAdapter implements BackendAdapter {
+  readonly name = "claude";
   readonly capabilities: BackendCapabilities = {
     streaming: true,
     permissions: true,
@@ -77,7 +77,7 @@ class ComplianceSdkUrlAdapter implements BackendAdapter {
 
   async connect(options: ConnectOptions): Promise<BackendSession> {
     const socketPromise = this.registry.register(options.sessionId);
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: options.sessionId,
       socketPromise,
     });
@@ -90,4 +90,4 @@ class ComplianceSdkUrlAdapter implements BackendAdapter {
   }
 }
 
-runBackendAdapterComplianceTests("SdkUrlAdapter", () => new ComplianceSdkUrlAdapter());
+runBackendAdapterComplianceTests("ClaudeAdapter", () => new ComplianceClaudeAdapter());

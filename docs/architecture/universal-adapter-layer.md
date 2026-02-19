@@ -49,7 +49,7 @@ Turn `claude-code-bridge` into a **runtime-agnostic adapter library** that sits 
     ┌────────┬────────┬───────┼───────┬────────┬────────┐
     │        │        │       │       │        │        │
 ┌───┴──┐ ┌──┴──┐ ┌───┴──┐ ┌─┴──┐ ┌──┴──┐ ┌───┴──┐ ┌──┴──┐
-│SdkUrl│ │Agent│ │ Open │ │ACP │ │Codex│ │Gemini│ │ PTY │
+│Claude│ │Agent│ │ Open │ │ACP │ │Codex│ │Gemini│ │ PTY │
 │Adapt.│ │ SDK │ │ Code │ │    │ │     │ │ CLI  │ │     │
 │      │ │Adpt.│ │Adapt.│ │Adpt│ │Adpt.│ │Adapt.│ │Adpt.│
 │NDJSON│ │TS/Py│ │REST+ │ │JSON│ │JSON │ │A2A/  │ │Raw  │
@@ -604,7 +604,7 @@ The core abstraction is designed to be **compatible with the Claude Agent SDK** 
  * Each implementation encapsulates how to spawn/connect to a specific CLI.
  */
 interface BackendAdapter {
-  /** Unique identifier: "sdk-url" | "agent-sdk" | "opencode" | "acp" | "codex" | "gemini" | "pty" */
+  /** Unique identifier: "claude" | "agent-sdk" | "opencode" | "acp" | "codex" | "gemini" | "pty" */
   readonly backendType: string
 
   /** Declare capabilities without creating a session */
@@ -1143,12 +1143,12 @@ The key architectural difference: **SDK uses a pull model** (the caller iterates
 
 ## Adapter Implementation Notes
 
-### SdkUrlAdapter (Claude Code --sdk-url)
+### ClaudeAdapter (Claude Code --sdk-url)
 
 **Current implementation**: This is what the bridge does today. Refactoring extracts the NDJSON parsing and message construction from `SessionBridge` into this adapter.
 
 ```
-createSession(): spawn `claude --sdk-url ws://host:port/ws/cli/{sessionId}`
+createSession(): spawn `claude --sdk-url ws://host:port/ws/cli/{sessionId}`  # --sdk-url is the CLI flag
 resumeSession(): spawn with `--resume {id}`
 send(): serialize { type: "user", message: { role: "user", content: [...] } } as NDJSON
 messages(): parse NDJSON lines → translate CLIMessage → UnifiedMessage
@@ -1644,11 +1644,11 @@ The bridge on the home desktop connects to the relay as a "backend client". The 
 
 ## Refactoring Phases
 
-### Phase 1: Extract BackendAdapter Interface + SdkUrlAdapter
+### Phase 1: Extract BackendAdapter Interface + ClaudeAdapter
 
 - Define `BackendAdapter`, `BackendSession`, `UnifiedMessage`, `BackendCapabilities` types
-- Extract current NDJSON/`--sdk-url` logic from SessionBridge into `SdkUrlAdapter`
-- SdkUrlAdapter implements BackendSession with AsyncIterable
+- Extract current NDJSON/`--sdk-url` logic from SessionBridge into `ClaudeAdapter`
+- ClaudeAdapter implements BackendSession with AsyncIterable
 - SessionBridge consumes BackendSession.messages() instead of parsing raw NDJSON
 - All existing tests continue to pass (behavioral equivalence)
 

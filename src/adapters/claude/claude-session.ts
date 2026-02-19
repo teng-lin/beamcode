@@ -1,8 +1,8 @@
 /**
- * SdkUrlSession — a live WebSocket connection to a Claude Code CLI process.
+ * ClaudeSession — a live WebSocket connection to a Claude Code CLI process.
  *
  * Implements BackendSession by translating between UnifiedMessage
- * and the SDK-URL NDJSON protocol over WebSocket.
+ * and the Claude NDJSON protocol over WebSocket.
  *
  * The constructor accepts a deferred `socketPromise` so the session can
  * queue outbound messages before the WebSocket handshake completes.
@@ -18,10 +18,10 @@ import { toNDJSON } from "./inbound-translator.js";
 import { translate } from "./message-translator.js";
 
 // ---------------------------------------------------------------------------
-// SdkUrlSession
+// ClaudeSession
 // ---------------------------------------------------------------------------
 
-export class SdkUrlSession implements BackendSession {
+export class ClaudeSession implements BackendSession {
   readonly sessionId: string;
 
   private socket: WebSocket | null = null;
@@ -61,7 +61,7 @@ export class SdkUrlSession implements BackendSession {
     const ndjson = toNDJSON(message);
     if (ndjson === null) {
       console.warn(
-        `[SdkUrlSession] toNDJSON returned null for message type "${message.type}" — message not sent`,
+        `[ClaudeSession] toNDJSON returned null for message type "${message.type}" — message not sent`,
       );
       return;
     }

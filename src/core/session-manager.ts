@@ -25,7 +25,7 @@ import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
 /**
- * Facade wiring SessionBridge + SdkUrlLauncher together.
+ * Facade wiring SessionBridge + ClaudeLauncher together.
  * Replaces the manual wiring in the Vibe Companion's index.ts:34-68.
  *
  * Auto-wires:
@@ -87,7 +87,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   }
 
   get defaultAdapterName(): CliAdapterName {
-    return this.adapterResolver?.defaultName ?? "sdk-url";
+    return this.adapterResolver?.defaultName ?? "claude";
   }
 
   /** Create a new session, routing to the correct adapter. */
@@ -105,7 +105,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     const adapterName = options.adapterName ?? this.defaultAdapterName;
     const cwd = options.cwd ?? process.cwd();
 
-    if (adapterName === "sdk-url") {
+    if (adapterName === "claude") {
       const launchResult = this.launcher.launch({ cwd, model: options.model });
       this.bridge.seedSessionState(launchResult.sessionId, {
         cwd: launchResult.cwd,
@@ -174,10 +174,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     if (this.server) {
       await this.server.listen(
         (socket, sessionId) => {
-          // Use the resolver's eagerly-created SdkUrlAdapter for inverted connections.
-          // This ensures SdkUrl sessions work even when the default adapter is non-inverted (e.g., Codex).
+          // Use the resolver's eagerly-created ClaudeAdapter for inverted connections.
+          // This ensures Claude sessions work even when the default adapter is non-inverted (e.g., Codex).
           const invertedAdapter =
-            this.adapterResolver?.sdkUrlAdapter ??
+            this.adapterResolver?.claudeAdapter ??
             (this.adapter && isInvertedConnectionAdapter(this.adapter) ? this.adapter : null);
           if (invertedAdapter && isInvertedConnectionAdapter(invertedAdapter)) {
             // Validate: only accept connections for sessions we actually launched.
@@ -228,9 +228,9 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
               }) as typeof socket.on,
             };
 
-            // Tag the session as sdk-url since it arrived via the inverted connection path.
+            // Tag the session as claude since it arrived via the inverted connection path.
             // This ensures resolveAdapter() finds the correct adapter via the resolver.
-            this.bridge.setAdapterName(sessionId, "sdk-url");
+            this.bridge.setAdapterName(sessionId, "claude");
             this.bridge
               .connectBackend(sessionId)
               .then(() => {
@@ -313,7 +313,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     const info = this.launcher.getSession(sessionId);
     if (!info) return false;
 
-    // Kill process if one exists (SdkUrl sessions have PIDs, external sessions don't)
+    // Kill process if one exists (Claude sessions have PIDs, external sessions don't)
     if (info.pid) {
       await this.launcher.kill(sessionId);
     }
@@ -410,7 +410,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       const info = this.launcher.getSession(sessionId);
       if (!info || info.archived) return;
 
-      // SdkUrl sessions with a PID use the inverted connection model:
+      // Claude sessions with a PID use the inverted connection model:
       // the spawned CLI connects back to us via WebSocket.
       if (info.pid) {
         if (info.state === "starting") {
@@ -418,7 +418,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           return;
         }
         this.relaunchingSet.add(sessionId);
-        this.logger.info(`Auto-relaunching SdkUrl backend for session ${sessionId}`);
+        this.logger.info(`Auto-relaunching Claude backend for session ${sessionId}`);
         try {
           await this.launcher.relaunch(sessionId);
         } finally {
@@ -431,7 +431,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         return;
       }
 
-      // Non-SdkUrl sessions (no PID) — reconnect via bridge
+      // Non-Claude sessions (no PID) — reconnect via bridge
       if (!this.bridge.isBackendConnected(sessionId)) {
         this.relaunchingSet.add(sessionId);
         this.logger.info(
@@ -539,13 +539,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       );
     }
 
-    // Mark non-SdkUrl sessions as "exited" so the reconnect watchdog / relaunch
+    // Mark non-Claude sessions as "exited" so the reconnect watchdog / relaunch
     // handler will re-establish their backend connection when a consumer connects.
     for (const info of this.launcher.listSessions()) {
-      if (!info.pid && !info.archived && info.adapterName && info.adapterName !== "sdk-url") {
+      if (!info.pid && !info.archived && info.adapterName && info.adapterName !== "claude") {
         info.state = "exited";
         this.logger.info(
-          `Restored non-SdkUrl session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
+          `Restored non-Claude session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
         );
       }
     }

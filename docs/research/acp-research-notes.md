@@ -225,7 +225,7 @@ Commands are advertised via `available_commands_update` and invoked as text in `
 
 ## Capability Comparison
 
-| Feature | SdkUrl (NDJSON) | ACP (JSON-RPC 2.0) | Gap? |
+| Feature | Claude (NDJSON) | ACP (JSON-RPC 2.0) | Gap? |
 |---|---|---|---|
 | **Transport** | WebSocket (NDJSON) | stdio (newline-delimited JSON-RPC) | Different transports; ACP uses subprocess stdio |
 | **Streaming** | Yes (NDJSON stream) | Yes (`session/update` notifications) | **No gap** — ACP streams via notifications |
@@ -241,12 +241,12 @@ Commands are advertised via `available_commands_update` and invoked as text in `
 | **Terminal management** | No (PTY is external) | Yes (`terminal/*` methods) | ACP has **more** — agent delegates terminal to client |
 | **File system access** | No (agent handles internally) | Yes (`fs/*` methods) | ACP has **more** — agent delegates FS to client |
 | **Authentication** | External (auth_status message) | Built-in (`authMethods` in initialize) | **Minor gap** — ACP auth is richer |
-| **Keep-alive** | Yes (keep_alive type) | No | SdkUrl has more — ACP relies on process lifecycle |
+| **Keep-alive** | Yes (keep_alive type) | No | Claude has more — ACP relies on process lifecycle |
 | **Bidirectional RPC** | No (unidirectional NDJSON) | Yes (both sides initiate requests) | **Architectural difference** — ACP agent can call client |
 
 ### Key Architectural Difference
 
-ACP is fundamentally **bidirectional RPC**: the agent can initiate requests to the client (e.g., `fs/read_text_file`, `terminal/create`). This is a significant departure from SdkUrl's unidirectional model where the agent handles tools internally.
+ACP is fundamentally **bidirectional RPC**: the agent can initiate requests to the client (e.g., `fs/read_text_file`, `terminal/create`). This is a significant departure from Claude's unidirectional model where the agent handles tools internally.
 
 For BeamCode, this means the ACP adapter must act as **both** a JSON-RPC client (sending prompts to the agent) **and** a JSON-RPC server (responding to agent-initiated requests for file access, terminal, and permissions).
 

@@ -13,7 +13,7 @@
   ─────────────────               ──────────────────            ───────────────────────
 
   Design abstractions             Build relay MVP               ┌─ Track 1: Adapters ───┐
-        │                               │                       │  SdkUrl + ACP extract │
+        │                               │                       │  Claude + ACP extract │
         ▼                               ▼                       │  (shapes interfaces)  │
   Build adapters (2-3)            Extract abstractions          └──────────┬────────────┘
         │                         from working code                       │ converge
@@ -113,13 +113,13 @@
 │  │  └──────────────────────────────────────────────────────────────┘    │           │
 │  │                                                                      │           │
 │  │  ┌──────────────────────────────────────────────────────────────┐    │           │
-│  │  │  SessionManager (orchestrates SessionBridge + SdkUrlLauncher)│    │           │
+│  │  │  SessionManager (orchestrates SessionBridge + ClaudeLauncher) │    │           │
 │  │  └──────────────────────────────────────────────────────────────┘    │           │
 │  │                                                                      │           │
 │  │  ╔════════════════════════════════════════════════════════════╗      │           │
 │  │  ║                    UnifiedMessage (Phase 0.1)              ║      │           │
 │  │  ║  id, timestamp, type, role, content[], metadata            ║      │           │
-│  │  ║  Supports: streaming (SdkUrl), request/response (ACP),    ║      │           │
+│  │  ║  Supports: streaming (Claude), request/response (ACP),     ║      │           │
 │  │  ║  JSON-RPC (Codex), and query-based (AgentSdk)             ║      │           │
 │  │  ║  + metadata escape hatch for adapter-specific data         ║      │           │
 │  │  ║  + parentId for threading support                          ║      │           │
@@ -158,7 +158,7 @@
 │        │                  │                  │                  │                   │
 │        ▼                  ▼                  ▼                  ▼                   │
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐               │
-│  │ SdkUrl      │  │ ACP         │  │ Codex        │  │ AgentSdk     │               │
+│  │ Claude      │  │ ACP         │  │ Codex        │  │ AgentSdk     │               │
 │  │ Adapter     │  │ Adapter     │  │ Adapter      │  │ Adapter      │               │
 │  │ ✅ BUILT    │  │ ✅ BUILT    │  │ ✅ BUILT     │  │ ✅ BUILT     │               │
 │  │ NDJSON/WS   │  │ JSON-RPC/   │  │ JSON-RPC/WS  │  │ JS query fn  │               │
@@ -306,7 +306,7 @@
                         ┌──────────────────────────────┐
                         │      SessionManager          │
                         │  (orchestrates bridge +      │
-                        │   SdkUrlLauncher)            │
+                        │   ClaudeLauncher)            │
                         └──────────────┬───────────────┘
                                        │
                         ┌──────────────▼───────────────┐
@@ -372,7 +372,7 @@ Consumer (React)                                     BeamCode Server
      │  BackendAdapter.send(UnifiedMessage)                 │
      │         │                                           │
      │         ▼                                           │
-     │  SdkUrlAdapter → serializeNDJSON → Claude Code CLI  │
+     │  ClaudeAdapter → serializeNDJSON → Claude Code CLI   │
      │                                           │         │
      │                                     CLI response    │
      │                                           │         │
@@ -434,7 +434,7 @@ Web Consumer                   cloudflared (sidecar)          Daemon (localhost)
      │                               │                              │      │
      │                               │                              │   UnifiedMessage
      │                               │                              │      │
-     │                               │                              │   SdkUrlAdapter
+     │                               │                              │   ClaudeAdapter
      │                               │                              │      │
      │                               │                              │   serializeNDJSON
      │                               │                              │      │
@@ -554,7 +554,7 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
       ├──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤──┤
       │     │           │                                │                 │
       │Ph 0 │  Phase 1  │         Phase 2                │    Phase 3      │
-      │Found│  SdkUrl   │       RELAY MVP                │  Library + ACP  │
+      │Found│  Claude   │       RELAY MVP                │  Library + ACP  │
       │ation│  Extract  │      (6-8 weeks)               │  + Codex        │
       │     │           │                                │  (4-6 weeks)    │
       ├─────┤───────────┤────────────────────────────────┤─────────────────┤
@@ -563,7 +563,7 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
       │Uni- │routeCLIMsg│  Child-process (~50% reuse)    │ from relay code │
       │fied │decompose  │  Lock+State+HTTP API           │ (1-2wk)         │
       │Msg  │CLILaunch→ │  Signal handling               │                 │
-      │     │SdkUrlLnch │                                │ ACP adapter ✅   │
+      │     │ClaudeLnch  │                                │ ACP adapter ✅   │
       │Back │           │ Relay (1.5-2wk):               │  JSON-RPC/stdio │
       │end  │SessionStat│  cloudflared sidecar           │  (built early)  │
       │Adpt │generalize │  Reverse proxy model           │                 │
@@ -600,11 +600,11 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
 
       PHASE 0 + 1 STATUS: ✅ COMPLETE
       • UnifiedMessage, BackendAdapter, BackendSession interfaces defined
-      • SdkUrl adapter extracted with message translation + state reduction
+      • Claude adapter extracted with message translation + state reduction
       • SessionBridge decomposed into cohesive modules (PR #28)
       • Error types, state versioning, structured logging (PR #27)
       • React consumer with companion-style UI (PRs #25, #26)
-      • All 4 adapters built (SdkUrl, ACP, Codex, AgentSdk)
+      • All 4 adapters built (Claude, ACP, Codex, AgentSdk)
       • Team coordination (members, tasks, events)
 
       PHASE 2 STATUS: IN PROGRESS
@@ -639,7 +639,7 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14
       │     │                                  │
       │     │  TRACK 1 (Adapter Engineer)      │
       │     ├──────────────────────────────────┤
-      │     │ SdkUrl Extract   │ ACP Adapter   │ Integration
+      │     │ Claude Extract   │ ACP Adapter   │ Integration
       │     │ (3-4 wk)         │ (2-3 wk)      │ Support
       │     │ Decompose Bridge │ JSON-RPC      │ (1-2 wk)
       │     │ BackendAdapter   │ stdio         │
@@ -662,7 +662,7 @@ Week  1  2  3  4  5  6  7  8  9 10 11 12 13 14
       │     │          protocols already)      │
       ├─────┴──────────────────────────────────┤
       │                                        │
-      │  Week  6: v0.1.0 — SdkUrl adapter lib  │◄── FIRST OUTPUT
+      │  Week  6: v0.1.0 — Claude adapter lib  │◄── FIRST OUTPUT
       │  Week 10: v0.2.0-alpha — relay works   │
       │  Week 12: v0.2.0-beta — ACP validated  │
       │  Week 14: v0.2.0 — full relay MVP      │◄── SHIPS
@@ -757,7 +757,7 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   ├── core/                          ◄── SessionBridge + extracted modules
 │   │   ├── session-bridge.ts          ◄── Orchestrator (1,458 LOC, TypedEventEmitter)
 │   │   ├── session-store.ts           ◄── Session CRUD + persistence (226 LOC)
-│   │   ├── session-manager.ts         ◄── Orchestrates bridge + SdkUrlLauncher
+│   │   ├── session-manager.ts         ◄── Orchestrates bridge + ClaudeLauncher
 │   │   ├── consumer-broadcaster.ts    ◄── WS fan-out, backpressure, role filter (137 LOC)
 │   │   ├── consumer-gatekeeper.ts     ◄── Auth, RBAC, rate limiting (122 LOC)
 │   │   ├── team-event-differ.ts       ◄── Pure team state diff (101 LOC)
@@ -774,9 +774,9 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │       └── backend-adapter*.ts    ◄── Interface specs + compliance tests
 │   │
 │   ├── adapters/
-│   │   ├── sdk-url/                   ◄── Claude Code CLI (NDJSON/WS, streaming, teams)
-│   │   │   ├── sdk-url-adapter.ts
-│   │   │   ├── sdk-url-launcher.ts
+│   │   ├── claude/                    ◄── Claude Code CLI (NDJSON/WS, streaming, teams)
+│   │   │   ├── claude-adapter.ts
+│   │   │   ├── claude-launcher.ts
 │   │   │   ├── message-translator.ts
 │   │   │   ├── inbound-translator.ts
 │   │   │   └── state-reducer.ts
@@ -931,7 +931,7 @@ beamcode/                     ◄── Single npm package (v0.1.0)
   │                    DELIVERED ✅                     │
   │                                                    │
   │  ✅ UnifiedMessage + BackendAdapter interfaces     │
-  │  ✅ SdkUrl adapter (NDJSON/WS, streaming, teams)   │
+  │  ✅ Claude adapter (NDJSON/WS, streaming, teams)    │
   │  ✅ ACP adapter (JSON-RPC/stdio)                   │
   │  ✅ Codex adapter (JSON-RPC/WS)                    │
   │  ✅ AgentSdk adapter (query fn, teams)             │

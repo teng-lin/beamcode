@@ -5,8 +5,8 @@ vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
 import type WebSocket from "ws";
+import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
 import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
@@ -19,7 +19,7 @@ import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection
 import { SessionManager } from "./session-manager.js";
 
 function createLauncher(pm: ProcessManager, opts?: { storage?: MemoryStorage; logger?: any }) {
-  return new SdkUrlLauncher({
+  return new ClaudeLauncher({
     processManager: pm,
     config: { port: 3456 },
     storage: opts?.storage,
@@ -843,15 +843,15 @@ describe("SessionManager", () => {
       await legacyMgr.stop();
     });
 
-    it("uses adapterResolver.sdkUrlAdapter for CLI WS when no global adapter", async () => {
+    it("uses adapterResolver.claudeAdapter for CLI WS when no global adapter", async () => {
       const resolverAdapter = new MockInvertedAdapter();
       resolverAdapter.deliverSocketResult = true;
-      // Cast to SdkUrlAdapter shape for the resolver mock
+      // Cast to ClaudeAdapter shape for the resolver mock
       const mockResolver = {
         resolve: vi.fn(() => resolverAdapter),
-        sdkUrlAdapter: resolverAdapter,
+        claudeAdapter: resolverAdapter,
         defaultName: "codex" as const,
-        availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"] as const,
+        availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"] as const,
       };
 
       const { server, getCapturedOnCLI } = createMockServer();
@@ -862,7 +862,7 @@ describe("SessionManager", () => {
         storage,
         logger: noopLogger,
         server,
-        // No global adapter — but adapterResolver provides sdkUrlAdapter
+        // No global adapter — but adapterResolver provides claudeAdapter
         adapterResolver: mockResolver as any,
         launcher,
       });
@@ -895,9 +895,9 @@ describe("SessionManager", () => {
     it("defaultAdapterName returns resolver default when provided", () => {
       const mockResolver = {
         resolve: vi.fn(),
-        sdkUrlAdapter: {} as any,
+        claudeAdapter: {} as any,
         defaultName: "codex" as const,
-        availableAdapters: ["sdk-url", "codex", "acp"] as const,
+        availableAdapters: ["claude", "codex", "acp"] as const,
       };
 
       const resolverMgr = new SessionManager({
@@ -911,8 +911,8 @@ describe("SessionManager", () => {
       expect(resolverMgr.defaultAdapterName).toBe("codex");
     });
 
-    it("defaultAdapterName falls back to sdk-url without resolver", () => {
-      expect(mgr.defaultAdapterName).toBe("sdk-url");
+    it("defaultAdapterName falls back to claude without resolver", () => {
+      expect(mgr.defaultAdapterName).toBe("claude");
     });
   });
 });

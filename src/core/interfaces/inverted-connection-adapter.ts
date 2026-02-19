@@ -1,6 +1,6 @@
 /**
  * InvertedConnectionAdapter — sub-interface for backends where the CLI
- * connects *back* to us (e.g. SdkUrl launched with --sdk-url).
+ * connects *back* to us (e.g. Claude launched with --sdk-url).
  *
  * Only adapters using an inverted connection pattern implement this.
  * Use the `isInvertedConnectionAdapter` type guard to check.

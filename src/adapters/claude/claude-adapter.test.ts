@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { isInvertedConnectionAdapter } from "../../core/interfaces/inverted-connection-adapter.js";
 import { tick } from "../../testing/adapter-test-helpers.js";
-import { SdkUrlAdapter } from "./sdk-url-adapter.js";
-import { SdkUrlSession } from "./sdk-url-session.js";
+import { ClaudeAdapter } from "./claude-adapter.js";
+import { ClaudeSession } from "./claude-session.js";
 
 // Minimal mock WebSocket
 class MockWebSocket extends EventEmitter {
@@ -18,12 +18,12 @@ class MockWebSocket extends EventEmitter {
   }
 }
 
-describe("SdkUrlAdapter", () => {
-  const adapter = new SdkUrlAdapter();
+describe("ClaudeAdapter", () => {
+  const adapter = new ClaudeAdapter();
 
   describe("name", () => {
-    it("is 'sdk-url'", () => {
-      expect(adapter.name).toBe("sdk-url");
+    it("is 'claude'", () => {
+      expect(adapter.name).toBe("claude");
     });
   });
 
@@ -40,15 +40,15 @@ describe("SdkUrlAdapter", () => {
   });
 
   describe("isInvertedConnectionAdapter", () => {
-    it("returns true for SdkUrlAdapter", () => {
+    it("returns true for ClaudeAdapter", () => {
       expect(isInvertedConnectionAdapter(adapter)).toBe(true);
     });
   });
 
   describe("connect", () => {
-    it("returns an SdkUrlSession with deferred socket", async () => {
+    it("returns a ClaudeSession with deferred socket", async () => {
       const session = await adapter.connect({ sessionId: "sess-1" });
-      expect(session).toBeInstanceOf(SdkUrlSession);
+      expect(session).toBeInstanceOf(ClaudeSession);
       expect(session.sessionId).toBe("sess-1");
       await session.close();
     });
@@ -56,7 +56,7 @@ describe("SdkUrlAdapter", () => {
 
   describe("deliverSocket", () => {
     it("resolves the session's socket promise", async () => {
-      const adapter = new SdkUrlAdapter();
+      const adapter = new ClaudeAdapter();
       const session = await adapter.connect({ sessionId: "sess-2" });
 
       const ws = new MockWebSocket() as any;
@@ -72,7 +72,7 @@ describe("SdkUrlAdapter", () => {
     });
 
     it("returns false for unknown session", () => {
-      const adapter = new SdkUrlAdapter();
+      const adapter = new ClaudeAdapter();
       const ws = new MockWebSocket() as any;
       expect(adapter.deliverSocket("unknown", ws)).toBe(false);
     });
@@ -80,7 +80,7 @@ describe("SdkUrlAdapter", () => {
 
   describe("cancelPending", () => {
     it("cancels a pending socket registration", async () => {
-      const adapter = new SdkUrlAdapter();
+      const adapter = new ClaudeAdapter();
       const session = await adapter.connect({ sessionId: "sess-3" });
 
       adapter.cancelPending("sess-3");
@@ -94,7 +94,7 @@ describe("SdkUrlAdapter", () => {
 
   describe("connect + deliverSocket integration", () => {
     it("produces a working send/receive channel", async () => {
-      const adapter = new SdkUrlAdapter();
+      const adapter = new ClaudeAdapter();
       const session = await adapter.connect({ sessionId: "sess-4" });
 
       const ws = new MockWebSocket() as any;

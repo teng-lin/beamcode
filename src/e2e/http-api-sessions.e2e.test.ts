@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../core/session-manager.js";
 import { createBeamcodeServer } from "../http/server.js";
 import { createProcessManager } from "./helpers/test-utils.js";
@@ -45,7 +45,7 @@ describe("E2E: HTTP API /api/sessions", () => {
       config,
       storage,
       server: new NodeWebSocketServer({ port: 0 }),
-      launcher: new SdkUrlLauncher({ processManager, config, storage }),
+      launcher: new ClaudeLauncher({ processManager, config, storage }),
     });
     await sessionManager.start();
 

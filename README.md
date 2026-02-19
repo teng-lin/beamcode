@@ -83,7 +83,7 @@ This unlocks scenarios no existing tool supports:
                            │
      ┌────────┬────────────┼────────────┬────────┐
      │        │            │            │        │
-  SdkUrl    ACP        Codex      AgentSdk    PTY
+  Claude    ACP        Codex      AgentSdk    PTY
   Adapter   Adapter    Adapter    Adapter    (fallback)
      │        │            │            │        │
   Claude   Goose       Codex      Claude     Any CLI
@@ -127,7 +127,7 @@ pnpm add beamcode
 
 ### Claude Code via `--sdk-url`
 
-The `SdkUrlAdapter` spawns Claude Code with `--sdk-url` and bridges its NDJSON WebSocket stream:
+The `ClaudeAdapter` spawns Claude Code with `--sdk-url` and bridges its NDJSON WebSocket stream:
 
 ```ts
 import {
@@ -229,7 +229,7 @@ Every coding agent backend implements a single interface:
 
 ```ts
 interface BackendAdapter {
-  readonly name: string;                        // "sdk-url" | "acp" | "codex" | "agent-sdk"
+  readonly name: string;                        // "claude" | "acp" | "codex" | "agent-sdk"
   readonly capabilities: BackendCapabilities;
   connect(options: ConnectOptions): Promise<BackendSession>;
 }
@@ -259,7 +259,7 @@ interface Encryptable { encrypt(msg: UnifiedMessage): EncryptedEnvelope }
 
 | Adapter | Protocol | Agents | Streaming | Permissions | Session Resume |
 |---------|----------|--------|-----------|-------------|----------------|
-| SdkUrl | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
+| Claude | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
 | ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Gemini, Cline, ...) | No | Yes | Varies |
 | Codex | JSON-RPC/NDJSON | Codex CLI | Yes | Yes | Yes |
 | AgentSdk | In-process TS | Claude Code (via SDK) | Yes | Yes (callback bridge) | Yes |

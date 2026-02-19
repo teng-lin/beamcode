@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { ClaudeAdapter } from "../adapters/claude/claude-adapter.js";
+import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../core/session-manager.js";
 import {
   closeWebSockets,
@@ -36,7 +36,7 @@ interface TestEnv {
  */
 async function setupTestEnv(): Promise<TestEnv> {
   const wsServer = new NodeWebSocketServer({ port: 0 });
-  const adapter = new SdkUrlAdapter();
+  const adapter = new ClaudeAdapter();
   const storage = new MemoryStorage();
   const processManager = createProcessManager();
   const config = { port: 0 };
@@ -45,7 +45,7 @@ async function setupTestEnv(): Promise<TestEnv> {
     storage,
     server: wsServer,
     adapter,
-    launcher: new SdkUrlLauncher({ processManager, config, storage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
   await manager.start();
 
@@ -115,7 +115,7 @@ describe("E2E: Full Session Lifecycle", () => {
       const manager1 = new SessionManager({
         config: config1,
         storage,
-        launcher: new SdkUrlLauncher({ processManager: processManager1, config: config1, storage }),
+        launcher: new ClaudeLauncher({ processManager: processManager1, config: config1, storage }),
       });
       await manager1.start();
 
@@ -134,7 +134,7 @@ describe("E2E: Full Session Lifecycle", () => {
       const manager2 = new SessionManager({
         config: config2,
         storage,
-        launcher: new SdkUrlLauncher({ processManager: processManager2, config: config2, storage }),
+        launcher: new ClaudeLauncher({ processManager: processManager2, config: config2, storage }),
       });
       await manager2.start();
 

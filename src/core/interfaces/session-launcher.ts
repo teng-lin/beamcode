@@ -7,9 +7,9 @@ export type { LauncherEventMap, LaunchOptions };
 
 /**
  * Generic interface for session launchers.
- * Each backend (SdkUrl, Codex, Gemini, opencode) provides its own implementation.
+ * Each backend (Claude, Codex, Gemini, opencode) provides its own implementation.
  *
- * SdkUrlLauncher is the reference implementation. Forward-connection launchers
+ * ClaudeLauncher is the reference implementation. Forward-connection launchers
  * (Codex, Gemini) will implement this interface when they land.
  */
 export interface SessionLauncher extends TypedEventEmitter<LauncherEventMap> {

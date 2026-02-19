@@ -110,7 +110,7 @@ export function getOpencodePrereqState(): BackendPrereqState {
 
 export function getBackendPrereqs(name: string): BackendPrereqState {
   switch (name) {
-    case "sdk-url":
+    case "claude":
       return getRealCliPrereqState();
     case "codex":
       return getCodexPrereqState();

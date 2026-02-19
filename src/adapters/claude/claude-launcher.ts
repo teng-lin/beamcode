@@ -24,7 +24,7 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
-export interface SdkUrlLauncherOptions {
+export interface ClaudeLauncherOptions {
   processManager: ProcessManager;
   config: ProviderConfig;
   storage?: LauncherStateStorage;
@@ -46,13 +46,13 @@ interface InternalSpawnPayload {
  * Each session spawns a CLI that connects back to the provider's WebSocket server.
  *
  * Extends ProcessSupervisor for generic process management (kill escalation,
- * circuit breaker, PID tracking, output piping) and adds SdkUrl-specific logic:
+ * circuit breaker, PID tracking, output piping) and adds Claude-specific logic:
  * - --sdk-url, --resume, --print, --output-format argument construction
  * - CLI binary validation (prevent path traversal)
  * - Environment variable deny list enforcement
  * - Session state tracking (starting/connected/running/exited)
  */
-export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> implements SessionLauncher {
+export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implements SessionLauncher {
   private sessions = new Map<string, SdkSessionInfo>();
   /** Track which sessions were launched with --resume (for resume failure detection). */
   private pendingResumes = new Map<string, string>();
@@ -60,7 +60,7 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   private config: ResolvedConfig;
   private beforeSpawnHook: ((sessionId: string, options: SpawnOptions) => void) | null;
 
-  constructor(options: SdkUrlLauncherOptions) {
+  constructor(options: ClaudeLauncherOptions) {
     const config = resolveConfig(options.config);
     const cbConfig = config.cliRestartCircuitBreaker;
 

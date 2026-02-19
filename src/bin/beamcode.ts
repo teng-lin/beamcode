@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { createAdapterResolver } from "../adapters/adapter-resolver.js";
+import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 
 import { SessionManager } from "../core/session-manager.js";
@@ -55,7 +55,7 @@ function printHelp(): void {
     --model <name>         Model to pass to Claude CLI
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
-    --default-adapter <name>  Default backend: sdk-url (default), codex, acp
+    --default-adapter <name>  Default backend: claude (default), codex, acp
     --adapter <name>          Alias for --default-adapter
     --no-auto-launch       Start server without creating an initial session
     --verbose, -v          Verbose logging
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
       `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
   };
 
-  const launcher = new SdkUrlLauncher({
+  const launcher = new ClaudeLauncher({
     processManager,
     config: providerConfig,
     storage,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SdkUrlSessionState, SessionState } from "../../types/session-state.js";
+import type { ClaudeSessionState, SessionState } from "../../types/session-state.js";
 import type { CoreSessionState, DevToolSessionState } from "./core-session-state.js";
 
 describe("CoreSessionState", () => {
@@ -63,7 +63,7 @@ describe("CoreSessionState", () => {
     expect(devState.total_lines_added).toBe(50);
   });
 
-  it("SdkUrlSessionState is the same type as SessionState", () => {
+  it("ClaudeSessionState is the same type as SessionState", () => {
     const state: SessionState = {
       session_id: "sdk-session",
       model: "claude-sonnet-4-5-20250929",
@@ -88,9 +88,9 @@ describe("CoreSessionState", () => {
       total_lines_removed: 0,
     };
 
-    // SdkUrlSessionState is assignable from SessionState and vice versa
-    const sdkUrlState: SdkUrlSessionState = state;
-    const backToState: SessionState = sdkUrlState;
+    // ClaudeSessionState is assignable from SessionState and vice versa
+    const claudeState: ClaudeSessionState = state;
+    const backToState: SessionState = claudeState;
     expect(backToState).toBe(state);
   });
 

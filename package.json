@@ -29,10 +29,10 @@
       "import": "./dist/adapters/agent-sdk.js",
       "require": "./dist/adapters/agent-sdk.cjs"
     },
-    "./adapters/sdk-url": {
-      "types": "./dist/adapters/sdk-url.d.ts",
-      "import": "./dist/adapters/sdk-url.js",
-      "require": "./dist/adapters/sdk-url.cjs"
+    "./adapters/claude": {
+      "types": "./dist/adapters/claude.d.ts",
+      "import": "./dist/adapters/claude.js",
+      "require": "./dist/adapters/claude.cjs"
     },
     "./daemon": {
       "types": "./dist/daemon.d.ts",
@@ -72,8 +72,8 @@
     "test:e2e:real:full": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run --config vitest.e2e.real.config.ts",
     "test:e2e:real:smoke:process": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run src/e2e/real/smoke.e2e.test.ts src/e2e/real/handshake.e2e.test.ts src/e2e/real/process-smoke.e2e.test.ts --config vitest.e2e.real.config.ts",
     "test:e2e:real:full:process": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/smoke.e2e.test.ts src/e2e/real/handshake.e2e.test.ts src/e2e/real/process-smoke.e2e.test.ts --config vitest.e2e.real.config.ts",
-    "test:e2e:real:claude": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-sdk-url.e2e.test.ts --config vitest.e2e.real.config.ts",
-    "test:e2e:real:claude:smoke": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run src/e2e/real/session-manager-sdk-url.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:claude": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-claude.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:claude:smoke": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run src/e2e/real/session-manager-claude.e2e.test.ts --config vitest.e2e.real.config.ts",
     "test:e2e:real:codex": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-codex.e2e.test.ts --config vitest.e2e.real.config.ts",
     "test:e2e:real:gemini": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-gemini.e2e.test.ts --config vitest.e2e.real.config.ts",
     "test:e2e:real:opencode": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-opencode.e2e.test.ts --config vitest.e2e.real.config.ts",

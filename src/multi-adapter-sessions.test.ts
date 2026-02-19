@@ -4,9 +4,9 @@ const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 
 import type { AdapterResolver } from "./adapters/adapter-resolver.js";
+import { ClaudeLauncher } from "./adapters/claude/claude-launcher.js";
 import type { CliAdapterName } from "./adapters/create-adapter.js";
 import { MemoryStorage } from "./adapters/memory-storage.js";
-import { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
 import type { BackendAdapter } from "./core/interfaces/backend-adapter.js";
 import { SessionManager } from "./core/session-manager.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "./interfaces/process-manager.js";
@@ -64,7 +64,7 @@ class TestProcessManager implements ProcessManager {
 const noopLogger = { info() {}, warn() {}, error() {}, debug() {} };
 
 function createLauncher(pm: ProcessManager, storage?: MemoryStorage) {
-  return new SdkUrlLauncher({
+  return new ClaudeLauncher({
     processManager: pm,
     config: { port: 3456 },
     storage,
@@ -74,9 +74,9 @@ function createLauncher(pm: ProcessManager, storage?: MemoryStorage) {
 
 function mockResolver(
   adapters: Record<string, BackendAdapter>,
-  defaultName: CliAdapterName = "sdk-url",
+  defaultName: CliAdapterName = "claude",
 ): AdapterResolver {
-  const sdkUrl = adapters["sdk-url"] ?? new MockBackendAdapter();
+  const claude = adapters["claude"] ?? new MockBackendAdapter();
   return {
     resolve: vi.fn((name?: CliAdapterName) => {
       const resolved = name ?? defaultName;
@@ -84,9 +84,9 @@ function mockResolver(
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    sdkUrlAdapter: sdkUrl as any,
+    claudeAdapter: claude as any,
     defaultName,
-    availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"],
+    availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"],
   };
 }
 
@@ -95,12 +95,12 @@ function mockResolver(
 // ---------------------------------------------------------------------------
 
 describe("multi-adapter session lifecycle", () => {
-  it("creates sdk-url and codex sessions, both appear in listSessions, both can be deleted", async () => {
+  it("creates claude and codex sessions, both appear in listSessions, both can be deleted", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const codexAdapter = new MockBackendAdapter();
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: codexAdapter,
     });
 
@@ -113,22 +113,22 @@ describe("multi-adapter session lifecycle", () => {
     });
     await mgr.start();
 
-    // Create one sdk-url and one codex session
-    const sdkSession = await mgr.createSession({ cwd: process.cwd() });
+    // Create one claude and one codex session
+    const claudeSession = await mgr.createSession({ cwd: process.cwd() });
     const codexSession = await mgr.createSession({
       cwd: process.cwd(),
       adapterName: "codex",
     });
 
-    expect(sdkSession.adapterName).toBe("sdk-url");
-    expect(sdkSession.state).toBe("starting");
+    expect(claudeSession.adapterName).toBe("claude");
+    expect(claudeSession.state).toBe("starting");
     expect(codexSession.adapterName).toBe("codex");
     expect(codexSession.state).toBe("connected");
 
     // Both appear in listSessions
     const sessions = mgr.launcher.listSessions();
     const ids = sessions.map((s) => s.sessionId);
-    expect(ids).toContain(sdkSession.sessionId);
+    expect(ids).toContain(claudeSession.sessionId);
     expect(ids).toContain(codexSession.sessionId);
 
     // Delete the codex session (no PID)
@@ -138,12 +138,12 @@ describe("multi-adapter session lifecycle", () => {
     expect(codexDeleted).toBe(true);
     expect(mgr.launcher.getSession(codexSession.sessionId)).toBeUndefined();
 
-    // Delete the sdk-url session (has PID)
-    const sdkInfo = mgr.launcher.getSession(sdkSession.sessionId);
-    expect(sdkInfo?.pid).toBeGreaterThan(0);
-    const sdkDeleted = await mgr.deleteSession(sdkSession.sessionId);
-    expect(sdkDeleted).toBe(true);
-    expect(mgr.launcher.getSession(sdkSession.sessionId)).toBeUndefined();
+    // Delete the claude session (has PID)
+    const claudeInfo = mgr.launcher.getSession(claudeSession.sessionId);
+    expect(claudeInfo?.pid).toBeGreaterThan(0);
+    const claudeDeleted = await mgr.deleteSession(claudeSession.sessionId);
+    expect(claudeDeleted).toBe(true);
+    expect(mgr.launcher.getSession(claudeSession.sessionId)).toBeUndefined();
 
     // Both gone
     expect(mgr.launcher.listSessions()).toHaveLength(0);
@@ -156,7 +156,7 @@ describe("multi-adapter session lifecycle", () => {
     const storage = new MemoryStorage();
     const codexAdapter = new MockBackendAdapter();
     const resolver = mockResolver(
-      { "sdk-url": new MockBackendAdapter(), codex: codexAdapter },
+      { claude: new MockBackendAdapter(), codex: codexAdapter },
       "codex", // default is codex
     );
 
@@ -185,7 +185,7 @@ describe("multi-adapter session lifecycle", () => {
     failingAdapter.setShouldFail(true);
 
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: failingAdapter,
     });
 
@@ -208,13 +208,13 @@ describe("multi-adapter session lifecycle", () => {
     await mgr.stop();
   });
 
-  it("resolver.sdkUrlAdapter is accessible via SessionManager for WS handler", async () => {
+  it("resolver.claudeAdapter is accessible via SessionManager for WS handler", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
-    const sdkUrlAdapter = new MockBackendAdapter();
+    const claudeAdapter = new MockBackendAdapter();
     const resolver = mockResolver(
-      { "sdk-url": sdkUrlAdapter, codex: new MockBackendAdapter() },
-      "codex", // default is codex, but sdkUrl is still accessible
+      { claude: claudeAdapter, codex: new MockBackendAdapter() },
+      "codex", // default is codex, but claude adapter is still accessible
     );
 
     const mgr = new SessionManager({
@@ -226,8 +226,8 @@ describe("multi-adapter session lifecycle", () => {
     });
     await mgr.start();
 
-    // Even with codex as default, sdkUrlAdapter exists for CLI WS connections
-    expect(resolver.sdkUrlAdapter).toBe(sdkUrlAdapter);
+    // Even with codex as default, claudeAdapter exists for CLI WS connections
+    expect(resolver.claudeAdapter).toBe(claudeAdapter);
 
     await mgr.stop();
   });

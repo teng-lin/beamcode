@@ -10,8 +10,8 @@
  * - Layer 2 (scenario): setupInitializedSession, translateAndPush
  */
 
+import { translate } from "../adapters/claude/message-translator.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import { translate } from "../adapters/sdk-url/message-translator.js";
 import type {
   BackendAdapter,
   BackendCapabilities,

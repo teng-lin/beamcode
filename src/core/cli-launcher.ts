@@ -1,4 +1,4 @@
-// Backward compatibility — use SdkUrlLauncher directly for new code
+// Backward compatibility — use ClaudeLauncher directly for new code
 
-export type { SdkUrlLauncherOptions as CLILauncherOptions } from "../adapters/sdk-url/sdk-url-launcher.js";
-export { SdkUrlLauncher as CLILauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
+export type { ClaudeLauncherOptions as CLILauncherOptions } from "../adapters/claude/claude-launcher.js";
+export { ClaudeLauncher as CLILauncher } from "../adapters/claude/claude-launcher.js";

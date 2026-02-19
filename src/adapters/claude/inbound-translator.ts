@@ -1,5 +1,5 @@
 /**
- * SdkUrl Inbound Translator — Phase 1b.3
+ * Claude Inbound Translator — Phase 1b.3
  *
  * Two responsibilities:
  * 1. normalizeInbound: InboundMessage → UnifiedMessage (normalize consumer input)

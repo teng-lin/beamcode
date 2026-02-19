@@ -24,17 +24,17 @@ function mockAdapter(name: string): BackendAdapter {
 }
 
 function mockResolver(adapters: Record<string, BackendAdapter>): AdapterResolver {
-  const sdkUrl = adapters["sdk-url"] ?? mockAdapter("sdk-url");
+  const claude = adapters.claude ?? mockAdapter("claude");
   return {
     resolve: vi.fn((name) => {
-      const resolved = name ?? "sdk-url";
+      const resolved = name ?? "claude";
       const adapter = adapters[resolved];
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    sdkUrlAdapter: sdkUrl as any,
-    defaultName: "sdk-url" as any,
-    availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"] as any,
+    claudeAdapter: claude as any,
+    defaultName: "claude" as any,
+    availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"] as any,
   };
 }
 
@@ -49,7 +49,7 @@ describe("BackendLifecycleManager per-session adapter", () => {
 
   it("resolves adapter from resolver using session.adapterName", async () => {
     const codex = mockAdapter("codex");
-    const resolver = mockResolver({ codex, "sdk-url": mockAdapter("sdk-url") });
+    const resolver = mockResolver({ codex, claude: mockAdapter("claude") });
     const blm = new BackendLifecycleManager({
       ...baseDeps,
       adapter: null,
@@ -70,7 +70,7 @@ describe("BackendLifecycleManager per-session adapter", () => {
   });
 
   it("falls back to global adapter when no adapterName", async () => {
-    const globalAdapter = mockAdapter("sdk-url");
+    const globalAdapter = mockAdapter("claude");
     const blm = new BackendLifecycleManager({
       ...baseDeps,
       adapter: globalAdapter,
@@ -90,7 +90,7 @@ describe("BackendLifecycleManager per-session adapter", () => {
   });
 
   it("falls back to global adapter when adapterName is set but no resolver", async () => {
-    const globalAdapter = mockAdapter("sdk-url");
+    const globalAdapter = mockAdapter("claude");
     const blm = new BackendLifecycleManager({
       ...baseDeps,
       adapter: globalAdapter,
@@ -110,8 +110,8 @@ describe("BackendLifecycleManager per-session adapter", () => {
   });
 
   it("falls back to global adapter for invalid adapterName", async () => {
-    const globalAdapter = mockAdapter("sdk-url");
-    const resolver = mockResolver({ "sdk-url": mockAdapter("sdk-url") });
+    const globalAdapter = mockAdapter("claude");
+    const resolver = mockResolver({ claude: mockAdapter("claude") });
     const blm = new BackendLifecycleManager({
       ...baseDeps,
       adapter: globalAdapter,
@@ -137,7 +137,7 @@ describe("BackendLifecycleManager per-session adapter", () => {
     const blm = new BackendLifecycleManager({
       ...baseDeps,
       adapter: null,
-      adapterResolver: mockResolver({ "sdk-url": mockAdapter("sdk-url") }),
+      adapterResolver: mockResolver({ claude: mockAdapter("claude") }),
     });
     expect(blm.hasAdapter).toBe(true);
   });
@@ -145,7 +145,7 @@ describe("BackendLifecycleManager per-session adapter", () => {
   it("hasAdapter is true when global adapter is set", () => {
     const blm = new BackendLifecycleManager({
       ...baseDeps,
-      adapter: mockAdapter("sdk-url"),
+      adapter: mockAdapter("claude"),
       adapterResolver: null,
     });
     expect(blm.hasAdapter).toBe(true);
