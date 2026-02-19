@@ -76,6 +76,12 @@ export class OpencodeAdapter implements BackendAdapter {
       processManager: options.processManager,
       logger: options.logger,
     });
+
+    // Prevent Node's unhandled-error throw — spawn failures are also
+    // surfaced via the thrown Error from launch(), so the event is redundant.
+    this.launcher.on("error", ({ source, error }) => {
+      this.logger?.warn?.(`Launcher error [${source}]: ${error.message}`);
+    });
   }
 
   // -------------------------------------------------------------------------

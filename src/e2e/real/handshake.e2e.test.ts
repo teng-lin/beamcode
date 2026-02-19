@@ -6,9 +6,9 @@ import { getRealCliPrereqState } from "./prereqs.js";
 describe("E2E Real CLI handshake smoke", () => {
   const prereqs = getRealCliPrereqState();
 
-  it("runs under realcli profile", () => {
+  it("runs under real profile", () => {
     const profile = getE2EProfile();
-    expect(["realcli-smoke", "realcli-full"]).toContain(profile);
+    expect(["real-smoke", "real-full"]).toContain(profile);
   });
 
   it.runIf(prereqs.ok)("spawns claude --version and exits cleanly", async () => {

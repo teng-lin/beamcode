@@ -68,12 +68,21 @@
     "check:fix": "biome check --write src/",
     "prepare": "simple-git-hooks",
     "test:e2e:deterministic": "E2E_PROFILE=deterministic USE_MOCK_CLI=true vitest run --config vitest.e2e.config.ts",
-    "test:e2e:realcli:smoke": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=realcli-smoke USE_REAL_CLI=true vitest run --config vitest.e2e.realcli.config.ts",
-    "test:e2e:realcli:full": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=realcli-full USE_REAL_CLI=true vitest run --config vitest.e2e.realcli.config.ts",
-    "test:e2e:realcli:smoke:process": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=realcli-smoke USE_REAL_CLI=true vitest run src/e2e/realcli/smoke.e2e.test.ts src/e2e/realcli/handshake.e2e.test.ts src/e2e/realcli/process-smoke.e2e.test.ts --config vitest.e2e.realcli.config.ts",
-    "test:e2e:realcli:smoke:session": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=realcli-smoke USE_REAL_CLI=true vitest run src/e2e/realcli/session-manager-realcli.e2e.test.ts --config vitest.e2e.realcli.config.ts",
-    "test:e2e:realcli:full:process": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=realcli-full USE_REAL_CLI=true vitest run src/e2e/realcli/smoke.e2e.test.ts src/e2e/realcli/handshake.e2e.test.ts src/e2e/realcli/process-smoke.e2e.test.ts --config vitest.e2e.realcli.config.ts",
-    "test:e2e:realcli:full:session": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=realcli-full USE_REAL_CLI=true vitest run src/e2e/realcli/session-manager-realcli.e2e.test.ts --config vitest.e2e.realcli.config.ts"
+    "test:e2e:real:smoke": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run --config vitest.e2e.real.config.ts",
+    "test:e2e:real:full": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run --config vitest.e2e.real.config.ts",
+    "test:e2e:real:smoke:process": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run src/e2e/real/smoke.e2e.test.ts src/e2e/real/handshake.e2e.test.ts src/e2e/real/process-smoke.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:smoke:session": "node scripts/e2e-realcli-preflight.mjs --mode smoke && E2E_PROFILE=real-smoke USE_REAL_CLI=true vitest run src/e2e/real/session-manager-sdk-url.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:full:process": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/smoke.e2e.test.ts src/e2e/real/handshake.e2e.test.ts src/e2e/real/process-smoke.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:full:session": "node scripts/e2e-realcli-preflight.mjs --mode full && E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-sdk-url.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:codex": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-codex.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:gemini": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-gemini.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:real:opencode": "E2E_PROFILE=real-full USE_REAL_CLI=true vitest run src/e2e/real/session-manager-opencode.e2e.test.ts --config vitest.e2e.real.config.ts",
+    "test:e2e:realcli:smoke": "pnpm test:e2e:real:smoke",
+    "test:e2e:realcli:full": "pnpm test:e2e:real:full",
+    "test:e2e:realcli:smoke:process": "pnpm test:e2e:real:smoke:process",
+    "test:e2e:realcli:smoke:session": "pnpm test:e2e:real:smoke:session",
+    "test:e2e:realcli:full:process": "pnpm test:e2e:real:full:process",
+    "test:e2e:realcli:full:session": "pnpm test:e2e:real:full:session"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged"

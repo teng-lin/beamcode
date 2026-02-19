@@ -78,6 +78,11 @@ export class CodexAdapter implements BackendAdapter {
       processManager: this.processManager,
       logger: this.logger,
     });
+    // Prevent Node's unhandled-error throw — spawn failures are also
+    // surfaced via the thrown Error from launch().
+    launcher.on("error", ({ source, error }) => {
+      this.logger?.warn?.(`Launcher error [${source}]: ${error.message}`);
+    });
 
     // 1. Launch codex app-server
     const { url } = await launcher.launch(options.sessionId, {

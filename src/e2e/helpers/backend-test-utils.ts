@@ -371,3 +371,240 @@ export function createInterruptMessage(): UnifiedMessage {
     role: "user",
   });
 }
+
+// ---------------------------------------------------------------------------
+// Gemini A2A mock helpers
+// ---------------------------------------------------------------------------
+
+/** Build an SSE string from event objects. */
+export function makeSSE(...events: object[]): string {
+  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+}
+
+/** Build a Response with an SSE body. */
+export function sseResponse(body: string, contentType = "text/event-stream"): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(body));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": contentType },
+  });
+}
+
+export function buildA2ATaskEvent(taskId = "task-1") {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      kind: "task",
+      id: taskId,
+      contextId: "ctx-1",
+      status: { state: "submitted", timestamp: new Date().toISOString() },
+    },
+  };
+}
+
+export function buildA2ATextEvent(text = "hello", taskId = "task-1") {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      kind: "status-update",
+      taskId,
+      contextId: "ctx-1",
+      status: {
+        state: "working",
+        message: {
+          kind: "message",
+          role: "agent",
+          parts: [{ kind: "text", text }],
+          messageId: "msg-1",
+        },
+      },
+      metadata: { coderAgent: { kind: "text-content" } },
+    },
+  };
+}
+
+export function buildA2ACompletedEvent(taskId = "task-1") {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      kind: "status-update",
+      taskId,
+      contextId: "ctx-1",
+      status: { state: "completed" },
+      final: true,
+      metadata: { coderAgent: { kind: "state-change" } },
+    },
+  };
+}
+
+export function buildA2AInputRequiredEvent(taskId = "task-1") {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      kind: "status-update",
+      taskId,
+      contextId: "ctx-1",
+      status: { state: "input-required" },
+      final: true,
+      metadata: { coderAgent: { kind: "state-change" } },
+    },
+  };
+}
+
+export function buildA2AToolConfirmationEvent(
+  toolCallId: string,
+  toolName: string,
+  taskId = "task-1",
+) {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      kind: "status-update",
+      taskId,
+      contextId: "ctx-1",
+      status: {
+        state: "working",
+        message: {
+          kind: "message",
+          role: "agent",
+          parts: [
+            {
+              kind: "data",
+              data: {
+                tool_call_id: toolCallId,
+                tool_name: toolName,
+                status: "PENDING",
+                description: `Confirm ${toolName}`,
+                confirmation_request: {
+                  options: [
+                    { id: "proceed_once", name: "Allow once" },
+                    { id: "reject", name: "Deny" },
+                  ],
+                },
+              },
+            },
+          ],
+          messageId: "msg-tool-1",
+        },
+      },
+      metadata: { coderAgent: { kind: "tool-call-confirmation" } },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Opencode mock helpers
+// ---------------------------------------------------------------------------
+
+import type { OpencodeHttpClient } from "../../adapters/opencode/opencode-http-client.js";
+import type { OpencodeEvent } from "../../adapters/opencode/opencode-types.js";
+
+export function createMockOpencodeHttpClient() {
+  return {
+    promptAsync: vi.fn().mockResolvedValue(undefined),
+    abort: vi.fn().mockResolvedValue(undefined),
+    replyPermission: vi.fn().mockResolvedValue(undefined),
+    createSession: vi.fn(),
+    health: vi.fn(),
+    connectSse: vi.fn(),
+  } as unknown as OpencodeHttpClient & {
+    promptAsync: ReturnType<typeof vi.fn>;
+    abort: ReturnType<typeof vi.fn>;
+    replyPermission: ReturnType<typeof vi.fn>;
+  };
+}
+
+export function createMockOpencodeSubscribe(): {
+  subscribe: (h: (event: OpencodeEvent) => void) => () => void;
+  push: (event: OpencodeEvent) => void;
+  unsubscribe: ReturnType<typeof vi.fn>;
+} {
+  let handler: ((event: OpencodeEvent) => void) | null = null;
+  const unsubscribe = vi.fn();
+
+  const subscribe = (h: (event: OpencodeEvent) => void) => {
+    handler = h;
+    return unsubscribe;
+  };
+
+  const push = (event: OpencodeEvent) => {
+    if (handler) handler(event);
+  };
+
+  return { subscribe, push, unsubscribe };
+}
+
+export function buildOpencodeTextPartEvent(
+  text: string,
+  delta: string,
+  options?: { partId?: string; messageId?: string; sessionId?: string },
+): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "text",
+        id: options?.partId ?? "p-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        text,
+        time: { created: 0, updated: 0 },
+      },
+      delta,
+    },
+  };
+}
+
+export function buildOpencodeIdleEvent(sessionId = "opc-session-1"): OpencodeEvent {
+  return {
+    type: "session.status",
+    properties: {
+      sessionID: sessionId,
+      status: { type: "idle" },
+    },
+  };
+}
+
+export function buildOpencodeBusyEvent(sessionId = "opc-session-1"): OpencodeEvent {
+  return {
+    type: "session.status",
+    properties: {
+      sessionID: sessionId,
+      status: { type: "busy" },
+    },
+  };
+}
+
+export function buildOpencodePermissionEvent(
+  permId: string,
+  permission: string,
+  options?: { sessionId?: string; title?: string },
+): OpencodeEvent {
+  return {
+    type: "permission.updated",
+    properties: {
+      id: permId,
+      sessionID: options?.sessionId ?? "opc-session-1",
+      permission,
+      title: options?.title ?? `Confirm ${permission}`,
+    },
+  };
+}
+
+export function buildOpencodeConnectedEvent(): OpencodeEvent {
+  return {
+    type: "server.connected",
+    properties: {} as Record<string, never>,
+  };
+}

@@ -1,8 +1,12 @@
-export type E2EProfile = "deterministic" | "realcli-smoke" | "realcli-full";
+export type E2EProfile = "deterministic" | "real-smoke" | "real-full";
 
 function normalizeProfile(value: string | undefined): E2EProfile {
-  if (value === "realcli-smoke" || value === "realcli-full") {
-    return value;
+  // Accept both new (real-*) and legacy (realcli-*) names
+  if (value === "real-smoke" || value === "realcli-smoke") {
+    return "real-smoke";
+  }
+  if (value === "real-full" || value === "realcli-full") {
+    return "real-full";
   }
   return "deterministic";
 }
@@ -12,5 +16,5 @@ export function getE2EProfile(): E2EProfile {
 }
 
 export function isRealCliProfile(profile = getE2EProfile()): boolean {
-  return profile === "realcli-smoke" || profile === "realcli-full";
+  return profile === "real-smoke" || profile === "real-full";
 }
