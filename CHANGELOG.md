@@ -7,89 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-02-19
+
 ### Added
 
-- **Universal adapter layer**: `BackendAdapter` and `BackendSession` interfaces for multi-agent support
-- **UnifiedMessage type**: Normalized message envelope aligned with Claude Agent SDK's `SDKMessage` types
-- **Extension interfaces**: `Interruptible`, `Configurable`, `PermissionHandler`, `Reconnectable`, `Encryptable` — additive capabilities via runtime type narrowing
-- **SequencedMessage\<T\>**: Wrapper with `seq` number and `timestamp` for reconnection replay
+#### Multi-adapter support
 
-#### Adapters
+- **Universal adapter layer**: `BackendAdapter` and `BackendSession` interfaces — one contract for any coding agent
+- **UnifiedMessage**: Normalized message envelope with `Interruptible`, `Configurable`, `PermissionHandler`, `Reconnectable`, `Encryptable` extension interfaces via runtime type narrowing
+- **SequencedMessage\<T\>**: Wrapper with `seq` + `timestamp` for reconnection replay
+- **ClaudeAdapter**: Claude Code `--sdk-url` NDJSON/WebSocket adapter with inbound/outbound translators, state reducer, and `--resume` support
+- **ACPAdapter**: JSON-RPC 2.0 over stdio covering 25+ ACP-compliant agents (Goose, Kiro, Gemini CLI, Cline, OpenHands, ...)
+- **CodexAdapter**: JSON-RPC over WebSocket for `codex app-server` mode — Thread/Turn/Item model mapped to UnifiedMessage (30+ method types)
+- **OpencodeAdapter**: HTTP + SSE adapter for Opencode CLI
+- **GeminiAdapter**: A2A SSE adapter for Gemini CLI
+- Backend adapter compliance test suite
 
-- **ClaudeAdapter** (Phase 1): Extracted Claude Code `--sdk-url` NDJSON/WebSocket logic from monolithic SessionBridge into a standalone adapter
-  - `ClaudeLauncher` — process lifecycle, `--sdk-url` URL construction, `--resume` support
-  - Inbound translator (CLI NDJSON → UnifiedMessage)
-  - Outbound message translator (consumer messages → CLI NDJSON)
-  - State reducer (derives session state from CLI message stream)
-- **ACPAdapter** (Phase 3): JSON-RPC 2.0 over stdio for any ACP-compliant agent (Goose, Kiro, Gemini CLI, Cline, OpenHands, 25+ agents)
-  - `ACPSession` with `initialize` capability negotiation
-  - JSON-RPC request/response/notification handling
-  - Bidirectional message translation (ACP `session/update` ↔ UnifiedMessage)
-- **CodexAdapter** (Phase 3): JSON-RPC over subprocess stdio for Codex CLI app-server mode
-  - Thread/Turn/Item model mapping to UnifiedMessage
-  - `CodexLauncher` for `codex app-server` subprocess management
-  - Message translator covering 30+ Codex JSON-RPC method types
-- **AgentSdkAdapter** (Phase 4): In-process adapter using `@anthropic-ai/claude-agent-sdk`
-  - `AgentSdkSession` wrapping SDK's V2 session API
-  - `PermissionBridge` — bridges SDK's callback-based `canUseTool` to async message flow
-  - SDK message translator (SDKMessage ↔ UnifiedMessage, 16 message type mappings)
-- **Backend adapter compliance test suite**: Contract tests verifiable by any adapter implementation
+#### Web UI (rebuilt)
+
+- React 19 + Zustand + Tailwind v4 + Vite single-file consumer (~300 KB, ~94 KB gzip)
+- Companion-style layout: collapsible sidebar, chat view, agent pane, status bar
+- New Session Dialog: create sessions with adapter, model, and working directory selection
+- Rich message rendering: markdown, code blocks, image blocks, thinking blocks, tool execution, diffs
+- Streaming UX: blinking cursor, elapsed time, token count
+- Slash command menu: categorized typeahead with keyboard navigation
+- Permission UI: tool-specific previews (Bash commands, Edit diffs, file paths)
+- Team coordination: task panel, agent grid, member presence
+- Process log drawer, toast notifications, circuit breaker status banner
+- Auto-reconnect with message replay from `last_seen_seq`
 
 #### Daemon
 
-- **Daemon** class with `start()` / `stop()` lifecycle
-- **ChildProcessSupervisor**: Manages CLI child processes (spawn, kill, PID tracking, session count)
-- **LockFile**: `O_CREAT | O_EXCL` exclusive lock prevents duplicate daemon instances; staleness detection
-- **StateFile**: `{ pid, port, heartbeat, version, controlApiToken }` for CLI discovery
-- **ControlApi**: HTTP server on `127.0.0.1:0` with Bearer token auth
-  - `GET /health` — uptime and session count
-  - `GET /sessions` — list all sessions
-  - `POST /sessions` — create session (requires `cwd`)
-  - `DELETE /sessions/:id` — stop a session
-- **SignalHandler**: Graceful shutdown on SIGTERM/SIGINT
-- **HealthCheck**: 60-second heartbeat loop updating state file
+- `Daemon` class with `start()` / `stop()` lifecycle
+- `LockFile`: `O_CREAT | O_EXCL` exclusive lock prevents duplicate instances with staleness detection
+- `StateFile`: `{ pid, port, heartbeat, version, controlApiToken }` for CLI discovery
+- `ControlApi`: HTTP on `127.0.0.1:0` with Bearer auth — list, create, delete sessions
+- `HealthCheck`: 60s heartbeat loop updating state file
+- Graceful shutdown on SIGTERM/SIGINT with 10s force-exit timeout
 
-#### Relay
+#### Relay + E2E encryption
 
-- **EncryptionLayer**: Middleware for transparent E2E encryption between SessionBridge and WebSocket transport
-  - Outbound: `ConsumerMessage → serialize → encrypt → EncryptedEnvelope`
-  - Inbound: `EncryptedEnvelope → decrypt → deserialize → InboundMessage`
-  - Mixed-mode detection for pairing transition
-- **CloudflaredManager**: Manages cloudflared sidecar process (start, stop, tunnel URL extraction, retry with backoff)
-- **TunnelRelayAdapter**: Wraps CloudflaredManager with start/stop semantics
-- **SessionRouter**: Routes encrypted envelopes to correct backend sessions by session ID
-
-#### Crypto
-
-- **Key management**: `generateKeypair()`, `destroyKey()` (zeros memory), `fingerprintPublicKey()`
-- **Sealed boxes**: `seal()` / `sealOpen()` — anonymous encryption for initial key exchange
-- **Authenticated encryption**: `encrypt()` / `decrypt()` — `crypto_box` with X25519 DH
-- **EncryptedEnvelope**: Wire format `{ v: 1, sid, ct, len }` with serialize/deserialize/detection
-- **HMAC signing**: `sign()` / `verify()` — HMAC-SHA256 for permission response authentication
-- **NonceTracker**: Anti-replay protection tracking last 1000 nonces with 30s timestamp window
-- **PairingManager**: Pairing link generation, consumption, and sealed-box key exchange
-- `getSodium()` — lazy libsodium-wrappers-sumo loader
+- `EncryptionLayer`: transparent E2E encryption middleware (sealed boxes: XSalsa20-Poly1305)
+- `CloudflaredManager`: cloudflared sidecar — start, stop, tunnel URL extraction, retry with backoff
+- `PairingManager`: pairing link generation and sealed-box key exchange
+- `NonceTracker`: anti-replay protection (last 1000 nonces, 30s timestamp window)
+- HMAC-SHA256 permission signing with nonce + timestamp + request_id binding
+- `EncryptedEnvelope` wire format: `{ v: 1, sid, ct, len }`
 
 #### Server
 
-- **ReconnectionHandler**: Stable consumer IDs, per-session message history (configurable capacity), replay from `last_seen_seq`, initial message batch for new connections
-- **ConsumerChannel**: Per-consumer send queue with backpressure and high-water mark
-
-#### Web Consumer
-
-- Minimal HTML/JS client (`src/consumer/index.html`, ~700 LOC)
-- E2E decryption of relay messages
-- Markdown rendering of assistant responses
-- Permission request UI (approve/deny with HMAC signing)
-- Reconnection with message replay
+- `ReconnectionHandler`: stable consumer IDs, per-session message history, replay from `last_seen_seq`
+- `ConsumerChannel`: per-consumer send queue with backpressure and high-water mark
 
 ### Changed
 
 - Renamed package from `claude-code-bridge` to `beamcode`
-- SessionBridge now operates on `UnifiedMessage` instead of raw NDJSON
-- NodeWebSocketServer generalized for consumer reconnection support
-- `ProcessSupervisor` extracted as a reusable core component
-- Added `libsodium-wrappers-sumo` as a dependency for E2E encryption
+- `SessionBridge` decomposed into focused modules: `SessionStore`, `ConsumerBroadcaster`, `ConsumerGatekeeper`, `SlashCommandExecutor`, `TeamEventDiffer`
+- Slash command routing replaced with explicit handler chain (no binary routing)
+- Session coordination delegated from `SessionBridge` to `SessionManager`
+- `NodeWebSocketServer` generalized for consumer reconnection support
+- `ProcessSupervisor` extracted as reusable core component
+- Added `libsodium-wrappers-sumo` dependency for E2E encryption
+
+### Fixed
+
+- Consumer token used for HTTP API auth so New Session Dialog works correctly (#79)
+- Await backend session close before port reuse to prevent startup races (#76)
+- Remove `/cost` command — not supported by Claude CLI (#73)
+- Codex `codex/event/error` handling with `error_code` metadata surfacing (#66)
+- Security audit: 9 findings resolved including env injection, path traversal, and auth hardening (#68)
+- Architecture violations: hexagonal boundary enforcement across all layers (#67)
+- Frontend stability, message echo prevention, and security hardening (#5)
+
+### Docs
+
+- Rewrote `README.md`: focused vision, web UI walkthrough, updated adapter diagrams
+- Added `DEVELOPMENT.md`: architecture reference, adapter guide, configuration, events, auth, testing, build
 
 ## [0.1.1] - 2026-02-14
 

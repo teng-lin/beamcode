@@ -5,249 +5,223 @@ Architecture reference, adapter guide, configuration, testing, and build.
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [BackendAdapter Interface](#backendadapter-interface)
 - [Adapters](#adapters)
-- [SessionBridge](#sessionbridge)
-- [UnifiedMessage](#unifiedmessage)
-- [Daemon](#daemon)
-- [Relay + E2E Encryption](#relay--e2e-encryption)
-- [Reconnection](#reconnection)
+- [UnifiedMessage Protocol](#unifiedmessage-protocol)
 - [Configuration](#configuration)
 - [Events](#events)
 - [Authentication](#authentication)
-- [Testing](#testing)
 - [Building](#building)
+- [Testing](#testing)
 
 ---
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                 HTTP + WS SERVER (:3456)                  │
-│                                                          │
-│  /api/sessions   REST CRUD                               │
-│  /               Serves React web UI                     │
-│  /ws/consumer/:id  Consumer WebSocket endpoint           │
-└──────────────────────────────┬───────────────────────────┘
-                               │
-              ConsumerMessage (30+ subtypes, typed union)
-              InboundMessage  (user_message, interrupt, ...)
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────┐
-│              core/ — SessionBridge + Modules             │
-│                                                          │
-│  SessionBridge (orchestrator, TypedEventEmitter)         │
-│  ├── SessionStore        session CRUD + persistence      │
-│  ├── ConsumerBroadcaster WS fan-out, backpressure, RBAC  │
-│  ├── ConsumerGatekeeper  auth, rate limiting             │
-│  ├── SlashCommandExecutor per-session command dispatch   │
-│  └── TeamEventDiffer     pure team state diff            │
-│                                                          │
-│  SessionManager orchestrates SessionBridge + launchers   │
-└──────────────────────────────┬───────────────────────────┘
-                               │
-                     BackendAdapter interface
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-           Claude            ACP             Codex
-           Adapter           Adapter         Adapter
-```
+See [docs/architecture-diagram.md](docs/architecture-diagram.md) for the full architecture diagram, data flows, module decomposition, and package structure.
+
+**Summary:** An HTTP+WS server routes `ConsumerMessage` / `InboundMessage` through `SessionBridge` (a `TypedEventEmitter` orchestrator decomposed into 15+ focused modules) to a `BackendAdapter` — Claude, ACP, Codex, AgentSdk, Gemini, or OpenCode. A daemon layer manages process lifecycle; a relay layer adds Cloudflare Tunnel + E2E encryption for remote access.
 
 ---
 
-## BackendAdapter Interface
+## Adapters
+
+### BackendAdapter Interface
 
 Every coding agent backend implements a single interface:
 
 ```ts
+interface BackendCapabilities {
+  streaming: boolean;       // partial response streaming
+  permissions: boolean;     // native permission requests
+  slashCommands: boolean;
+  availability: "local" | "remote" | "both";
+  teams: boolean;
+}
+
+interface ConnectOptions {
+  sessionId: string;
+  resume?: boolean;
+  adapterOptions?: Record<string, unknown>;
+}
+
 interface BackendAdapter {
-  readonly name: string;                        // "claude" | "acp" | "codex"
+  readonly name: string;
   readonly capabilities: BackendCapabilities;
   connect(options: ConnectOptions): Promise<BackendSession>;
+  createSlashExecutor?(session: BackendSession): AdapterSlashExecutor | null;
 }
 
 interface BackendSession {
   readonly sessionId: string;
   send(message: UnifiedMessage): void;
+  sendRaw(ndjson: string): void;          // bypass translation (Claude-specific)
   readonly messages: AsyncIterable<UnifiedMessage>;
   close(): Promise<void>;
 }
 ```
 
-Sessions can optionally implement extension interfaces via runtime type narrowing:
+Sessions can optionally implement extension interfaces via runtime type narrowing (`"interrupt" in session`):
 
 ```ts
-interface Interruptible    { interrupt(): void }
-interface Configurable     { setModel(m: string): void; setPermissionMode(m: string): void }
-interface PermissionHandler { respondToPermission(id: string, behavior: "allow" | "deny"): void }
-interface Reconnectable    { replay(fromSeq: number): AsyncIterable<UnifiedMessage> }
-interface Encryptable      { encrypt(msg: UnifiedMessage): EncryptedEnvelope }
+interface Interruptible  { interrupt(): void }
+interface Configurable   { setModel(model: string): void; setPermissionMode(mode: string): void }
+interface PermissionHandler {
+  readonly permissionRequests: AsyncIterable<PermissionRequestEvent>;
+  respondToPermission(requestId: string, behavior: "allow" | "deny"): void;
+}
+interface Reconnectable  { onDisconnect(cb: () => void): void; replay(fromSeq: number): AsyncIterable<UnifiedMessage> }
+interface TeamObserver   { readonly teamName: string; readonly teamEvents: AsyncIterable<TeamEvent> }
+interface Encryptable    { encrypt(msg: UnifiedMessage): EncryptedEnvelope; decrypt(env: EncryptedEnvelope): UnifiedMessage }
 ```
-
----
-
-## Adapters
 
 ### Adapter Comparison
 
 | Adapter | Protocol | Agents | Streaming | Permissions | Session Resume |
 |---------|----------|--------|-----------|-------------|----------------|
 | Claude | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
-| ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Gemini, Cline, ...) | No | Yes | Varies |
+| ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Cline, ...) | No | Yes | Varies |
 | Codex | JSON-RPC/WebSocket | Codex CLI | Yes | Yes | Yes |
+| AgentSdk | In-process query fn | Anthropic API (teams) | No | Via callback | No |
+| Gemini | JSON-RPC 2.0/stdio | Gemini CLI (wraps ACP) | No | Yes | Varies |
+| OpenCode | REST+SSE | opencode | Yes | Yes | No |
 
-### Claude Code via `--sdk-url`
+#### Claude
 
-Spawns `claude --sdk-url ws://...` and bridges its NDJSON WebSocket stream:
+Uses an **inverted connection** pattern: `connect()` registers a pending slot, then the Claude CLI connects back to beamcode's WS server via `--sdk-url`.
 
 ```ts
 import { ClaudeAdapter } from "beamcode";
 // Used automatically when adapter: "claude" in session config
+
+const adapter = new ClaudeAdapter();
+const session = await adapter.connect({
+  sessionId: "my-session",
+  adapterOptions: { socketTimeoutMs: 30_000 },  // optional, default 30s
+});
 ```
 
-### ACP (Agent Client Protocol)
+#### ACP (Agent Client Protocol)
 
-JSON-RPC 2.0 over stdio — one adapter covers every ACP-compliant agent:
+JSON-RPC 2.0 over stdio — covers every ACP-compliant agent (Goose, Kiro, Cline, ...). Command/args are passed via `adapterOptions`.
 
 ```ts
-import { ACPAdapter } from "beamcode/adapters/acp";
+import { AcpAdapter } from "beamcode/adapters/acp";
 
-const adapter = new ACPAdapter({
-  name: "acp",
-  command: "goose",       // or "kiro-cli acp", "gemini acp", etc.
-  args: ["acp"],
-  capabilities: {
-    streaming: false,
-    permissions: true,
-    slashCommands: true,
-    availability: "local",
+const adapter = new AcpAdapter(); // optional spawnFn for testing
+
+const session = await adapter.connect({
+  sessionId: "my-session",
+  adapterOptions: {
+    command: "goose",   // or "kiro-cli", "cline", etc.
+    args: ["acp"],
+    cwd: "/my/project",
   },
 });
-
-const session = await adapter.connect({ sessionId: "my-session" });
 
 for await (const msg of session.messages) {
   console.log(msg.type, msg);
 }
 ```
 
-### Codex CLI (JSON-RPC over WebSocket)
+#### Codex
+
+JSON-RPC over WebSocket — launches a `codex app-server` subprocess.
 
 ```ts
 import { CodexAdapter } from "beamcode/adapters/codex";
 
 const adapter = new CodexAdapter({
-  command: "codex",
-  args: ["app-server"],
+  processManager,
+  codexBinary: "codex",   // optional, default "codex"
+  port: 0,                // optional, picks a free port
 });
 
 const session = await adapter.connect({ sessionId: "my-session" });
 ```
 
----
+#### Gemini
 
-## SessionBridge
-
-The core message router, decomposed into focused modules:
+Wraps `AcpAdapter`, spawning `gemini --experimental-acp`.
 
 ```ts
-SessionBridge (orchestrator, TypedEventEmitter)
-├── SessionStore          // Session CRUD + persistence
-├── ConsumerBroadcaster   // WebSocket fan-out with backpressure + role filtering
-├── ConsumerGatekeeper    // Pluggable auth, RBAC, rate limiting
-├── SlashCommandExecutor  // Per-session command dispatch
-└── TeamEventDiffer       // Pure team state diff functions
+import { GeminiAdapter } from "beamcode/adapters/gemini";
+
+const adapter = new GeminiAdapter({ geminiBinary: "gemini" }); // options optional
+
+const session = await adapter.connect({
+  sessionId: "my-session",
+  adapterOptions: { cwd: "/my/project" },
+});
 ```
 
-Message routing: CLI messages → `translateCLI()` → `routeUnifiedMessage()` → `ConsumerBroadcaster.broadcast()` → N consumers.
+#### OpenCode
 
----
-
-## UnifiedMessage
-
-All adapters translate to/from `UnifiedMessage` — a normalized envelope:
+REST + SSE — manages one shared `opencode serve` process, demuxing SSE events per session.
 
 ```ts
-type UnifiedMessage =
-  | { type: "assistant_message"; messageId: string; content: UnifiedContent[]; ... }
-  | { type: "partial_message"; event: unknown; ... }
-  | { type: "result"; subtype: string; cost: number; ... }
-  | { type: "system_init"; sessionId: string; model: string; ... }
-  | { type: "permission_request"; requestId: string; toolName: string; ... }
-  | { type: "tool_progress"; toolUseId: string; toolName: string; ... }
-  | { type: "error"; message: string; recoverable: boolean }
-  // ... and more
-```
+import { OpencodeAdapter } from "beamcode/adapters/opencode";
 
----
-
-## Daemon
-
-The daemon keeps agent sessions alive while clients connect and disconnect:
-
-```ts
-import { Daemon } from "beamcode";
-
-const daemon = new Daemon({
-  port: 3456,
-  storagePath: "~/.beamcode/sessions",
-  lockPath: "~/.beamcode/daemon.lock",
-  statePath: "~/.beamcode/daemon.state.json",
+const adapter = new OpencodeAdapter({
+  processManager,
+  port: 4096,             // optional, default 4096
+  opencodeBinary: "opencode",
+  directory: "/my/project",
+  password: "secret",     // optional
 });
 
-await daemon.start();
+const session = await adapter.connect({ sessionId: "my-session" });
 ```
 
-Components:
-- **LockFile**: `O_CREAT | O_EXCL` exclusive lock prevents duplicate daemons
-- **StateFile**: `{ pid, port, heartbeat, version }` for CLI discovery
-- **HealthCheck**: Periodic liveness loop
-- **SignalHandler**: Graceful shutdown on SIGTERM/SIGINT
+#### AgentSdk
+
+In-process — wraps an Anthropic Agent SDK query function. Pass `queryFn` in the constructor or via `adapterOptions`.
+
+```ts
+import { AgentSdkAdapter } from "beamcode/adapters/agent-sdk";
+
+const adapter = new AgentSdkAdapter(myQueryFn);
+// or: new AgentSdkAdapter() and pass queryFn via adapterOptions
+
+const session = await adapter.connect({
+  sessionId: "my-session",
+  adapterOptions: {
+    queryFn: myQueryFn,         // if not in constructor
+    queryOptions: { model: "claude-opus-4-6" },
+  },
+});
+```
 
 ---
 
-## Relay + E2E Encryption
+## UnifiedMessage Protocol
 
-Remote access via Cloudflare Tunnel with end-to-end encryption:
+All adapters translate to/from `UnifiedMessage` — a normalized envelope that flows through `UnifiedMessageRouter` to `ConsumerBroadcaster` and the React UI.
 
-```
-Mobile Browser → HTTPS → CF Tunnel Edge → cloudflared → localhost → Daemon → CLI
-                  ↑
-          E2E encrypted: tunnel cannot read message contents
-```
+**19 message types** (10 routed to consumers, 9 internal/bridge-handled):
 
-**Pairing flow**:
-1. Daemon generates X25519 keypair, starts cloudflared tunnel
-2. Prints pairing link: `https://<tunnel>/pair?pk=<base64>&fp=<fingerprint>&v=1`
-3. Browser extracts daemon public key, generates own keypair
-4. Browser sends its public key encrypted via sealed box
-5. Both sides establish authenticated bidirectional E2E
+| Type | Direction | Broadcast to UI |
+|------|-----------|:---------------:|
+| `session_init` | backend → consumer | ✅ |
+| `status_change` | backend → consumer | ✅ |
+| `assistant` | backend → consumer | ✅ |
+| `result` | backend → consumer | ✅ |
+| `stream_event` | backend → consumer | ✅ |
+| `permission_request` | backend → consumer | ✅ |
+| `tool_progress` | backend → consumer | ✅ |
+| `tool_use_summary` | backend → consumer | ✅ |
+| `auth_status` | backend → consumer | ✅ |
+| `configuration_change` | backend → consumer | ✅ |
+| `user_message` | consumer → backend | — |
+| `permission_response` | consumer → backend | — |
+| `interrupt` | consumer → backend | — |
+| `team_message` | backend → state | — |
+| `team_task_update` | backend → state | — |
+| `team_state_change` | backend → state | — |
+| `session_lifecycle` | internal | — |
+| `control_response` | internal | — |
+| `unknown` | — | — |
 
-**Wire format** — `EncryptedEnvelope`:
-```ts
-{ v: 1, sid: "session-id", ct: "<ciphertext>", len: 42 }
-```
-
-**Permission signing**: HMAC-SHA256 with nonce + timestamp (30s window) + request_id binding prevents replay attacks over the relay.
-
----
-
-## Reconnection
-
-Sequenced messages survive network drops:
-
-```ts
-// Each message carries a sequence number
-// { seq: 42, timestamp: 1234567890, payload: ConsumerMessage }
-
-// On reconnect, consumer sends last_seen_seq
-// Server replays missed messages from buffer
-```
-
-Per-consumer backpressure: if a consumer falls behind, non-critical messages (streaming events) are dropped while critical ones (permission requests) are preserved.
+**7 content block types** in `UnifiedContent`: `text`, `tool_use`, `tool_result`, `code`, `image`, `thinking`, `refusal`.
 
 ---
 
@@ -296,30 +270,53 @@ interface ProviderConfig {
 
 ## Events
 
-### Bridge Events
+### Bridge Events (`BridgeEventMap`)
 
 | Event | Payload |
 |-------|---------|
-| `cli:connected` | `{ sessionId }` |
-| `cli:disconnected` | `{ sessionId }` |
+| `backend:connected` | `{ sessionId }` |
+| `backend:disconnected` | `{ sessionId, code, reason }` |
+| `backend:session_id` | `{ sessionId, backendSessionId }` |
+| `backend:relaunch_needed` | `{ sessionId }` |
+| `backend:message` | `{ sessionId, message: UnifiedMessage }` |
 | `consumer:connected` | `{ sessionId, consumerCount, identity? }` |
 | `consumer:disconnected` | `{ sessionId, consumerCount, identity? }` |
-| `message:outbound` | `{ sessionId, message }` |
-| `message:inbound` | `{ sessionId, message }` |
+| `consumer:authenticated` | `{ sessionId, userId, displayName, role }` |
+| `consumer:auth_failed` | `{ sessionId, reason }` |
+| `message:outbound` | `{ sessionId, message: ConsumerMessage }` |
+| `message:inbound` | `{ sessionId, message: InboundMessage }` |
 | `permission:requested` | `{ sessionId, request }` |
 | `permission:resolved` | `{ sessionId, requestId, behavior }` |
+| `session:first_turn_completed` | `{ sessionId, firstUserMessage }` |
 | `session:closed` | `{ sessionId }` |
 | `slash_command:executed` | `{ sessionId, command, source, durationMs }` |
+| `slash_command:failed` | `{ sessionId, command, error }` |
+| `capabilities:ready` | `{ sessionId, commands, models, account }` |
+| `capabilities:timeout` | `{ sessionId }` |
+| `team:created` | `{ sessionId, teamName }` |
+| `team:deleted` | `{ sessionId, teamName }` |
+| `team:member:joined` | `{ sessionId, member }` |
+| `team:member:idle` | `{ sessionId, member }` |
+| `team:member:shutdown` | `{ sessionId, member }` |
+| `team:task:created` | `{ sessionId, task }` |
+| `team:task:claimed` | `{ sessionId, task }` |
+| `team:task:completed` | `{ sessionId, task }` |
+| `auth_status` | `{ sessionId, isAuthenticating, output, error? }` |
 | `error` | `{ source, error, sessionId? }` |
 
-### Launcher Events
+### Launcher Events (`LauncherEventMap`)
 
 | Event | Payload |
 |-------|---------|
 | `process:spawned` | `{ sessionId, pid }` |
-| `process:exited` | `{ sessionId, exitCode, uptimeMs }` |
+| `process:exited` | `{ sessionId, exitCode, uptimeMs, circuitBreaker? }` |
 | `process:connected` | `{ sessionId }` |
 | `process:resume_failed` | `{ sessionId }` |
+| `process:stdout` | `{ sessionId, data }` |
+| `process:stderr` | `{ sessionId, data }` |
+| `error` | `{ source, error, sessionId? }` |
+
+`SessionManager` emits the union of both maps (`SessionManagerEventMap = BridgeEventMap & LauncherEventMap`).
 
 ---
 
@@ -345,6 +342,27 @@ const authenticator: Authenticator = {
 ```
 
 Without an authenticator, consumers get anonymous participant identities.
+
+---
+
+## Building
+
+```sh
+# Full build (library + web consumer)
+pnpm build
+
+# Library only
+pnpm build:lib
+
+# Web consumer only (outputs to web/dist/, copied to dist/consumer/)
+pnpm build:web
+
+# Type check
+pnpm typecheck
+
+# Lint
+pnpm lint
+```
 
 ---
 
@@ -474,7 +492,7 @@ pnpm test:e2e:real:opencode
 |---------|--------|------|
 | claude | `claude` | `ANTHROPIC_API_KEY` or `claude auth login` |
 | codex | `codex` | handled by CLI |
-| gemini | `gemini-cli-a2a-server` | `GOOGLE_API_KEY` or CLI config |
+| gemini | `gemini` | `GOOGLE_API_KEY` or CLI config |
 | opencode | `opencode` | handled by CLI config |
 
 Tests are auto-skipped when prerequisites are not met. Detection logic is in `src/e2e/real/prereqs.ts`.
@@ -542,25 +560,4 @@ node dist/bin/beamcode.mjs
 ```bash
 pnpm vitest run --coverage        # backend → ./coverage/
 cd web && pnpm vitest run --coverage  # frontend → ./web/coverage/
-```
-
----
-
-## Building
-
-```sh
-# Full build (library + web consumer)
-pnpm build
-
-# Library only
-pnpm build:lib
-
-# Web consumer only (outputs to web/dist/, copied to dist/consumer/)
-pnpm build:web
-
-# Type check
-pnpm typecheck
-
-# Lint
-pnpm lint
 ```
