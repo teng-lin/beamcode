@@ -10,7 +10,6 @@ export { NodeProcessManager } from "./adapters/node-process-manager.js";
 export type { NodeWebSocketServerOptions } from "./adapters/node-ws-server.js";
 export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
 export { NoopLogger } from "./adapters/noop-logger.js";
-export { PtyCommandRunner } from "./adapters/pty-command-runner.js";
 export type { SdkUrlLauncherOptions } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
@@ -112,7 +111,6 @@ export type {
   ConsumerIdentity,
   ConsumerRole,
 } from "./interfaces/auth.js";
-export type { CommandRunner, CommandRunnerResult } from "./interfaces/command-runner.js";
 export type { GitInfo, GitInfoResolver } from "./interfaces/git-resolver.js";
 export type { Logger } from "./interfaces/logger.js";
 export type {
