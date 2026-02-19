@@ -5,6 +5,7 @@
  * and the SDK's streaming async iterable protocol.
  */
 
+import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { PermissionBridge } from "./permission-bridge.js";
@@ -28,8 +29,7 @@ export type QueryFn = (options: {
 export class AgentSdkSession implements BackendSession {
   readonly sessionId: string;
   private readonly permissionBridge: PermissionBridge;
-  private readonly messageQueue: UnifiedMessage[] = [];
-  private messageResolve: ((result: IteratorResult<UnifiedMessage>) => void) | null = null;
+  private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
   private closed = false;
   private abortController = new AbortController();
 
@@ -43,7 +43,7 @@ export class AgentSdkSession implements BackendSession {
     private readonly queryOptions?: Record<string, unknown>,
   ) {
     this.sessionId = sessionId;
-    this.permissionBridge = new PermissionBridge((msg) => this.pushMessage(msg));
+    this.permissionBridge = new PermissionBridge((msg) => this.queue.enqueue(msg));
   }
 
   // ---------------------------------------------------------------------------
@@ -84,28 +84,7 @@ export class AgentSdkSession implements BackendSession {
   // ---------------------------------------------------------------------------
 
   get messages(): AsyncIterable<UnifiedMessage> {
-    const self = this;
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          next(): Promise<IteratorResult<UnifiedMessage>> {
-            if (self.messageQueue.length > 0) {
-              const value = self.messageQueue.shift() as UnifiedMessage;
-              return Promise.resolve({ value, done: false });
-            }
-            if (self.closed) {
-              return Promise.resolve({
-                value: undefined,
-                done: true,
-              } as IteratorResult<UnifiedMessage>);
-            }
-            return new Promise((resolve) => {
-              self.messageResolve = resolve;
-            });
-          },
-        };
-      },
-    };
+    return this.queue;
   }
 
   // ---------------------------------------------------------------------------
@@ -123,25 +102,12 @@ export class AgentSdkSession implements BackendSession {
       this.inputResolve({ value: undefined, done: true } as IteratorResult<SDKUserMessage>);
       this.inputResolve = null;
     }
-    if (this.messageResolve) {
-      this.messageResolve({ value: undefined, done: true } as IteratorResult<UnifiedMessage>);
-      this.messageResolve = null;
-    }
+    this.queue.finish();
   }
 
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
-
-  private pushMessage(msg: UnifiedMessage): void {
-    if (this.messageResolve) {
-      const r = this.messageResolve;
-      this.messageResolve = null;
-      r({ value: msg, done: false });
-    } else {
-      this.messageQueue.push(msg);
-    }
-  }
 
   private pushInput(sdkInput: SDKUserMessage): void {
     if (this.inputResolve) {
@@ -198,7 +164,7 @@ export class AgentSdkSession implements BackendSession {
       for await (const sdkMsg of sdkStream) {
         if (this.closed) break;
         const unified = translateSdkMessage(sdkMsg);
-        this.pushMessage(unified);
+        this.queue.enqueue(unified);
       }
     } catch {
       // Query ended (abort or error) — not a session error

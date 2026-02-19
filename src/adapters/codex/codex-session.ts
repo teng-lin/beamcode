@@ -6,6 +6,7 @@
  */
 
 import WebSocket from "ws";
+import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
@@ -90,10 +91,7 @@ export class CodexSession implements BackendSession {
     }
   >();
 
-  /** Queued incoming messages for the async iterable consumer. */
-  private readonly messageQueue: UnifiedMessage[] = [];
-  private messageResolve: ((value: IteratorResult<UnifiedMessage>) => void) | null = null;
-  private done = false;
+  private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
 
   constructor(options: CodexSessionOptions) {
     this.sessionId = options.sessionId;
@@ -102,7 +100,7 @@ export class CodexSession implements BackendSession {
     this.threadId = options.threadId ?? null;
 
     if (options.initResponse) {
-      this.enqueue(translateInitResponse(options.initResponse));
+      this.queue.enqueue(translateInitResponse(options.initResponse));
     }
 
     this.ws.on("message", (data: WebSocket.RawData) => {
@@ -149,33 +147,7 @@ export class CodexSession implements BackendSession {
   // ---------------------------------------------------------------------------
 
   get messages(): AsyncIterable<UnifiedMessage> {
-    const self = this;
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          next(): Promise<IteratorResult<UnifiedMessage>> {
-            // If there are queued messages, return the next one
-            const queued = self.messageQueue.shift();
-            if (queued) {
-              return Promise.resolve({ value: queued, done: false });
-            }
-
-            // If done, signal completion
-            if (self.done) {
-              return Promise.resolve({
-                value: undefined,
-                done: true,
-              } as IteratorResult<UnifiedMessage>);
-            }
-
-            // Wait for the next message
-            return new Promise<IteratorResult<UnifiedMessage>>((resolve) => {
-              self.messageResolve = resolve;
-            });
-          },
-        };
-      },
-    };
+    return this.queue;
   }
 
   // ---------------------------------------------------------------------------
@@ -262,7 +234,7 @@ export class CodexSession implements BackendSession {
       .then(() => this.flushQueuedTurns())
       .catch((err) => {
         this.queuedTurnInputs = [];
-        this.enqueue(
+        this.queue.enqueue(
           createUnifiedMessage({
             type: "result",
             role: "system",
@@ -425,7 +397,7 @@ export class CodexSession implements BackendSession {
     if (notification.method === "turn/started") {
       const turnId = (params as { turn?: { id?: unknown } }).turn?.id;
       this.activeTurnId = typeof turnId === "string" ? turnId : null;
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "stream_event",
           role: "assistant",
@@ -438,7 +410,7 @@ export class CodexSession implements BackendSession {
     if (notification.method === "item/agentMessage/delta") {
       const delta = (params as { delta?: unknown }).delta;
       if (typeof delta === "string" && delta.length > 0) {
-        this.enqueue(
+        this.queue.enqueue(
           createUnifiedMessage({
             type: "stream_event",
             role: "assistant",
@@ -457,7 +429,7 @@ export class CodexSession implements BackendSession {
     if (notification.method === "item/completed") {
       const item = (params as { item?: { type?: string; id?: string; text?: string } }).item;
       if (item?.type === "agentMessage" && typeof item.text === "string") {
-        this.enqueue(
+        this.queue.enqueue(
           createUnifiedMessage({
             type: "assistant",
             role: "assistant",
@@ -474,7 +446,7 @@ export class CodexSession implements BackendSession {
       const turn = (params as { turn?: { status?: string; error?: { message?: string } } }).turn;
       const status = turn?.status ?? "completed";
       const errorMessage = turn?.error?.message;
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
           role: "system",
@@ -496,7 +468,7 @@ export class CodexSession implements BackendSession {
         typeof errorMessage === "string" && errorMessage.length > 0
           ? errorMessage
           : "Codex backend error";
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
           role: "system",
@@ -517,7 +489,7 @@ export class CodexSession implements BackendSession {
       const msg = (params as { msg?: { message?: string; codex_error_info?: string } }).msg;
       const message = msg?.message || "Codex backend error";
       const errorCode = msg?.codex_error_info;
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
           role: "system",
@@ -536,7 +508,7 @@ export class CodexSession implements BackendSession {
     if (notification.method === "approval_requested") {
       const request = params as unknown as CodexApprovalRequest;
       const unified = translateApprovalRequest(request);
-      this.enqueue(unified);
+      this.queue.enqueue(unified);
       return;
     }
 
@@ -550,7 +522,7 @@ export class CodexSession implements BackendSession {
     const event = { type: eventType, ...params } as unknown as CodexTurnEvent;
     const unified = translateCodexEvent(event);
     if (unified) {
-      this.enqueue(unified);
+      this.queue.enqueue(unified);
     }
   }
 
@@ -563,7 +535,7 @@ export class CodexSession implements BackendSession {
       request.method === "applyPatchApproval"
     ) {
       this.pendingApprovalMethods.set(requestId, request.method);
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "permission_request",
           role: "system",
@@ -593,7 +565,7 @@ export class CodexSession implements BackendSession {
     }
 
     if (response.error) {
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
           role: "system",
@@ -644,7 +616,7 @@ export class CodexSession implements BackendSession {
     ) {
       const text = (result as { output_text: string }).output_text;
       if (text.length > 0) {
-        this.enqueue(
+        this.queue.enqueue(
           createUnifiedMessage({
             type: "assistant",
             role: "assistant",
@@ -653,7 +625,7 @@ export class CodexSession implements BackendSession {
           }),
         );
       }
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
           role: "system",
@@ -693,7 +665,7 @@ export class CodexSession implements BackendSession {
       if (item.type !== "message") continue;
       const text = this.itemToText(item);
       if (!text) continue;
-      this.enqueue(
+      this.queue.enqueue(
         createUnifiedMessage({
           type: "assistant",
           role: "assistant",
@@ -705,7 +677,7 @@ export class CodexSession implements BackendSession {
         }),
       );
     }
-    this.enqueue(
+    this.queue.enqueue(
       createUnifiedMessage({
         type: "result",
         role: "system",
@@ -738,25 +710,9 @@ export class CodexSession implements BackendSession {
   // Queue management
   // ---------------------------------------------------------------------------
 
-  private enqueue(message: UnifiedMessage): void {
-    if (this.messageResolve) {
-      const resolve = this.messageResolve;
-      this.messageResolve = null;
-      resolve({ value: message, done: false });
-    } else {
-      this.messageQueue.push(message);
-    }
-  }
-
   private finish(): void {
-    if (this.done) return;
-    this.done = true;
-
-    if (this.messageResolve) {
-      const resolve = this.messageResolve;
-      this.messageResolve = null;
-      resolve({ value: undefined, done: true } as IteratorResult<UnifiedMessage>);
-    }
+    if (this.queue.isFinished) return;
+    this.queue.finish();
 
     for (const pending of this.pendingRpc.values()) {
       pending.reject(new Error("Codex session closed before RPC response"));
