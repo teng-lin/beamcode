@@ -36,9 +36,13 @@ export function NewSessionDialog() {
 
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
 
+  // Reset form on open; restore focus to trigger button on close.
+  // The global useKeyboardShortcuts hook handles Escape, so no local listener needed.
   useEffect(() => {
     if (open) {
+      wasOpenRef.current = true;
       setAdapter("claude");
       setModel("");
       setCwd("");
@@ -47,22 +51,13 @@ export function NewSessionDialog() {
         "[data-new-session-trigger]",
       );
       setTimeout(() => firstButtonRef.current?.focus(), 0);
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      setTimeout(() => newButtonRef.current?.focus(), 0);
     }
   }, [open]);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setTimeout(() => newButtonRef.current?.focus(), 0);
-  }, [setOpen]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, close]);
+  const close = useCallback(() => setOpen(false), [setOpen]);
 
   async function handleCreate() {
     if (creating) return;
@@ -118,6 +113,7 @@ export function NewSessionDialog() {
                   key={opt.value}
                   ref={i === 0 ? firstButtonRef : undefined}
                   type="button"
+                  aria-pressed={adapter === opt.value}
                   onClick={() => setAdapter(opt.value)}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                     adapter === opt.value
@@ -145,6 +141,8 @@ export function NewSessionDialog() {
               onChange={(e) => setModel(e.target.value)}
               placeholder="Default"
               maxLength={200}
+              spellCheck={false}
+              autoComplete="off"
               className="w-full rounded-md border border-bc-border bg-bc-bg px-3 py-1.5 text-sm text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
             />
           </div>
@@ -164,6 +162,8 @@ export function NewSessionDialog() {
               onChange={(e) => setCwd(e.target.value)}
               placeholder="Server default"
               maxLength={500}
+              spellCheck={false}
+              autoComplete="off"
               className="w-full rounded-md border border-bc-border bg-bc-bg px-3 py-1.5 text-sm text-bc-text placeholder:text-bc-text-muted/50 focus:border-bc-accent/50 focus:outline-none"
             />
           </div>
