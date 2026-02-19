@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import { useCallback, useRef, useState } from "react";
+import { createSession } from "../api";
 import type { SessionData } from "../store";
 import { useStore } from "../store";
+import { updateSessionUrl } from "../utils/session";
+import { connectToSession } from "../ws";
 import { AgentPane } from "./AgentPane";
 import { AuthBanner } from "./AuthBanner";
 import { Composer } from "./Composer";
@@ -149,8 +152,11 @@ export function ChatView() {
   const sessionData = useStore((s) =>
     s.currentSessionId ? s.sessionData[s.currentSessionId] : null,
   );
+  const hasNoSessions = useStore((s) => Object.keys(s.sessions).length === 0);
   const inspectedAgentId = useStore((s) => s.inspectedAgentId);
   const setInspectedAgent = useStore((s) => s.setInspectedAgent);
+  const updateSession = useStore((s) => s.updateSession);
+  const setCurrentSession = useStore((s) => s.setCurrentSession);
 
   const [splitRatio, setSplitRatio] = useState(0.45);
   const splitRef = useRef<HTMLDivElement>(null);
@@ -159,7 +165,31 @@ export function ChatView() {
     setSplitRatio((prev) => Math.max(MIN_MAIN_RATIO, Math.min(MAX_MAIN_RATIO, prev + delta)));
   }, []);
 
+  const handleAdapterSelect = useCallback(
+    async (adapter: string) => {
+      try {
+        const session = await createSession({ adapter });
+        updateSession(session.sessionId, session);
+        setCurrentSession(session.sessionId);
+        connectToSession(session.sessionId);
+        updateSessionUrl(session.sessionId, "push");
+      } catch (err) {
+        console.error("[ChatView] Failed to create session:", err);
+      }
+    },
+    [updateSession, setCurrentSession],
+  );
+
   if (!currentSessionId || !sessionData) {
+    // Show adapter picker when no sessions exist at all
+    if (hasNoSessions) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <EmptyState onAdapterSelect={handleAdapterSelect} />
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Center logo + composer vertically */}
