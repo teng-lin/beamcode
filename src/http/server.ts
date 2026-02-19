@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -30,7 +31,12 @@ export function createBeamcodeServer(
     // (cloudflared forwards requests as localhost, making IP-based checks unreliable).
     if (apiKey && url.pathname.startsWith("/api/")) {
       const auth = req.headers.authorization;
-      if (auth !== `Bearer ${apiKey}`) {
+      const expected = `Bearer ${apiKey}`;
+      const a = createHash("sha256")
+        .update(auth ?? "")
+        .digest();
+      const b = createHash("sha256").update(expected).digest();
+      if (!timingSafeEqual(a, b)) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Unauthorized" }));
         return;

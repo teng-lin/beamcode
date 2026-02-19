@@ -159,20 +159,20 @@ describe("consumer-html", () => {
     });
   });
 
-  describe("injectApiKey", () => {
-    it("adds a meta tag with the api key", async () => {
-      const { injectApiKey, loadConsumerHtml } = await import("./consumer-html.js");
+  describe("injectConsumerToken", () => {
+    it("adds a meta tag with the consumer token", async () => {
+      const { injectConsumerToken, loadConsumerHtml } = await import("./consumer-html.js");
 
-      injectApiKey("test-key-123");
+      injectConsumerToken("test-key-123");
       const html = loadConsumerHtml();
 
-      expect(html).toContain('<meta name="beamcode-api-key" content="test-key-123">');
+      expect(html).toContain('<meta name="beamcode-consumer-token" content="test-key-123">');
     });
 
-    it("escapes special HTML characters in the api key", async () => {
-      const { injectApiKey, loadConsumerHtml } = await import("./consumer-html.js");
+    it("escapes special HTML characters in the token", async () => {
+      const { injectConsumerToken, loadConsumerHtml } = await import("./consumer-html.js");
 
-      injectApiKey('<script>"alert&xss"</script>');
+      injectConsumerToken('<script>"alert&xss"</script>');
       const html = loadConsumerHtml();
 
       // Verify characters are escaped
@@ -183,9 +183,9 @@ describe("consumer-html", () => {
     });
 
     it("recomputes gzip and CSP after injection", async () => {
-      const { handleConsumerHtml, injectApiKey } = await import("./consumer-html.js");
+      const { handleConsumerHtml, injectConsumerToken } = await import("./consumer-html.js");
 
-      injectApiKey("my-key");
+      injectConsumerToken("my-key");
 
       const req = mockReq("gzip");
       const res = mockRes();
@@ -194,7 +194,18 @@ describe("consumer-html", () => {
       // Verify gzip body can be decompressed to HTML containing the meta tag
       const { gunzipSync } = await import("node:zlib");
       const decompressed = gunzipSync(res._body as Buffer).toString();
-      expect(decompressed).toContain('<meta name="beamcode-api-key" content="my-key">');
+      expect(decompressed).toContain('<meta name="beamcode-consumer-token" content="my-key">');
+    });
+  });
+
+  describe("injectApiKey (deprecated)", () => {
+    it("delegates to injectConsumerToken", async () => {
+      const { injectApiKey, loadConsumerHtml } = await import("./consumer-html.js");
+
+      injectApiKey("legacy-key");
+      const html = loadConsumerHtml();
+
+      expect(html).toContain('<meta name="beamcode-consumer-token" content="legacy-key">');
     });
   });
 });

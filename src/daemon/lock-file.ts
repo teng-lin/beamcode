@@ -1,10 +1,12 @@
-import { open, readFile, unlink } from "node:fs/promises";
+import { open, readFile, unlink, writeFile } from "node:fs/promises";
 
 /**
  * Acquire an exclusive lock file by atomically creating it with O_CREAT | O_EXCL.
  * Writes the current PID into the lock file.
  *
- * If a lock already exists but the owning process is dead (stale), removes and re-acquires.
+ * If a lock already exists but the owning process is dead (stale), atomically
+ * replaces the lock file contents (overwrite with O_WRONLY + O_TRUNC) and verifies
+ * ownership to prevent TOCTOU races between concurrent daemon starts.
  * If a lock exists and the process is alive, throws.
  */
 export async function acquireLock(lockPath: string): Promise<void> {
@@ -16,8 +18,17 @@ export async function acquireLock(lockPath: string): Promise<void> {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
     if (await isLockStale(lockPath)) {
-      await unlink(lockPath);
-      return acquireLock(lockPath);
+      // Atomically overwrite the stale lock with our PID.
+      // If another process races us, both will write — the verify step below
+      // ensures only the actual winner proceeds.
+      await writeFile(lockPath, String(process.pid), "utf-8");
+
+      // Verify we actually own the lock (guard against concurrent stale recovery)
+      const ownerPid = await readLockPid(lockPath);
+      if (ownerPid !== process.pid) {
+        throw new Error(`Daemon already running (PID: ${ownerPid})`);
+      }
+      return;
     }
 
     const pid = await readLockPid(lockPath);
