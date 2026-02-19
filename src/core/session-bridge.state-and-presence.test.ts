@@ -1,0 +1,537 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+
+import { MemoryStorage } from "../adapters/memory-storage.js";
+import {
+  createBridgeWithAdapter,
+  type MockBackendAdapter,
+  type MockBackendSession,
+  makeAssistantUnifiedMsg,
+  makePermissionRequestUnifiedMsg,
+  makeResultUnifiedMsg,
+  makeSessionInitMsg,
+  noopLogger,
+  setupInitializedSession,
+  tick,
+} from "../testing/adapter-test-helpers.js";
+import {
+  authContext,
+  createTestSocket as createMockSocket,
+} from "../testing/cli-message-factories.js";
+import { SessionBridge } from "./session-bridge.js";
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe("SessionBridge", () => {
+  let bridge: SessionBridge;
+  let storage: MemoryStorage;
+  let adapter: MockBackendAdapter;
+
+  beforeEach(() => {
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    storage = created.storage;
+    adapter = created.adapter;
+  });
+  describe("Persistence", () => {
+    it("restoreFromStorage loads persisted sessions", () => {
+      // Persist a session manually into storage
+      storage.save({
+        id: "restored-sess",
+        state: {
+          session_id: "restored-sess",
+          model: "claude-sonnet-4-5-20250929",
+          cwd: "/restored",
+          tools: ["Bash"],
+          permissionMode: "default",
+          claude_code_version: "1.0",
+          mcp_servers: [],
+          agents: [],
+          slash_commands: [],
+          skills: [],
+          total_cost_usd: 0.5,
+          num_turns: 10,
+          context_used_percent: 25,
+          is_compacting: false,
+          git_branch: "main",
+          is_worktree: false,
+          repo_root: "/repo",
+          git_ahead: 0,
+          git_behind: 0,
+          total_lines_added: 100,
+          total_lines_removed: 50,
+        },
+        messageHistory: [{ type: "user_message", content: "hi", timestamp: 12345 }],
+        pendingMessages: [],
+        pendingPermissions: [],
+      });
+
+      const count = bridge.restoreFromStorage();
+      expect(count).toBe(1);
+
+      const snapshot = bridge.getSession("restored-sess");
+      expect(snapshot).toBeDefined();
+      expect(snapshot!.state.model).toBe("claude-sonnet-4-5-20250929");
+      expect(snapshot!.state.cwd).toBe("/restored");
+      expect(snapshot!.messageHistoryLength).toBe(1);
+    });
+
+    it("restoreFromStorage returns 0 when storage is empty", () => {
+      const count = bridge.restoreFromStorage();
+      expect(count).toBe(0);
+    });
+
+    it("restoreFromStorage does not overwrite live sessions", async () => {
+      const backendSession = await setupInitializedSession(bridge, adapter, "sess-1");
+
+      // Push a session_init with a specific cwd to establish state
+      // (setupInitializedSession already pushes session_init with cwd: "/test")
+
+      // Now put a different version in storage
+      storage.save({
+        id: "sess-1",
+        state: {
+          session_id: "sess-1",
+          model: "old-model",
+          cwd: "/old",
+          tools: [],
+          permissionMode: "default",
+          claude_code_version: "0.1",
+          mcp_servers: [],
+          agents: [],
+          slash_commands: [],
+          skills: [],
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+          git_branch: "",
+          is_worktree: false,
+          repo_root: "",
+          git_ahead: 0,
+          git_behind: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+        },
+        messageHistory: [],
+        pendingMessages: [],
+        pendingPermissions: [],
+      });
+
+      const count = bridge.restoreFromStorage();
+      expect(count).toBe(0);
+      // Live session should still have the current cwd
+      expect(bridge.getSession("sess-1")!.state.cwd).toBe("/test");
+    });
+
+    it("restoreFromStorage returns 0 when bridge has no storage", () => {
+      const noStorageBridge = new SessionBridge({ config: { port: 3456 }, logger: noopLogger });
+      const count = noStorageBridge.restoreFromStorage();
+      expect(count).toBe(0);
+    });
+
+    it("persistSession is triggered by system init", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makeSessionInitMsg());
+      await tick();
+
+      const persisted = storage.load("sess-1");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.state.model).toBe("claude-sonnet-4-5-20250929");
+    });
+
+    it("persistSession is triggered by assistant message", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
+
+      const persisted = storage.load("sess-1");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.messageHistory.length).toBeGreaterThan(0);
+    });
+
+    it("persistSession is triggered by result message", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makeResultUnifiedMsg());
+      await tick();
+
+      const persisted = storage.load("sess-1");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.state.total_cost_usd).toBe(0.01);
+    });
+
+    it("persistSession is triggered by permission_request", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+
+      const persisted = storage.load("sess-1");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.pendingPermissions.length).toBe(1);
+    });
+
+    it("persistSession is triggered by sendUserMessage", async () => {
+      await bridge.connectBackend("sess-1");
+
+      bridge.sendUserMessage("sess-1", "Hello");
+
+      const persisted = storage.load("sess-1");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.messageHistory.some((m) => m.type === "user_message")).toBe(true);
+    });
+
+    it("removeSession also removes from storage", async () => {
+      const backendSession = await setupInitializedSession(bridge, adapter, "sess-1");
+
+      expect(storage.load("sess-1")).not.toBeNull();
+
+      bridge.removeSession("sess-1");
+      expect(storage.load("sess-1")).toBeNull();
+    });
+  });
+
+  // ── 8. Message history trimming ────────────────────────────────────────
+
+  describe("Message history trimming (maxMessageHistoryLength)", () => {
+    it("trims message history when exceeding maxMessageHistoryLength", async () => {
+      const { bridge: trimBridge, adapter: trimAdapter } = createBridgeWithAdapter({
+        config: { port: 3456, maxMessageHistoryLength: 3 },
+      });
+      await trimBridge.connectBackend("sess-1");
+
+      // Send 5 user messages
+      for (let i = 0; i < 5; i++) {
+        trimBridge.sendUserMessage("sess-1", `Message ${i}`);
+      }
+
+      const snapshot = trimBridge.getSession("sess-1")!;
+      expect(snapshot.messageHistoryLength).toBe(3);
+    });
+
+    it("keeps the most recent messages after trimming", async () => {
+      const trimStorage = new MemoryStorage();
+      const { bridge: trimBridge } = createBridgeWithAdapter({
+        storage: trimStorage,
+        config: { port: 3456, maxMessageHistoryLength: 2 },
+      });
+      await trimBridge.connectBackend("sess-1");
+
+      trimBridge.sendUserMessage("sess-1", "First");
+      trimBridge.sendUserMessage("sess-1", "Second");
+      trimBridge.sendUserMessage("sess-1", "Third");
+
+      // The persisted history should contain only the last 2 messages
+      const persisted = trimStorage.load("sess-1")!;
+      expect(persisted.messageHistory).toHaveLength(2);
+      expect(persisted.messageHistory[0]).toEqual(
+        expect.objectContaining({ type: "user_message", content: "Second" }),
+      );
+      expect(persisted.messageHistory[1]).toEqual(
+        expect.objectContaining({ type: "user_message", content: "Third" }),
+      );
+    });
+
+    it("assistant and result messages also count toward the limit", async () => {
+      const { bridge: trimBridge, adapter: trimAdapter } = createBridgeWithAdapter({
+        config: { port: 3456, maxMessageHistoryLength: 2 },
+      });
+      await trimBridge.connectBackend("sess-1");
+      const trimBackendSession = trimAdapter.getSession("sess-1")!;
+
+      // user message -> assistant -> result = 3 history entries, limit is 2
+      trimBridge.sendUserMessage("sess-1", "hello");
+      trimBackendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
+      trimBackendSession.pushMessage(makeResultUnifiedMsg());
+      await tick();
+
+      expect(trimBridge.getSession("sess-1")!.messageHistoryLength).toBe(2);
+    });
+  });
+
+  // ── 10. Edge cases ─────────────────────────────────────────────────────
+
+  describe("Edge cases", () => {
+    it("queues messages when backend is not connected (I5)", async () => {
+      bridge.getOrCreateSession("sess-1");
+      // No backend connected
+
+      bridge.sendUserMessage("sess-1", "Will be queued");
+      bridge.sendInterrupt("sess-1");
+
+      // Now connect backend
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      // The queued user message should have been flushed via send()
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
+      expect(flushed).toBe(true);
+    });
+
+    it("unknown permission request_ids produce no backend message (S4)", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      backendSession.sentMessages.length = 0;
+
+      // No permission was requested, try to respond anyway
+      bridge.sendPermissionResponse("sess-1", "unknown-request-id", "allow");
+
+      expect(backendSession.sentMessages).toHaveLength(0);
+    });
+
+    it("permission response with updatedPermissions includes them", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+      backendSession.sentMessages.length = 0;
+
+      bridge.sendPermissionResponse("sess-1", "perm-req-1", "allow", {
+        updatedPermissions: [{ type: "setMode", mode: "plan", destination: "session" }],
+      });
+
+      // In the adapter path, updatedPermissions are included in the unified message
+      const permMsg = backendSession.sentMessages.find((m) => m.type === "permission_response");
+      expect(permMsg).toBeDefined();
+      expect(permMsg!.metadata.updated_permissions).toEqual([
+        { type: "setMode", mode: "plan", destination: "session" },
+      ]);
+    });
+
+    it("empty sessions are retrievable with default state", () => {
+      bridge.getOrCreateSession("empty-sess");
+      const snapshot = bridge.getSession("empty-sess")!;
+
+      expect(snapshot.state.model).toBe("");
+      expect(snapshot.state.cwd).toBe("");
+      expect(snapshot.state.tools).toEqual([]);
+      expect(snapshot.state.total_cost_usd).toBe(0);
+      expect(snapshot.state.num_turns).toBe(0);
+      expect(snapshot.state.is_compacting).toBe(false);
+      expect(snapshot.cliConnected).toBe(false);
+      expect(snapshot.consumerCount).toBe(0);
+      expect(snapshot.messageHistoryLength).toBe(0);
+    });
+
+    it("handleConsumerMessage handles Buffer input", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+      const ws = createMockSocket();
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      backendSession.sentMessages.length = 0;
+
+      const bufferData = Buffer.from(JSON.stringify({ type: "interrupt" }));
+      bridge.handleConsumerMessage(ws, "sess-1", bufferData);
+
+      const interruptMsg = backendSession.sentMessages.find((m) => m.type === "interrupt");
+      expect(interruptMsg).toBeDefined();
+    });
+
+    it("broadcastNameUpdate sends session_name_update to consumers", () => {
+      bridge.getOrCreateSession("sess-1");
+      const consumerSocket = createMockSocket();
+      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
+      consumerSocket.sentMessages.length = 0;
+
+      bridge.broadcastNameUpdate("sess-1", "My Session");
+
+      const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+      expect(parsed[0]).toEqual({ type: "session_name_update", name: "My Session" });
+    });
+
+    it("broadcastNameUpdate is a no-op for nonexistent sessions", () => {
+      expect(() => bridge.broadcastNameUpdate("nonexistent", "name")).not.toThrow();
+    });
+
+    it("consumer socket that throws on send is removed from the set", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      const failSocket = createMockSocket();
+      failSocket.send = vi.fn(() => {
+        throw new Error("Write failed");
+      });
+      bridge.handleConsumerOpen(failSocket, authContext("sess-1"));
+
+      // Trigger a broadcast that will cause failSocket to throw
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
+
+      // After the failed send, the consumer count should be reduced
+      expect(bridge.getSession("sess-1")!.consumerCount).toBe(0);
+    });
+
+    it("multiple consumers all receive the same broadcast", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      const consumer1 = createMockSocket();
+      const consumer2 = createMockSocket();
+      const consumer3 = createMockSocket();
+      bridge.handleConsumerOpen(consumer1, authContext("sess-1"));
+      bridge.handleConsumerOpen(consumer2, authContext("sess-1"));
+      bridge.handleConsumerOpen(consumer3, authContext("sess-1"));
+
+      consumer1.sentMessages.length = 0;
+      consumer2.sentMessages.length = 0;
+      consumer3.sentMessages.length = 0;
+
+      backendSession.pushMessage(makeAssistantUnifiedMsg());
+      await tick();
+
+      for (const consumer of [consumer1, consumer2, consumer3]) {
+        const parsed = consumer.sentMessages.map((m) => JSON.parse(m));
+        expect(parsed.some((m: any) => m.type === "assistant")).toBe(true);
+      }
+    });
+
+    it("closeSession handles consumer socket close error gracefully", async () => {
+      bridge.getOrCreateSession("sess-1");
+      const consumerSocket = createMockSocket();
+      consumerSocket.close = vi.fn(() => {
+        throw new Error("Already closed");
+      });
+      bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
+
+      await expect(bridge.closeSession("sess-1")).resolves.toBeUndefined();
+      expect(bridge.getSession("sess-1")).toBeUndefined();
+    });
+
+    it("sendUserMessage with user_message via consumer includes session_id override", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      // First populate the backend session_id via init
+      backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-real-id" }));
+      await tick();
+
+      const ws = createMockSocket();
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+      backendSession.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(
+        ws,
+        "sess-1",
+        JSON.stringify({ type: "user_message", content: "test", session_id: "cli-real-id" }),
+      );
+
+      const userMsg = backendSession.sentMessages.find((m) => m.type === "user_message");
+      expect(userMsg).toBeDefined();
+      expect(userMsg!.metadata.session_id).toBe("cli-real-id");
+    });
+
+    it("deny permission response is sent to backend", async () => {
+      await bridge.connectBackend("sess-1");
+      const backendSession = adapter.getSession("sess-1")!;
+
+      backendSession.pushMessage(makePermissionRequestUnifiedMsg());
+      await tick();
+      backendSession.sentMessages.length = 0;
+
+      bridge.sendPermissionResponse("sess-1", "perm-req-1", "deny");
+
+      const permMsg = backendSession.sentMessages.find((m) => m.type === "permission_response");
+      expect(permMsg).toBeDefined();
+      expect(permMsg!.metadata.behavior).toBe("deny");
+      expect(permMsg!.metadata.request_id).toBe("perm-req-1");
+    });
+  });
+
+  // ── 13. Presence ────────────────────────────────────────────────────────
+
+  describe("Presence", () => {
+    it("presence_update broadcast on connect", () => {
+      bridge.getOrCreateSession("sess-1");
+      const ws1 = createMockSocket();
+      bridge.handleConsumerOpen(ws1, authContext("sess-1"));
+
+      const parsed = ws1.sentMessages.map((m) => JSON.parse(m));
+      const presenceMsg = parsed.find((m: any) => m.type === "presence_update");
+      expect(presenceMsg).toBeDefined();
+      expect(presenceMsg.consumers).toHaveLength(1);
+      expect(presenceMsg.consumers[0].userId).toBe("anonymous-1");
+    });
+
+    it("presence_update broadcast on disconnect", () => {
+      bridge.getOrCreateSession("sess-1");
+      const ws1 = createMockSocket();
+      const ws2 = createMockSocket();
+      bridge.handleConsumerOpen(ws1, authContext("sess-1"));
+      bridge.handleConsumerOpen(ws2, authContext("sess-1"));
+
+      ws1.sentMessages.length = 0;
+      ws2.sentMessages.length = 0;
+
+      bridge.handleConsumerClose(ws2, "sess-1");
+
+      // ws1 should receive a presence_update with only 1 consumer
+      const parsed = ws1.sentMessages.map((m) => JSON.parse(m));
+      const presenceMsg = parsed.find((m: any) => m.type === "presence_update");
+      expect(presenceMsg).toBeDefined();
+      expect(presenceMsg.consumers).toHaveLength(1);
+    });
+
+    it("presence_update contains all connected consumers with roles", () => {
+      bridge.getOrCreateSession("sess-1");
+      const ws1 = createMockSocket();
+      const ws2 = createMockSocket();
+      bridge.handleConsumerOpen(ws1, authContext("sess-1"));
+      bridge.handleConsumerOpen(ws2, authContext("sess-1"));
+
+      // Check last presence_update sent to ws1 (triggered by ws2 connecting)
+      const allMsgs = ws1.sentMessages.map((m) => JSON.parse(m));
+      const presenceMsgs = allMsgs.filter((m: any) => m.type === "presence_update");
+      const lastPresence = presenceMsgs[presenceMsgs.length - 1];
+      expect(lastPresence.consumers).toHaveLength(2);
+      expect(lastPresence.consumers[0]).toEqual(
+        expect.objectContaining({ userId: "anonymous-1", role: "participant" }),
+      );
+      expect(lastPresence.consumers[1]).toEqual(
+        expect.objectContaining({ userId: "anonymous-2", role: "participant" }),
+      );
+    });
+
+    it("presence_query triggers presence broadcast", () => {
+      bridge.getOrCreateSession("sess-1");
+      const ws1 = createMockSocket();
+      const ws2 = createMockSocket();
+      bridge.handleConsumerOpen(ws1, authContext("sess-1"));
+      bridge.handleConsumerOpen(ws2, authContext("sess-1"));
+      ws1.sentMessages.length = 0;
+      ws2.sentMessages.length = 0;
+
+      bridge.handleConsumerMessage(ws1, "sess-1", JSON.stringify({ type: "presence_query" }));
+
+      // Both consumers should get presence_update
+      for (const ws of [ws1, ws2]) {
+        const parsed = ws.sentMessages.map((m) => JSON.parse(m));
+        expect(parsed.some((m: any) => m.type === "presence_update")).toBe(true);
+      }
+    });
+
+    it("getSession includes consumers array", () => {
+      bridge.getOrCreateSession("sess-1");
+      const ws = createMockSocket();
+      bridge.handleConsumerOpen(ws, authContext("sess-1"));
+
+      const snapshot = bridge.getSession("sess-1")!;
+      expect(snapshot.consumers).toHaveLength(1);
+      expect(snapshot.consumers[0]).toEqual({
+        userId: "anonymous-1",
+        displayName: "User 1",
+        role: "participant",
+      });
+    });
+  });
+
+});
