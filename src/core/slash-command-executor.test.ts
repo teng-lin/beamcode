@@ -33,7 +33,7 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
 /** State with capabilities.commands (authoritative). */
 function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionState {
   return makeState({
-    slash_commands: ["/compact", "/files", "/release-notes", "/cost", "/context"],
+    slash_commands: ["/compact", "/files", "/release-notes", "/context"],
     capabilities: {
       commands: [
         { name: "/compact", description: "Compact conversation history" },
@@ -42,7 +42,6 @@ function makeStateWithCapabilities(extra: Partial<SessionState> = {}): SessionSt
         { name: "/vim", description: "Toggle vim mode", argumentHint: "[on|off]" },
         { name: "/help", description: "Show available commands" },
         { name: "/model", description: "Show or switch model", argumentHint: "[model]" },
-        { name: "/cost", description: "Show cost and token usage" },
         { name: "/context", description: "Show context window usage" },
       ],
       models: [],
@@ -69,7 +68,6 @@ describe("SlashCommandExecutor", () => {
       expect(executor.shouldForwardToCLI("/status")).toBe(true);
       expect(executor.shouldForwardToCLI("/vim")).toBe(true);
       expect(executor.shouldForwardToCLI("/config")).toBe(true);
-      expect(executor.shouldForwardToCLI("/cost")).toBe(true);
       expect(executor.shouldForwardToCLI("/context")).toBe(true);
       expect(executor.shouldForwardToCLI("/unknown-cmd")).toBe(true);
     });

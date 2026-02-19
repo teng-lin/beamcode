@@ -48,13 +48,6 @@ const BUILT_IN_COMMANDS: RegisteredCommand[] = [
     availableDuringTask: true,
   },
   {
-    name: "/cost",
-    description: "Show cost and token usage",
-    source: "built-in",
-    category: "passthrough",
-    availableDuringTask: false,
-  },
-  {
     name: "/context",
     description: "Show context window usage",
     source: "built-in",

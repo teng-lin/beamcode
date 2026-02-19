@@ -39,7 +39,6 @@ describe("E2E: Slash Commands", () => {
     expect(parsed.source).toBe("emulated");
     expect(parsed.content).toContain("/help");
     expect(parsed.content).toContain("/compact");
-    expect(parsed.content).toContain("/cost");
 
     await closeWebSockets(consumer);
   });

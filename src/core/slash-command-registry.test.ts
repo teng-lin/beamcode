@@ -14,10 +14,6 @@ describe("SlashCommandRegistry", () => {
     expect(help!.name).toBe("/help");
     expect(help!.category).toBe("consumer");
 
-    const cost = registry.find("/cost");
-    expect(cost).toBeDefined();
-    expect(cost!.category).toBe("passthrough");
-
     const context = registry.find("/context");
     expect(context).toBeDefined();
     expect(context!.category).toBe("passthrough");

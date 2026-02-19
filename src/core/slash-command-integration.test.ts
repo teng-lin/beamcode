@@ -209,7 +209,6 @@ describe("Slash command integration", () => {
     });
 
     it.each([
-      "/cost",
       "/context",
     ])("%s is forwarded to CLI as passthrough (not emulated)", async (command) => {
       const { bridge, adapter } = createBridgeWithAdapter();
@@ -219,7 +218,7 @@ describe("Slash command integration", () => {
       const backendSession = adapter.getSession("sess-1")!;
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
       backendSession.pushMessage(
-        makeSessionInitMsg({ slash_commands: ["/cost", "/context"], skills: ["commit"] }),
+        makeSessionInitMsg({ slash_commands: ["/context"], skills: ["commit"] }),
       );
       await tick();
 
