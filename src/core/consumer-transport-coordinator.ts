@@ -104,6 +104,9 @@ export class ConsumerTransportCoordinator {
       return;
     }
 
+    const traceId = (result.data as Record<string, unknown>).traceId as string | undefined;
+    this.deps.tracer.recv("bridge", msg.type, result.data, { sessionId, traceId });
+
     this.deps.emit("message:inbound", { sessionId, message: msg });
     this.deps.routeConsumerMessage(session, msg, ws);
   }

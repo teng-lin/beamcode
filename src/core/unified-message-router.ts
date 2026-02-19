@@ -30,6 +30,7 @@ import {
 } from "./consumer-message-mapper.js";
 import { applyGitInfo, type GitInfoTracker } from "./git-info-tracker.js";
 import type { MessageQueueHandler } from "./message-queue-handler.js";
+import type { MessageTracer } from "./message-tracer.js";
 import { reduce as reduceState } from "./session-state-reducer.js";
 import type { Session } from "./session-store.js";
 import { diffTeamState } from "./team-event-differ.js";
@@ -50,6 +51,7 @@ export interface UnifiedMessageRouterDeps {
   emitEvent: EmitEvent;
   persistSession: PersistSession;
   maxMessageHistoryLength: number;
+  tracer: MessageTracer;
 }
 
 // ─── UnifiedMessageRouter ────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ export class UnifiedMessageRouter {
   private emitEvent: EmitEvent;
   private persistSession: PersistSession;
   private maxMessageHistoryLength: number;
+  private tracer: MessageTracer;
 
   constructor(deps: UnifiedMessageRouterDeps) {
     this.broadcaster = deps.broadcaster;
@@ -73,10 +76,13 @@ export class UnifiedMessageRouter {
     this.emitEvent = deps.emitEvent;
     this.persistSession = deps.persistSession;
     this.maxMessageHistoryLength = deps.maxMessageHistoryLength;
+    this.tracer = deps.tracer;
   }
 
   /** Route a UnifiedMessage through state reduction and the appropriate handler. */
   route(session: Session, msg: UnifiedMessage): void {
+    this.tracer.recv("bridge", msg.type, msg, { sessionId: session.id });
+
     // Capture previous team state for event diffing
     const prevTeam = session.state.team;
 
@@ -180,10 +186,9 @@ export class UnifiedMessageRouter {
       session.registry.registerSkills(session.state.skills);
     }
 
-    this.broadcaster.broadcast(session, {
-      type: "session_init",
-      session: session.state,
-    });
+    const initMsg = { type: "session_init" as const, session: session.state };
+    this.traceT4("handleSessionInit", session, msg, initMsg);
+    this.broadcaster.broadcast(session, initMsg);
     this.persistSession(session);
 
     // If the adapter already provided capabilities in the init message (e.g. Codex),
@@ -208,10 +213,9 @@ export class UnifiedMessageRouter {
   private handleStatusChange(session: Session, msg: UnifiedMessage): void {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
-    this.broadcaster.broadcast(session, {
-      type: "status_change",
-      status: session.lastStatus,
-    });
+    const statusMsg = { type: "status_change" as const, status: session.lastStatus };
+    this.traceT4("handleStatusChange", session, msg, statusMsg);
+    this.broadcaster.broadcast(session, statusMsg);
 
     // Broadcast permissionMode change so frontend can confirm the update
     if (msg.metadata.permissionMode !== undefined && msg.metadata.permissionMode !== null) {
@@ -229,6 +233,7 @@ export class UnifiedMessageRouter {
 
   private handleAssistant(session: Session, msg: UnifiedMessage): void {
     const consumerMsg = mapAssistantMessage(msg);
+    this.traceT4("mapAssistantMessage", session, msg, consumerMsg);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -237,6 +242,7 @@ export class UnifiedMessageRouter {
 
   private handleResult(session: Session, msg: UnifiedMessage): void {
     const consumerMsg = mapResultMessage(msg);
+    this.traceT4("mapResultMessage", session, msg, consumerMsg);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -286,12 +292,15 @@ export class UnifiedMessageRouter {
       });
     }
 
-    this.broadcaster.broadcast(session, mapStreamEvent(msg));
+    const streamConsumerMsg = mapStreamEvent(msg);
+    this.traceT4("mapStreamEvent", session, msg, streamConsumerMsg);
+    this.broadcaster.broadcast(session, streamConsumerMsg);
   }
 
   private handlePermissionRequest(session: Session, msg: UnifiedMessage): void {
     const mapped = mapPermissionRequest(msg);
     if (!mapped) return;
+    this.traceT4("mapPermissionRequest", session, msg, mapped.consumerPerm);
 
     const { consumerPerm, cliPerm } = mapped;
     session.pendingPermissions.set(consumerPerm.request_id, cliPerm);
@@ -308,15 +317,20 @@ export class UnifiedMessageRouter {
   }
 
   private handleToolProgress(session: Session, msg: UnifiedMessage): void {
-    this.broadcaster.broadcast(session, mapToolProgress(msg));
+    const consumerMsg = mapToolProgress(msg);
+    this.traceT4("mapToolProgress", session, msg, consumerMsg);
+    this.broadcaster.broadcast(session, consumerMsg);
   }
 
   private handleToolUseSummary(session: Session, msg: UnifiedMessage): void {
-    this.broadcaster.broadcast(session, mapToolUseSummary(msg));
+    const consumerMsg = mapToolUseSummary(msg);
+    this.traceT4("mapToolUseSummary", session, msg, consumerMsg);
+    this.broadcaster.broadcast(session, consumerMsg);
   }
 
   private handleAuthStatus(session: Session, msg: UnifiedMessage): void {
     const consumerMsg = mapAuthStatus(msg);
+    this.traceT4("mapAuthStatus", session, msg, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
     const m = msg.metadata;
     this.emitEvent("auth_status", {
@@ -329,6 +343,7 @@ export class UnifiedMessageRouter {
 
   private handleConfigurationChange(session: Session, msg: UnifiedMessage): void {
     const consumerMsg = mapConfigurationChange(msg);
+    this.traceT4("mapConfigurationChange", session, msg, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
 
     // Also broadcast a session_update so frontend state stays in sync
@@ -353,7 +368,25 @@ export class UnifiedMessageRouter {
 
   private handleSessionLifecycle(session: Session, msg: UnifiedMessage): void {
     const consumerMsg = mapSessionLifecycle(msg);
+    this.traceT4("mapSessionLifecycle", session, msg, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
+  }
+
+  // ── Trace helpers ────────────────────────────────────────────────────────
+
+  private traceT4(
+    mapperName: string,
+    session: Session,
+    unifiedMsg: UnifiedMessage,
+    consumerMsg: unknown,
+  ): void {
+    this.tracer.translate(
+      mapperName,
+      "T4",
+      { format: "UnifiedMessage", body: unifiedMsg },
+      { format: "ConsumerMessage", body: consumerMsg },
+      { sessionId: session.id },
+    );
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

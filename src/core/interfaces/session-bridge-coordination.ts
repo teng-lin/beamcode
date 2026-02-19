@@ -5,6 +5,7 @@ import type { WebSocketLike } from "../../interfaces/transport.js";
 import type { BridgeEventMap } from "../../types/events.js";
 import type { InboundMessage } from "../../types/inbound-messages.js";
 import type { GitInfoTracker } from "../git-info-tracker.js";
+import type { MessageTracer } from "../message-tracer.js";
 import type { Session } from "../session-store.js";
 
 export type EmitBridgeEvent = <K extends keyof BridgeEventMap>(
@@ -40,4 +41,5 @@ export interface ConsumerTransportCoordinatorDeps {
   emit: EmitBridgeEvent;
   routeConsumerMessage: (session: Session, msg: InboundMessage, ws: WebSocketLike) => void;
   maxConsumerMessageSize: number;
+  tracer: MessageTracer;
 }

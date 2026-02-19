@@ -26,6 +26,7 @@ import { GitInfoTracker } from "./git-info-tracker.js";
 import { normalizeInbound } from "./inbound-normalizer.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
+import { type MessageTracer, noopTracer } from "./message-tracer.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
 import {
@@ -60,6 +61,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private backendLifecycle: BackendLifecycleManager;
   private messageRouter: UnifiedMessageRouter;
   private consumerTransport: ConsumerTransportCoordinator;
+  private tracer: MessageTracer;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -74,6 +76,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     adapterResolver?: AdapterResolver;
     /** Factory for creating rate limiters (injected from outside core). */
     rateLimiterFactory?: RateLimiterFactory;
+    /** Message tracer for debug tracing. */
+    tracer?: MessageTracer;
   }) {
     super();
     this.store = new SessionStore(options?.storage ?? null, {
@@ -82,8 +86,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
     this.logger = options?.logger ?? noopLogger;
     this.config = resolveConfig(options?.config ?? { port: 3456 });
-    this.broadcaster = new ConsumerBroadcaster(this.logger, (sessionId, msg) =>
-      this.emit("message:outbound", { sessionId, message: msg }),
+    this.tracer = options?.tracer ?? noopTracer;
+    this.broadcaster = new ConsumerBroadcaster(
+      this.logger,
+      (sessionId, msg) => this.emit("message:outbound", { sessionId, message: msg }),
+      this.tracer,
     );
     this.gatekeeper = new ConsumerGatekeeper(
       options?.authenticator ?? null,
@@ -125,6 +132,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       emitEvent,
       persistSession: (session) => this.persistSession(session),
       maxMessageHistoryLength: this.config.maxMessageHistoryLength,
+      tracer: this.tracer,
     });
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
@@ -134,6 +142,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       broadcaster: this.broadcaster,
       routeUnifiedMessage: (session, msg) => this.messageRouter.route(session, msg),
       emitEvent,
+      tracer: this.tracer,
     });
     this.consumerTransport = new ConsumerTransportCoordinator({
       sessions: {
@@ -147,6 +156,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       emit: this.forwardBridgeEvent.bind(this),
       routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
       maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
+      tracer: this.tracer,
     });
   }
 
@@ -281,6 +291,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
     await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
+    this.tracer.destroy();
     this.removeAllListeners();
   }
 
@@ -322,13 +333,16 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, userMsg);
 
-    // Normalize consumer input into a UnifiedMessage
-    const unified = normalizeInbound({
-      type: "user_message",
-      content,
-      session_id: options?.sessionIdOverride || session.backendSessionId || "",
-      images: options?.images,
-    });
+    // Normalize consumer input into a UnifiedMessage (T1 boundary)
+    const unified = this.tracedNormalizeInbound(
+      {
+        type: "user_message",
+        content,
+        session_id: options?.sessionIdOverride || session.backendSessionId || "",
+        images: options?.images,
+      },
+      sessionId,
+    );
     if (!unified) return;
 
     // Route through BackendSession or queue for later
@@ -366,18 +380,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     this.emit("permission:resolved", { sessionId, requestId, behavior });
 
-    // Route through BackendSession
+    // Route through BackendSession (T1 boundary)
     if (session.backendSession) {
-      const unified = normalizeInbound({
-        type: "permission_response",
-        request_id: requestId,
-        behavior,
-        updated_input: options?.updatedInput,
-        updated_permissions: options?.updatedPermissions as
-          | import("../types/cli-messages.js").PermissionUpdate[]
-          | undefined,
-        message: options?.message,
-      });
+      const unified = this.tracedNormalizeInbound(
+        {
+          type: "permission_response",
+          request_id: requestId,
+          behavior,
+          updated_input: options?.updatedInput,
+          updated_permissions: options?.updatedPermissions as
+            | import("../types/cli-messages.js").PermissionUpdate[]
+            | undefined,
+          message: options?.message,
+        },
+        sessionId,
+      );
       if (unified) {
         session.backendSession.send(unified);
       }
@@ -405,11 +422,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
     let unified: UnifiedMessage | null = null;
     if (request.subtype === "interrupt") {
-      unified = normalizeInbound({ type: "interrupt" });
+      unified = this.tracedNormalizeInbound({ type: "interrupt" }, sessionId);
     } else if (request.subtype === "set_model") {
-      unified = normalizeInbound({ type: "set_model", model: request.model as string });
+      unified = this.tracedNormalizeInbound(
+        { type: "set_model", model: request.model as string },
+        sessionId,
+      );
     } else if (request.subtype === "set_permission_mode") {
-      unified = normalizeInbound({ type: "set_permission_mode", mode: request.mode as string });
+      unified = this.tracedNormalizeInbound(
+        { type: "set_permission_mode", mode: request.mode as string },
+        sessionId,
+      );
     }
 
     if (unified) {
@@ -574,6 +597,31 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const session = this.store.get(sessionId);
     if (!session) return;
     this.broadcaster.broadcastCircuitBreakerState(session, circuitBreaker);
+  }
+
+  // ── Traced normalizeInbound (T1 boundary) ────────────────────────────────
+
+  private tracedNormalizeInbound(
+    msg: InboundMessage,
+    sessionId: string,
+    traceId?: string,
+  ): UnifiedMessage | null {
+    const unified = normalizeInbound(msg);
+    this.tracer.translate(
+      "normalizeInbound",
+      "T1",
+      { format: "InboundMessage", body: msg },
+      { format: "UnifiedMessage", body: unified },
+      { sessionId, traceId },
+    );
+    if (!unified) {
+      this.tracer.error("bridge", msg.type, "normalizeInbound returned null", {
+        sessionId,
+        traceId,
+        action: "dropped",
+      });
+    }
+    return unified;
   }
 
   // ── Message history management ───────────────────────────────────────────

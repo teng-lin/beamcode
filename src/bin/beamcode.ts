@@ -11,6 +11,12 @@ import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 
+import {
+  type MessageTracer,
+  MessageTracerImpl,
+  noopTracer,
+  type TraceLevel,
+} from "../core/message-tracer.js";
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectConsumerToken, loadConsumerHtml } from "../http/consumer-html.js";
@@ -39,6 +45,9 @@ interface CliConfig {
   claudeBinary: string;
   verbose: boolean;
   adapter?: CliAdapterName;
+  trace: boolean;
+  traceLevel: TraceLevel;
+  traceAllowSensitive: boolean;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -60,6 +69,9 @@ function printHelp(): void {
     --default-adapter <name>  Default backend: claude (default), codex, acp
     --adapter <name>          Alias for --default-adapter
     --no-auto-launch       Start server without creating an initial session
+    --trace                Enable message tracing (NDJSON to stderr)
+    --trace-level <level>  Trace detail: smart (default), headers, full
+    --trace-allow-sensitive  Allow sensitive payload logging with --trace-level full
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 `);
@@ -82,6 +94,9 @@ function parseArgs(argv: string[]): CliConfig {
     cwd: process.cwd(),
     claudeBinary: "claude",
     verbose: false,
+    trace: false,
+    traceLevel: "smart",
+    traceAllowSensitive: false,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -119,6 +134,21 @@ function parseArgs(argv: string[]): CliConfig {
       case "--no-auto-launch":
         config.noAutoLaunch = true;
         break;
+      case "--trace":
+        config.trace = true;
+        break;
+      case "--trace-level": {
+        const level = argv[++i];
+        if (!["smart", "headers", "full"].includes(level)) {
+          console.error("Error: --trace-level must be smart, headers, or full");
+          process.exit(1);
+        }
+        config.traceLevel = level as TraceLevel;
+        break;
+      }
+      case "--trace-allow-sensitive":
+        config.traceAllowSensitive = true;
+        break;
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -142,6 +172,17 @@ function parseArgs(argv: string[]): CliConfig {
     config.noAutoLaunch = true;
   }
 
+  if (config.traceLevel === "full" && !config.traceAllowSensitive) {
+    console.error("Error: --trace-level full requires --trace-allow-sensitive");
+    process.exit(1);
+  }
+
+  if (!config.trace && (config.traceLevel !== "smart" || config.traceAllowSensitive)) {
+    console.warn(
+      "Warning: --trace-level and --trace-allow-sensitive have no effect without --trace",
+    );
+  }
+
   return config;
 }
 
@@ -153,6 +194,22 @@ async function main(): Promise<void> {
     component: "beamcode",
     level: config.verbose ? LogLevel.DEBUG : LogLevel.INFO,
   });
+
+  // Create message tracer (noop when --trace is not set)
+  const tracer: MessageTracer = config.trace
+    ? new MessageTracerImpl({
+        level: config.traceLevel,
+        allowSensitive: config.traceAllowSensitive,
+      })
+    : noopTracer;
+
+  if (config.trace) {
+    console.warn(
+      `[trace] Message tracing enabled (level=${config.traceLevel}). NDJSON trace events will be written to stderr.${
+        config.traceAllowSensitive ? " WARNING: sensitive payload logging is enabled." : ""
+      }`,
+    );
+  }
 
   // Pre-load consumer HTML (also caches gzipped version).
   // API key injection happens after key generation (step 4).
@@ -241,6 +298,7 @@ async function main(): Promise<void> {
     authenticator,
     rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
       new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
+    tracer,
   });
 
   const httpServer = createBeamcodeServer({
