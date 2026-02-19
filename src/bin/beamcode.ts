@@ -216,10 +216,11 @@ async function main(): Promise<void> {
     logger,
   });
 
-  // 4. Generate API key (for HTTP API) and consumer token (for WS connections).
-  // The consumer token is embedded in the HTML page. Keeping them separate ensures
-  // that consumer page access does not grant full HTTP API access.
-  const apiKey = randomBytes(24).toString("base64url");
+  // 4. Generate a single consumer token used for both HTTP API auth and WS auth.
+  // The token is embedded in the HTML page so the browser can authenticate
+  // API requests (e.g. creating sessions). When a tunnel is active, the same
+  // token also guards WebSocket connections, since tunnel-forwarded requests
+  // bypass bind-address and origin checks.
   const consumerToken = randomBytes(24).toString("base64url");
   injectConsumerToken(consumerToken);
 
@@ -245,7 +246,7 @@ async function main(): Promise<void> {
   const httpServer = createBeamcodeServer({
     sessionManager,
     activeSessionId: "",
-    apiKey,
+    apiKey: consumerToken,
   });
 
   // 5. Start HTTP server and wait for it to be listening
@@ -303,10 +304,10 @@ async function main(): Promise<void> {
 ${activeSessionId ? `\n  Session: ${activeSessionId}` : ""}
   Adapter: ${adapter.name}${config.noAutoLaunch ? " (no auto-launch)" : ""}
   CWD:     ${config.cwd}
-  API Key: ${apiKey}
+  API Key: ${consumerToken}
 
   Open ${tunnelSessionUrl ? "the tunnel URL" : "the local URL"} on your phone to start coding remotely.
-  API requests require: Authorization: Bearer ${apiKey}
+  API requests require: Authorization: Bearer ${consumerToken}
 
   Press Ctrl+C to stop
 `);

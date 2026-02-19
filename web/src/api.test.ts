@@ -12,7 +12,7 @@ import {
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  document.head.innerHTML = '<meta name="beamcode-api-key" content="test-key">';
+  document.head.innerHTML = '<meta name="beamcode-consumer-token" content="test-key">';
   vi.stubGlobal(
     "fetch",
     vi.fn(() =>

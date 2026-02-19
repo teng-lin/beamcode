@@ -3,7 +3,9 @@ import type { SdkSessionInfo } from "./store";
 const BASE = "/api";
 
 function getApiKey(): string | null {
-  return document.querySelector<HTMLMetaElement>('meta[name="beamcode-api-key"]')?.content ?? null;
+  return (
+    document.querySelector<HTMLMetaElement>('meta[name="beamcode-consumer-token"]')?.content ?? null
+  );
 }
 
 function authHeaders(): Record<string, string> {
