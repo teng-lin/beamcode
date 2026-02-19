@@ -497,8 +497,8 @@ describe("E2E Real SDK-URL SessionManager", () => {
       consumer.send(
         JSON.stringify({
           type: "slash_command",
-          command: "/cost",
-          request_id: "realcli-cost-1",
+          command: "/context",
+          request_id: "realcli-context-1",
         }),
       );
       const msg = (await waitForMessageType(consumer, "slash_command_result", 60_000)) as {
@@ -509,7 +509,7 @@ describe("E2E Real SDK-URL SessionManager", () => {
       };
       expect(msg.type).toBe("slash_command_result");
       expect(msg.source).toBe("cli");
-      expect(msg.request_id).toBe("realcli-cost-1");
+      expect(msg.request_id).toBe("realcli-context-1");
       expect((msg.content ?? "").length).toBeGreaterThan(0);
     } finally {
       await closeWebSockets(consumer);

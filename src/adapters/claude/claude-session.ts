@@ -48,7 +48,7 @@ export class ClaudeSession implements BackendSession {
   // Passthrough interception
   // ---------------------------------------------------------------------------
 
-  /** Set a handler for intercepting passthrough CLI echo messages (e.g., /cost, /context). */
+  /** Set a handler for intercepting passthrough CLI echo messages (e.g., /context). */
   setPassthroughHandler(handler: ((rawMsg: CLIMessage) => boolean) | null): void {
     this.passthroughHandler = handler;
   }

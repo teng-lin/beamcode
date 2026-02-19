@@ -420,7 +420,7 @@ describe("SessionBridge — slash commands", () => {
 
   // ── passthrough command forwarding ──────────────────────────────────
   //
-  // Passthrough commands (/cost, /context) are forwarded to the backend
+  // Passthrough commands (/context) are forwarded to the backend
   // as user messages. The bridge sets pendingPassthrough state so that
   // the CLI user-echo can be intercepted and converted to a
   // slash_command_result. In the adapter path, we verify the forwarding
@@ -453,27 +453,6 @@ describe("SessionBridge — slash commands", () => {
       // Consumer should NOT receive a local slash_command_result (forwarded, not emulated)
       const consumerMsgs = ws.sentMessages.map((m) => JSON.parse(m));
       expect(consumerMsgs.some((m: any) => m.type === "slash_command_result")).toBe(false);
-    });
-
-    it("forwards /cost to backend as a user_message", async () => {
-      const ws = createMockSocket();
-
-      await bridge.connectBackend("sess-1");
-      const backendSession = adapter.getSession("sess-1")!;
-      bridge.handleConsumerOpen(ws, authContext("sess-1"));
-      backendSession.pushMessage(makeSessionInitMsg());
-      await tick();
-
-      backendSession.sentMessages.length = 0;
-
-      // Send passthrough command
-      bridge.handleConsumerMessage(
-        ws,
-        "sess-1",
-        JSON.stringify({ type: "slash_command", command: "/cost" }),
-      );
-
-      expect(backendReceivedUserMessage(backendSession, "/cost")).toBe(true);
     });
 
     it("sets pending passthrough for all forwarded commands (including /vim)", async () => {

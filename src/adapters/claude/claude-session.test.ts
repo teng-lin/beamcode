@@ -492,7 +492,7 @@ describe("ClaudeSession", () => {
       resolve(ws);
       await tick();
 
-      const userMsg = { type: "user", message: { role: "user", content: "/cost response" } };
+      const userMsg = { type: "user", message: { role: "user", content: "/context response" } };
       ws.emit("message", JSON.stringify(userMsg));
       await tick();
 
