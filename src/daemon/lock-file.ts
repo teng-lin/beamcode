@@ -1,38 +1,46 @@
-import { open, readFile, unlink, writeFile } from "node:fs/promises";
+import { open, readFile, unlink } from "node:fs/promises";
 
 /**
  * Acquire an exclusive lock file by atomically creating it with O_CREAT | O_EXCL.
  * Writes the current PID into the lock file.
  *
- * If a lock already exists but the owning process is dead (stale), atomically
- * replaces the lock file contents (overwrite with O_WRONLY + O_TRUNC) and verifies
- * ownership to prevent TOCTOU races between concurrent daemon starts.
+ * If a lock already exists but the owning process is dead (stale), removes the
+ * stale lock and retries with O_CREAT | O_EXCL. If the retry fails with EEXIST,
+ * another process won the race and we report it as already running.
  * If a lock exists and the process is alive, throws.
  */
 export async function acquireLock(lockPath: string): Promise<void> {
-  try {
-    const handle = await open(lockPath, "wx");
-    await handle.writeFile(String(process.pid), "utf-8");
-    await handle.close();
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-
-    if (await isLockStale(lockPath)) {
-      // Atomically overwrite the stale lock with our PID.
-      // If another process races us, both will write — the verify step below
-      // ensures only the actual winner proceeds.
-      await writeFile(lockPath, String(process.pid), "utf-8");
-
-      // Verify we actually own the lock (guard against concurrent stale recovery)
-      const ownerPid = await readLockPid(lockPath);
-      if (ownerPid !== process.pid) {
-        throw new Error(`Daemon already running (PID: ${ownerPid})`);
-      }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const handle = await open(lockPath, "wx");
+      await handle.writeFile(String(process.pid), "utf-8");
+      await handle.close();
       return;
-    }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
-    const pid = await readLockPid(lockPath);
-    throw new Error(`Daemon already running (PID: ${pid})`);
+      if (attempt > 0) {
+        // Already retried once after stale removal — another process won the race
+        const pid = await readLockPid(lockPath);
+        throw new Error(`Daemon already running (PID: ${pid})`);
+      }
+
+      if (await isLockStale(lockPath)) {
+        // Remove the stale lock, then retry with O_CREAT|O_EXCL.
+        // If another process races us and creates the lock between our
+        // unlink and open("wx"), the retry will fail with EEXIST — correct.
+        try {
+          await unlink(lockPath);
+        } catch (unlinkErr) {
+          if ((unlinkErr as NodeJS.ErrnoException).code !== "ENOENT") throw unlinkErr;
+          // ENOENT means another process already removed it — retry will race fairly
+        }
+        continue;
+      }
+
+      const pid = await readLockPid(lockPath);
+      throw new Error(`Daemon already running (PID: ${pid})`);
+    }
   }
 }
 

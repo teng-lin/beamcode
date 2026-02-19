@@ -16,10 +16,10 @@ export class ApiKeyAuthenticator implements Authenticator {
   }
 
   async authenticate(context: AuthContext): Promise<ConsumerIdentity> {
-    const transport = context.transport as { query?: Record<string, string> };
-    const token = transport.query?.token;
+    const query = context.transport.query as Record<string, unknown> | undefined;
+    const token = query?.token;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       throw new Error("Authentication required: missing token query parameter");
     }
 

@@ -1,8 +1,12 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import type { ChildProcessSupervisor, CreateSessionOptions } from "./child-process-supervisor.js";
+import type {
+  ChildProcessSupervisor,
+  CreateSessionOptions,
+  DaemonSessionInfo,
+} from "./child-process-supervisor.js";
 
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -106,7 +110,7 @@ export class ControlApi {
     }
 
     readBody(req)
-      .then((body) => {
+      .then(async (body) => {
         let parsed: CreateSessionOptions;
         try {
           parsed = JSON.parse(body) as CreateSessionOptions;
@@ -120,12 +124,15 @@ export class ControlApi {
           return;
         }
 
-        if (!existsSync(parsed.cwd) || !statSync(parsed.cwd).isDirectory()) {
+        const isValidDir = await stat(parsed.cwd)
+          .then((s) => s.isDirectory())
+          .catch(() => false);
+        if (!isValidDir) {
           sendJson(res, 400, { error: "cwd is not an existing directory" });
           return;
         }
 
-        let session: ReturnType<ChildProcessSupervisor["createSession"]>;
+        let session: DaemonSessionInfo;
         try {
           session = this.supervisor.createSession(parsed);
         } catch (err) {
