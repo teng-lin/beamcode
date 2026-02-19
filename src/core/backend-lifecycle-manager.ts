@@ -124,7 +124,6 @@ export class BackendLifecycleManager {
       const delta = e.delta;
       if (typeof delta !== "object" || delta === null) return "";
       const d = delta as Record<string, unknown>;
-      if (d.type === "text_delta" && typeof d.text === "string") return d.text;
       if (typeof d.text === "string") return d.text;
       return "";
     }
