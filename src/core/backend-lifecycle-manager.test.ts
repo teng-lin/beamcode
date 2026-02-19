@@ -475,6 +475,147 @@ describe("BackendLifecycleManager", () => {
       expect(routeUnifiedMessage).toHaveBeenCalledWith(session, msg);
     });
 
+    it("emits backend:message for each backend message", async () => {
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession();
+
+      await mgr.connectBackend(session);
+
+      const msg = createUnifiedMessage({ type: "assistant", role: "assistant" });
+      testSession.pushMessage(msg);
+      await tick();
+
+      expect(deps.emitEvent).toHaveBeenCalledWith("backend:message", {
+        sessionId: "sess-1",
+        message: msg,
+      });
+    });
+
+    it("converts pending passthrough assistant output into slash_command_result", async () => {
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession({
+        pendingPassthroughs: [{ command: "/context", requestId: "req-ctx" }],
+      });
+
+      await mgr.connectBackend(session);
+
+      testSession.pushMessage(
+        createUnifiedMessage({
+          type: "assistant",
+          role: "assistant",
+          content: [{ type: "text", text: "Context: 23% used" }],
+        }),
+      );
+
+      await tick();
+
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({
+          type: "slash_command_result",
+          command: "/context",
+          request_id: "req-ctx",
+          content: "Context: 23% used",
+          source: "cli",
+        }),
+      );
+      expect(session.pendingPassthroughs).toHaveLength(0);
+    });
+
+    it("converts pending passthrough result output into slash_command_result", async () => {
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession({
+        pendingPassthroughs: [{ command: "/context", requestId: "req-ctx" }],
+      });
+
+      await mgr.connectBackend(session);
+
+      testSession.pushMessage(
+        createUnifiedMessage({
+          type: "result",
+          role: "system",
+          metadata: { result: "Context summary line" },
+        }),
+      );
+
+      await tick();
+
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({
+          type: "slash_command_result",
+          command: "/context",
+          request_id: "req-ctx",
+          content: "Context summary line",
+          source: "cli",
+        }),
+      );
+      expect(session.pendingPassthroughs).toHaveLength(0);
+    });
+
+    it("converts pending passthrough stream text + empty result into slash_command_result", async () => {
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession({
+        pendingPassthroughs: [{ command: "/context", requestId: "req-ctx" }],
+      });
+
+      await mgr.connectBackend(session);
+
+      testSession.pushMessage(
+        createUnifiedMessage({
+          type: "stream_event",
+          role: "system",
+          metadata: {
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "Context Usage\nTokens: 43.5k / 200k (22%)" },
+            },
+          },
+        }),
+      );
+      testSession.pushMessage(
+        createUnifiedMessage({
+          type: "result",
+          role: "system",
+          metadata: { result: "" },
+        }),
+      );
+
+      await tick();
+
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({
+          type: "slash_command_result",
+          command: "/context",
+          request_id: "req-ctx",
+          content: "Context Usage\nTokens: 43.5k / 200k (22%)",
+          source: "cli",
+        }),
+      );
+      expect(session.pendingPassthroughs).toHaveLength(0);
+    });
+
     it("broadcasts cli_disconnected when stream ends unexpectedly", async () => {
       const testSession = new TestBackendSession("sess-1");
       const adapter = new TestAdapter();
@@ -674,6 +815,28 @@ describe("BackendLifecycleManager — cliUserEchoToText via passthrough", () => 
     expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
       session,
       expect.objectContaining({ content: "" }),
+    );
+  });
+
+  it("strips local-command-stdout wrapper from passthrough content", async () => {
+    const testSession = new TestBackendSession("sess-1", { passthrough: true });
+    const adapter = new TestAdapter();
+    adapter.nextSession = testSession;
+    const deps = createDeps({ adapter });
+    const mgr = new BackendLifecycleManager(deps);
+    const session = createSession({
+      pendingPassthroughs: [{ command: "/context", requestId: "r-1" }],
+    });
+    await mgr.connectBackend(session);
+
+    testSession.passthroughHandler!({
+      type: "user",
+      message: { content: "<local-command-stdout>Context Usage</local-command-stdout>" },
+    } as unknown as CLIMessage);
+
+    expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ content: "Context Usage" }),
     );
   });
 });
