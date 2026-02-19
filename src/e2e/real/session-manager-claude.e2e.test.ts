@@ -491,15 +491,16 @@ describe("E2E Real SDK-URL SessionManager", () => {
     const { manager, sessionId, port } = await setupRealCliSession();
     activeManagers.push(manager);
     await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+    await waitForManagerEvent(
+      manager,
+      "backend:session_id",
+      sessionId,
+      () => Boolean(manager.launcher.getSession(sessionId)?.backendSessionId),
+      20_000,
+    );
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId);
     try {
-      // In real runs, cli_connected can arrive slightly before initialize completes.
-      // Ensure capabilities are available before asserting passthrough behavior.
-      if (!manager.bridge.getSession(sessionId)?.state.capabilities) {
-        await waitForMessageType(consumer, "capabilities_ready", 30_000);
-      }
-
       consumer.send(
         JSON.stringify({
           type: "slash_command",

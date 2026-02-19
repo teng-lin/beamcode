@@ -439,6 +439,19 @@ describe("BackendLifecycleManager", () => {
       await manager.disconnectBackend(session);
       expect(session.adapterSupportsSlashPassthrough).toBe(false);
     });
+
+    it("clears backendSessionId on disconnect to avoid stale resume ids", async () => {
+      const deps = createDeps();
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession({
+        backendSession: new TestBackendSession("sess-1"),
+        backendAbort: new AbortController(),
+        backendSessionId: "stale-session-id",
+      });
+
+      await manager.disconnectBackend(session);
+      expect(session.backendSessionId).toBeUndefined();
+    });
   });
 
   describe("backend message consumption", () => {
@@ -489,6 +502,22 @@ describe("BackendLifecycleManager", () => {
         }),
       );
       expect(session.backendSession).toBeNull();
+    });
+
+    it("clears backendSessionId when stream ends unexpectedly", async () => {
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession({ backendSessionId: "stale-session-id" });
+
+      await mgr.connectBackend(session);
+      testSession.endStream();
+      await tick(50);
+
+      expect(session.backendSessionId).toBeUndefined();
     });
   });
 

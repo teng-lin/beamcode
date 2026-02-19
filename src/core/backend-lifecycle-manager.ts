@@ -212,6 +212,9 @@ export class BackendLifecycleManager {
     });
     session.backendSession = null;
     session.backendAbort = null;
+    // Avoid sending stale session_id metadata on the next turn before a fresh
+    // session_init arrives after reconnect/relaunch.
+    session.backendSessionId = undefined;
     session.adapterSupportsSlashPassthrough = false;
 
     this.logger.info(`Backend disconnected for session ${session.id}`);
@@ -291,6 +294,9 @@ export class BackendLifecycleManager {
       if (!signal.aborted) {
         session.backendSession = null;
         session.backendAbort = null;
+        // Stream ended without an intentional abort. Clear stale backend session id
+        // so resumed sessions don't route turns to a dead conversation id.
+        session.backendSessionId = undefined;
         this.broadcaster.broadcast(session, { type: "cli_disconnected" });
         this.emitEvent("backend:disconnected", {
           sessionId,
