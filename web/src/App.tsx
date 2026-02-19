@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
 import { LogDrawer } from "./components/LogDrawer";
+import { NewSessionDialog } from "./components/NewSessionDialog";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { Sidebar } from "./components/Sidebar";
@@ -151,6 +152,9 @@ export default function App() {
       </ErrorBoundary>
 
       <ShortcutsModal />
+      <ErrorBoundary fallback={<div className="p-4 text-bc-error">Dialog error</div>}>
+        <NewSessionDialog />
+      </ErrorBoundary>
 
       {/* Quick session switcher (Cmd+K / Ctrl+K) */}
       {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}

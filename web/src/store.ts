@@ -94,6 +94,7 @@ export interface AppState {
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   shortcutsModalOpen: boolean;
+  newSessionDialogOpen: boolean;
   quickSwitcherOpen: boolean;
   inspectedAgentId: string | null;
   soundEnabled: boolean;
@@ -111,6 +112,7 @@ export interface AppState {
   toggleSound: () => void;
   toggleAlerts: () => void;
   setShortcutsModalOpen: (open: boolean) => void;
+  setNewSessionDialogOpen: (open: boolean) => void;
   toggleQuickSwitcher: () => void;
   setQuickSwitcherOpen: (open: boolean) => void;
   setInspectedAgent: (id: string | null) => void;
@@ -254,6 +256,7 @@ export const useStore = create<AppState>()((set, get) => ({
   ),
   taskPanelOpen: false,
   shortcutsModalOpen: false,
+  newSessionDialogOpen: false,
   quickSwitcherOpen: false,
   inspectedAgentId: null,
   soundEnabled: readBool("beamcode_sound", true),
@@ -290,6 +293,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return { alertsEnabled: next };
     }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
+  setNewSessionDialogOpen: (open) => set({ newSessionDialogOpen: open }),
   toggleQuickSwitcher: () => set((s) => ({ quickSwitcherOpen: !s.quickSwitcherOpen })),
   setQuickSwitcherOpen: (open) => set({ quickSwitcherOpen: open }),
   setInspectedAgent: (id) => set({ inspectedAgentId: id }),
