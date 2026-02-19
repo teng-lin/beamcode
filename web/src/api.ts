@@ -20,6 +20,7 @@ export async function listSessions(): Promise<SdkSessionInfo[]> {
 export async function createSession(options: {
   cwd?: string;
   model?: string;
+  adapter?: string;
 }): Promise<SdkSessionInfo> {
   const res = await fetch(`${BASE}/sessions`, {
     method: "POST",

@@ -24,6 +24,7 @@ export interface SdkSessionInfo {
   archived?: boolean;
   name?: string;
   adapterType?: string;
+  adapterName?: string;
 }
 
 export interface SessionIdentity {
