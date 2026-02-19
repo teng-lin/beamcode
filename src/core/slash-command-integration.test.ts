@@ -4,6 +4,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import {
   createBridgeWithAdapter,
+  MockBackendAdapter,
   type MockBackendSession,
   makeControlResponseUnifiedMsg,
   makeSessionInitMsg,
@@ -13,11 +14,29 @@ import {
   authContext,
   createTestSocket as createMockSocket,
 } from "../testing/cli-message-factories.js";
-import { SessionBridge } from "./session-bridge.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
+
+/**
+ * A MockBackendAdapter with slashCommands: true so PassthroughHandler
+ * forwards non-local commands to the CLI as user messages.
+ */
+class PassthroughMockAdapter extends MockBackendAdapter {
+  override readonly capabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: true,
+    availability: "local" as const,
+    teams: false,
+  };
+}
+
+/** Create a bridge backed by an adapter that supports slash passthrough. */
+function createPassthroughBridge() {
+  return createBridgeWithAdapter({ adapter: new PassthroughMockAdapter() });
+}
 
 function parseSent(socket: { sentMessages: string[] }): any[] {
   return socket.sentMessages.map((m) => JSON.parse(m));
@@ -37,7 +56,7 @@ function backendReceivedUserMessage(backendSession: MockBackendSession, text: st
 describe("Slash command integration", () => {
   describe("end-to-end: CLI reports skills → consumer invokes skill → forwarded to CLI", () => {
     it("full lifecycle: init with skills → capabilities_ready → invoke skill → CLI receives", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       // 1. Backend connects and sends init with skills
@@ -86,7 +105,7 @@ describe("Slash command integration", () => {
     });
 
     it("skill commands appear in /help output", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -113,7 +132,7 @@ describe("Slash command integration", () => {
     });
 
     it("multiple skills can be invoked independently", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -145,7 +164,7 @@ describe("Slash command integration", () => {
 
   describe("end-to-end: non-help commands are forwarded to CLI", () => {
     it("/status is forwarded to CLI (not emulated locally)", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -177,7 +196,7 @@ describe("Slash command integration", () => {
     });
 
     it("/model is forwarded to CLI (not emulated locally)", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -211,7 +230,7 @@ describe("Slash command integration", () => {
     it.each([
       "/context",
     ])("%s is forwarded to CLI as passthrough (not emulated)", async (command) => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -241,7 +260,7 @@ describe("Slash command integration", () => {
 
   describe("end-to-end: unknown commands are forwarded to CLI", () => {
     it("unknown commands are forwarded to CLI (not rejected locally)", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -270,7 +289,7 @@ describe("Slash command integration", () => {
 
   describe("registry lifecycle across re-init", () => {
     it("skills from first init are cleared when CLI re-inits without them", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -311,7 +330,7 @@ describe("Slash command integration", () => {
     });
 
     it("capabilities enrichment adds descriptions to registry commands", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -365,7 +384,7 @@ describe("Slash command integration", () => {
 
   describe("dispatch priority", () => {
     it("all non-help commands are forwarded to CLI (no local emulation priority)", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -398,7 +417,7 @@ describe("Slash command integration", () => {
     });
 
     it("native (CLI) commands are forwarded, not emulated", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -420,7 +439,7 @@ describe("Slash command integration", () => {
     });
 
     it("skill commands are forwarded to CLI, not emulated", async () => {
-      const { bridge, adapter } = createBridgeWithAdapter();
+      const { bridge, adapter } = createPassthroughBridge();
       const consumerSocket = createMockSocket();
 
       await bridge.connectBackend("sess-1");

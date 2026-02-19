@@ -57,12 +57,14 @@ export interface Session {
   teamCorrelationBuffer: TeamToolCorrelationBuffer;
   /** Per-session slash command registry. */
   registry: SlashCommandRegistry;
-  /** Tracks a passthrough slash command awaiting CLI response. */
-  pendingPassthrough: { command: string; requestId?: string } | null;
+  /** FIFO queue of passthrough slash commands awaiting CLI responses. */
+  pendingPassthroughs: Array<{ command: string; requestId?: string }>;
   /** Backend adapter name for this session. */
   adapterName?: string;
   /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */
   adapterSlashExecutor: AdapterSlashExecutor | null;
+  /** True if the connected adapter supports CLI passthrough for slash commands. */
+  adapterSupportsSlashPassthrough: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -201,9 +203,10 @@ export class SessionStore {
       pendingInitialize: null,
       teamCorrelationBuffer: this.factories.createCorrelationBuffer(),
       registry: this.factories.createRegistry(),
-      pendingPassthrough: null,
+      pendingPassthroughs: [],
       adapterName: undefined,
       adapterSlashExecutor: null,
+      adapterSupportsSlashPassthrough: false,
     };
   }
 

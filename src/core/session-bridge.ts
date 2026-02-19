@@ -28,8 +28,14 @@ import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
+import {
+  AdapterNativeHandler,
+  LocalHandler,
+  PassthroughHandler,
+  SlashCommandChain,
+  UnsupportedHandler,
+} from "./slash-command-chain.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
-import { SlashCommandHandler } from "./slash-command-handler.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
@@ -47,11 +53,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private logger: Logger;
   private config: ResolvedConfig;
   private metrics: MetricsCollector | null;
-  private slashCommandExecutor: SlashCommandExecutor;
+  private localHandler: LocalHandler;
+  private commandChain: SlashCommandChain;
   private queueHandler: MessageQueueHandler;
   private capabilitiesProtocol: CapabilitiesProtocol;
   private backendLifecycle: BackendLifecycleManager;
-  private slashCommandHandler: SlashCommandHandler;
   private messageRouter: UnifiedMessageRouter;
 
   constructor(options?: {
@@ -97,7 +103,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.queueHandler = new MessageQueueHandler(this.broadcaster, (sessionId, content, opts) =>
       this.sendUserMessage(sessionId, content, opts),
     );
-    this.slashCommandExecutor = new SlashCommandExecutor();
+    const executor = new SlashCommandExecutor();
+    this.localHandler = new LocalHandler({ executor, broadcaster: this.broadcaster, emitEvent });
+    this.commandChain = new SlashCommandChain([
+      this.localHandler,
+      new AdapterNativeHandler({ broadcaster: this.broadcaster, emitEvent }),
+      new PassthroughHandler({
+        broadcaster: this.broadcaster,
+        emitEvent,
+        sendUserMessage: (sessionId, content) => this.sendUserMessage(sessionId, content),
+      }),
+      new UnsupportedHandler({ broadcaster: this.broadcaster, emitEvent }),
+    ]);
     this.messageRouter = new UnifiedMessageRouter({
       broadcaster: this.broadcaster,
       capabilitiesProtocol: this.capabilitiesProtocol,
@@ -115,12 +132,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       metrics: this.metrics,
       broadcaster: this.broadcaster,
       routeUnifiedMessage: (session, msg) => this.messageRouter.route(session, msg),
-      emitEvent,
-    });
-    this.slashCommandHandler = new SlashCommandHandler({
-      executor: this.slashCommandExecutor,
-      broadcaster: this.broadcaster,
-      sendUserMessage: (sessionId, content, opts) => this.sendUserMessage(sessionId, content, opts),
       emitEvent,
     });
   }
@@ -249,7 +260,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
     await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
-    this.slashCommandExecutor.dispose();
     this.removeAllListeners();
   }
 
@@ -650,7 +660,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.broadcaster.broadcastPresence(session);
         break;
       case "slash_command":
-        this.handleSlashCommandWithAdapter(session, msg);
+        this.commandChain.dispatch({
+          command: msg.command,
+          requestId: msg.request_id,
+          session,
+        });
         break;
       case "queue_message":
         this.queueHandler.handleQueueMessage(session, msg, ws);
@@ -669,57 +683,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         });
         break;
     }
-  }
-
-  private handleSlashCommandWithAdapter(
-    session: Session,
-    msg: { type: "slash_command"; command: string; request_id?: string },
-  ): void {
-    const { command, request_id } = msg;
-    const executor = session.adapterSlashExecutor;
-
-    // Try adapter-specific executor first (e.g. Codex → JSON-RPC)
-    if (executor?.handles(command)) {
-      executor
-        .execute(command)
-        .then((result) => {
-          if (!result) {
-            this.slashCommandHandler.handleSlashCommand(session, msg);
-            return;
-          }
-          this.broadcaster.broadcast(session, {
-            type: "slash_command_result",
-            command,
-            request_id,
-            content: result.content,
-            source: result.source,
-          });
-          this.emit("slash_command:executed", {
-            sessionId: session.id,
-            command,
-            source: result.source,
-            durationMs: result.durationMs,
-          });
-        })
-        .catch((err) => {
-          const error = err instanceof Error ? err.message : String(err);
-          this.broadcaster.broadcast(session, {
-            type: "slash_command_error",
-            command,
-            request_id,
-            error,
-          });
-          this.emit("slash_command:failed", {
-            sessionId: session.id,
-            command,
-            error,
-          });
-        });
-      return;
-    }
-
-    // Fallback: existing handler (local /help or forward to CLI)
-    this.slashCommandHandler.handleSlashCommand(session, msg);
   }
 
   private handleUserMessage(
@@ -760,7 +723,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
   }
 
-  // ── Slash command handling (delegated to SlashCommandHandler) ────────────
+  // ── Slash command handling (delegated to SlashCommandChain) ─────────────────
 
   /** Execute a slash command programmatically (no WebSocket needed). */
   async executeSlashCommand(
@@ -769,7 +732,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   ): Promise<{ content: string; source: "emulated" } | null> {
     const session = this.store.get(sessionId);
     if (!session) return null;
-    return this.slashCommandHandler.executeSlashCommand(session, command);
+    const ctx = { command, requestId: undefined, session };
+    if (this.localHandler.handles(ctx)) {
+      return this.localHandler.executeLocal(ctx);
+    }
+    // For non-local commands: dispatch via chain (side-effectful; result comes via broadcast)
+    this.commandChain.dispatch(ctx);
+    return null;
   }
 
   /** Push a session name update to all connected consumers for a session. */

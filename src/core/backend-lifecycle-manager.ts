@@ -135,6 +135,7 @@ export class BackendLifecycleManager {
     });
 
     session.backendSession = backendSession;
+    session.adapterSupportsSlashPassthrough = adapter.capabilities.slashCommands;
 
     // Set up adapter-specific slash executor (e.g. Codex → JSON-RPC translation)
     session.adapterSlashExecutor = null;
@@ -153,7 +154,7 @@ export class BackendLifecycleManager {
     if (this.supportsPassthroughHandler(backendSession)) {
       backendSession.setPassthroughHandler((rawMsg) => {
         if (rawMsg.type !== "user") return false;
-        const pending = session.pendingPassthrough;
+        const pending = session.pendingPassthroughs.shift();
         if (!pending) return false;
 
         const content = this.cliUserEchoToText(rawMsg.message.content);
@@ -170,7 +171,6 @@ export class BackendLifecycleManager {
           source: "cli",
           durationMs: 0,
         });
-        session.pendingPassthrough = null;
         return true;
       });
     }
@@ -212,6 +212,7 @@ export class BackendLifecycleManager {
     });
     session.backendSession = null;
     session.backendAbort = null;
+    session.adapterSupportsSlashPassthrough = false;
 
     this.logger.info(`Backend disconnected for session ${session.id}`);
     this.metrics?.recordEvent({

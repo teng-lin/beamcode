@@ -147,7 +147,7 @@ function createSession(overrides?: Partial<Session>): Session {
     backendAbort: null,
     pendingMessages: [],
     pendingPermissions: new Map(),
-    pendingPassthrough: null,
+    pendingPassthroughs: [],
     consumers: new Set(),
     lastActivity: Date.now(),
     ...overrides,
@@ -254,7 +254,7 @@ describe("BackendLifecycleManager", () => {
       const deps = createDeps({ adapter });
       const mgr = new BackendLifecycleManager(deps);
       const session = createSession({
-        pendingPassthrough: { command: "/test", requestId: "req-1" },
+        pendingPassthroughs: [{ command: "/test", requestId: "req-1" }],
       });
 
       await mgr.connectBackend(session);
@@ -273,7 +273,7 @@ describe("BackendLifecycleManager", () => {
         session,
         expect.objectContaining({ type: "slash_command_result", content: "echo result" }),
       );
-      expect(session.pendingPassthrough).toBeNull();
+      expect(session.pendingPassthroughs).toHaveLength(0);
     });
 
     it("passthrough handler returns false for non-user messages", async () => {
@@ -301,7 +301,7 @@ describe("BackendLifecycleManager", () => {
 
       const deps = createDeps({ adapter });
       const mgr = new BackendLifecycleManager(deps);
-      const session = createSession({ pendingPassthrough: null });
+      const session = createSession({ pendingPassthroughs: [] });
 
       await mgr.connectBackend(session);
 
@@ -318,6 +318,27 @@ describe("BackendLifecycleManager", () => {
       const session = createSession();
 
       await expect(mgr.connectBackend(session)).rejects.toThrow("No BackendAdapter configured");
+    });
+
+    it("sets adapterSupportsSlashPassthrough true when adapter capabilities.slashCommands is true", async () => {
+      const deps = createDeps();
+      // Override slashCommands on the TestAdapter's capabilities
+      (deps.adapter as TestAdapter).capabilities = {
+        ...(deps.adapter as TestAdapter).capabilities,
+        slashCommands: true,
+      };
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(true);
+    });
+
+    it("sets adapterSupportsSlashPassthrough false when adapter capabilities.slashCommands is false", async () => {
+      const deps = createDeps(); // TestAdapter has slashCommands: false by default
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(false);
     });
   });
 
@@ -403,6 +424,20 @@ describe("BackendLifecycleManager", () => {
       expect(metrics.recordEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "backend:disconnected" }),
       );
+    });
+
+    it("resets adapterSupportsSlashPassthrough to false on disconnect", async () => {
+      const deps = createDeps();
+      (deps.adapter as TestAdapter).capabilities = {
+        ...(deps.adapter as TestAdapter).capabilities,
+        slashCommands: true,
+      };
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(true);
+      await manager.disconnectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(false);
     });
   });
 
@@ -502,7 +537,7 @@ describe("BackendLifecycleManager — cliUserEchoToText via passthrough", () => 
     const deps = createDeps({ adapter });
     const mgr = new BackendLifecycleManager(deps);
     const session = createSession({
-      pendingPassthrough: { command: "/test", requestId: "req-1" },
+      pendingPassthroughs: [{ command: "/test", requestId: "req-1" }],
     });
 
     await mgr.connectBackend(session);
@@ -532,9 +567,9 @@ describe("BackendLifecycleManager — cliUserEchoToText via passthrough", () => 
   it("handles object content with text property", async () => {
     const { testSession, deps } = await setupWithPassthrough();
 
-    // Reset pendingPassthrough for another call
+    // Reset pendingPassthroughs for another call
     const session2 = createSession({
-      pendingPassthrough: { command: "/test2", requestId: "req-2" },
+      pendingPassthroughs: [{ command: "/test2", requestId: "req-2" }],
     });
     // Re-connect with a new session that has passthrough pending
     const testSession2 = new TestBackendSession("sess-2", { passthrough: true });
@@ -576,7 +611,7 @@ describe("BackendLifecycleManager — cliUserEchoToText via passthrough", () => 
     const deps = createDeps({ adapter });
     const mgr = new BackendLifecycleManager(deps);
     const session = createSession({
-      pendingPassthrough: { command: "/x", requestId: "r-1" },
+      pendingPassthroughs: [{ command: "/x", requestId: "r-1" }],
     });
     await mgr.connectBackend(session);
 
@@ -598,7 +633,7 @@ describe("BackendLifecycleManager — cliUserEchoToText via passthrough", () => 
     const deps = createDeps({ adapter });
     const mgr = new BackendLifecycleManager(deps);
     const session = createSession({
-      pendingPassthrough: { command: "/x", requestId: "r-1" },
+      pendingPassthroughs: [{ command: "/x", requestId: "r-1" }],
     });
     await mgr.connectBackend(session);
 

@@ -32,12 +32,26 @@ function backendReceivedUserMessage(backendSession: MockBackendSession, text: st
 }
 
 /**
+ * A MockBackendAdapter with slashCommands: true (passthrough capable).
+ * Used for tests that verify non-help commands are forwarded to the backend.
+ */
+class PassthroughMockAdapter extends MockBackendAdapter {
+  override readonly capabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: true,
+    availability: "local" as const,
+    teams: false,
+  };
+}
+
+/**
  * Create a bridge with adapter AND a custom authenticator.
  * Needed for the observer access-control test.
  */
 function createBridgeWithAuth(authenticator: Authenticator) {
   const storage = new MemoryStorage();
-  const adapter = new MockBackendAdapter();
+  const adapter = new PassthroughMockAdapter();
   const bridge = new SessionBridge({
     storage,
     authenticator,
@@ -55,7 +69,8 @@ describe("SessionBridge — slash commands", () => {
   let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    const created = createBridgeWithAdapter();
+    const passthroughAdapter = new PassthroughMockAdapter();
+    const created = createBridgeWithAdapter({ adapter: passthroughAdapter });
     bridge = created.bridge;
     adapter = created.adapter;
   });
@@ -115,7 +130,7 @@ describe("SessionBridge — slash commands", () => {
       expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
 
-    it("forwards /model command to CLI with pendingPassthrough", async () => {
+    it("forwards /model command to CLI with pendingPassthroughs", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -137,7 +152,9 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("forwards unknown commands to CLI (no local error)", async () => {
-      const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter();
+      const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter({
+        adapter: new PassthroughMockAdapter(),
+      });
       const ws = createMockSocket();
 
       await noPtyBridge.connectBackend("sess-1");
@@ -421,7 +438,7 @@ describe("SessionBridge — slash commands", () => {
   // ── passthrough command forwarding ──────────────────────────────────
   //
   // Passthrough commands (/context) are forwarded to the backend
-  // as user messages. The bridge sets pendingPassthrough state so that
+  // as user messages. The bridge sets pendingPassthroughs state so that
   // the CLI user-echo can be intercepted and converted to a
   // slash_command_result. In the adapter path, we verify the forwarding
   // behavior; the echo-interception is tested via the CLI message path
