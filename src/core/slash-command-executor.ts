@@ -13,12 +13,6 @@ export function commandName(command: string): string {
 }
 
 export class SlashCommandExecutor {
-  /** True if this command should go to the CLI (everything except /help). */
-  shouldForwardToCLI(command: string): boolean {
-    const name = commandName(command);
-    return name !== "/help";
-  }
-
   /**
    * Execute /help locally. Everything else should be forwarded, not executed here.
    * @throws if the command is not /help
@@ -96,9 +90,5 @@ export class SlashCommandExecutor {
     });
 
     return `${baseContent}\n${formatted.join("\n")}`;
-  }
-
-  dispose(): void {
-    // No-op — no resources to clean up
   }
 }

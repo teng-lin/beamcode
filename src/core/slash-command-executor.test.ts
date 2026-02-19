@@ -57,44 +57,6 @@ function createExecutor() {
 }
 
 describe("SlashCommandExecutor", () => {
-  describe("shouldForwardToCLI", () => {
-    it("returns true for CLI commands", () => {
-      const executor = createExecutor();
-
-      expect(executor.shouldForwardToCLI("/model")).toBe(true);
-      expect(executor.shouldForwardToCLI("/model some-arg")).toBe(true);
-      expect(executor.shouldForwardToCLI("/compact")).toBe(true);
-      expect(executor.shouldForwardToCLI("/commit")).toBe(true);
-      expect(executor.shouldForwardToCLI("/status")).toBe(true);
-      expect(executor.shouldForwardToCLI("/vim")).toBe(true);
-      expect(executor.shouldForwardToCLI("/config")).toBe(true);
-      expect(executor.shouldForwardToCLI("/context")).toBe(true);
-      expect(executor.shouldForwardToCLI("/unknown-cmd")).toBe(true);
-    });
-
-    it("returns false for /help", () => {
-      const executor = createExecutor();
-      expect(executor.shouldForwardToCLI("/help")).toBe(false);
-    });
-
-    it("returns true for /clear (forwarded to CLI)", () => {
-      const executor = createExecutor();
-      expect(executor.shouldForwardToCLI("/clear")).toBe(true);
-    });
-
-    it("handles commands with leading whitespace", () => {
-      const executor = createExecutor();
-      expect(executor.shouldForwardToCLI("  /help")).toBe(false);
-      expect(executor.shouldForwardToCLI("  /model")).toBe(true);
-    });
-
-    it("handles commands with arguments", () => {
-      const executor = createExecutor();
-      expect(executor.shouldForwardToCLI("/help topic")).toBe(false);
-      expect(executor.shouldForwardToCLI("/model gpt-4")).toBe(true);
-    });
-  });
-
   describe("executeLocal", () => {
     it("/help returns help text with capabilities descriptions", async () => {
       const executor = createExecutor();
@@ -165,13 +127,6 @@ describe("SlashCommandExecutor", () => {
       await expect(executor.executeLocal(state, "/compact")).rejects.toThrow(
         'Command "/compact" must be forwarded to CLI',
       );
-    });
-  });
-
-  describe("dispose", () => {
-    it("does not throw", () => {
-      const executor = createExecutor();
-      expect(() => executor.dispose()).not.toThrow();
     });
   });
 });

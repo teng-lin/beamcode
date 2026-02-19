@@ -32,12 +32,26 @@ function backendReceivedUserMessage(backendSession: MockBackendSession, text: st
 }
 
 /**
+ * A MockBackendAdapter with slashCommands: true (passthrough capable).
+ * Used for tests that verify non-help commands are forwarded to the backend.
+ */
+class PassthroughMockAdapter extends MockBackendAdapter {
+  override readonly capabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: true,
+    availability: "local" as const,
+    teams: false,
+  };
+}
+
+/**
  * Create a bridge with adapter AND a custom authenticator.
  * Needed for the observer access-control test.
  */
 function createBridgeWithAuth(authenticator: Authenticator) {
   const storage = new MemoryStorage();
-  const adapter = new MockBackendAdapter();
+  const adapter = new PassthroughMockAdapter();
   const bridge = new SessionBridge({
     storage,
     authenticator,
@@ -55,7 +69,8 @@ describe("SessionBridge — slash commands", () => {
   let adapter: MockBackendAdapter;
 
   beforeEach(() => {
-    const created = createBridgeWithAdapter();
+    const passthroughAdapter = new PassthroughMockAdapter();
+    const created = createBridgeWithAdapter({ adapter: passthroughAdapter });
     bridge = created.bridge;
     adapter = created.adapter;
   });
@@ -137,7 +152,9 @@ describe("SessionBridge — slash commands", () => {
     });
 
     it("forwards unknown commands to CLI (no local error)", async () => {
-      const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter();
+      const { bridge: noPtyBridge, adapter: noPtyAdapter } = createBridgeWithAdapter({
+        adapter: new PassthroughMockAdapter(),
+      });
       const ws = createMockSocket();
 
       await noPtyBridge.connectBackend("sess-1");
