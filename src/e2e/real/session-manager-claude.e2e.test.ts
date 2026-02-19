@@ -512,7 +512,7 @@ describe("E2E Real SDK-URL SessionManager", () => {
       expect(msg.type).toBe("slash_command_result");
       expect(msg.source).toBe("cli");
       expect(msg.request_id).toBe("realcli-context-1");
-      expect((msg.content ?? "").length).toBeGreaterThan(0);
+      expect(msg.content ?? "").toContain("Context Usage");
     } finally {
       await closeWebSockets(consumer);
     }

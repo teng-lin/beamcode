@@ -44,6 +44,7 @@ export class BackendLifecycleManager {
   private broadcaster: ConsumerBroadcaster;
   private routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   private emitEvent: EmitEvent;
+  private passthroughTextBuffers = new Map<string, string>();
 
   constructor(deps: BackendLifecycleDeps) {
     this.adapter = deps.adapter;
@@ -64,30 +65,117 @@ export class BackendLifecycleManager {
   }
 
   private cliUserEchoToText(content: unknown): string {
-    if (typeof content === "string") return content;
+    if (typeof content === "string") return this.normalizeLocalCommandOutput(content);
     if (Array.isArray(content)) {
-      return content
-        .map((item) => {
-          if (typeof item === "string") return item;
-          if (
-            item &&
-            typeof item === "object" &&
-            "type" in item &&
-            (item as { type?: string }).type === "text" &&
-            "text" in item &&
-            typeof (item as { text?: unknown }).text === "string"
-          ) {
-            return (item as { text: string }).text;
-          }
-          return "";
-        })
-        .join("");
+      return this.normalizeLocalCommandOutput(
+        content
+          .map((item) => {
+            if (typeof item === "string") return item;
+            if (
+              item &&
+              typeof item === "object" &&
+              "type" in item &&
+              (item as { type?: string }).type === "text" &&
+              "text" in item &&
+              typeof (item as { text?: unknown }).text === "string"
+            ) {
+              return (item as { text: string }).text;
+            }
+            return "";
+          })
+          .join(""),
+      );
     }
     if (content && typeof content === "object" && "text" in content) {
       const text = (content as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
+      return typeof text === "string" ? this.normalizeLocalCommandOutput(text) : "";
     }
     return "";
+  }
+
+  private normalizeLocalCommandOutput(text: string): string {
+    const unwrapped = text
+      .replace(/<local-command-stdout>/g, "")
+      .replace(/<\/local-command-stdout>/g, "");
+    return unwrapped.trim();
+  }
+
+  private unifiedSlashOutputToText(msg: UnifiedMessage): string {
+    if (msg.type === "assistant") {
+      return msg.content
+        .filter((block) => block.type === "text")
+        .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+        .join("");
+    }
+    if (msg.type === "result") {
+      const result = msg.metadata.result;
+      return typeof result === "string" ? result : "";
+    }
+    return "";
+  }
+
+  private streamEventTextChunk(msg: UnifiedMessage): string {
+    if (msg.type !== "stream_event") return "";
+    const event = msg.metadata.event;
+    if (typeof event !== "object" || event === null) return "";
+    const e = event as Record<string, unknown>;
+
+    if (e.type === "content_block_delta") {
+      const delta = e.delta;
+      if (typeof delta !== "object" || delta === null) return "";
+      const d = delta as Record<string, unknown>;
+      if (d.type === "text_delta" && typeof d.text === "string") return d.text;
+      if (typeof d.text === "string") return d.text;
+      return "";
+    }
+
+    if (e.type === "content_block_start") {
+      const block = e.content_block;
+      if (typeof block !== "object" || block === null) return "";
+      const b = block as Record<string, unknown>;
+      if (b.type === "text" && typeof b.text === "string") return b.text;
+      return "";
+    }
+
+    return "";
+  }
+
+  private maybeEmitPendingPassthroughFromUnified(session: Session, msg: UnifiedMessage): void {
+    const pending = session.pendingPassthroughs[0];
+    if (!pending) {
+      this.passthroughTextBuffers.delete(session.id);
+      return;
+    }
+
+    const streamChunk = this.streamEventTextChunk(msg);
+    if (streamChunk) {
+      const current = this.passthroughTextBuffers.get(session.id) ?? "";
+      // Keep a bounded buffer per session to avoid unbounded growth.
+      this.passthroughTextBuffers.set(session.id, `${current}${streamChunk}`.slice(-50_000));
+      return;
+    }
+
+    let content = this.unifiedSlashOutputToText(msg);
+    if (!content && msg.type === "result") {
+      content = this.passthroughTextBuffers.get(session.id) ?? "";
+    }
+    if (!content) return;
+
+    session.pendingPassthroughs.shift();
+    this.passthroughTextBuffers.delete(session.id);
+    this.broadcaster.broadcast(session, {
+      type: "slash_command_result",
+      command: pending.command,
+      request_id: pending.requestId,
+      content,
+      source: "cli",
+    });
+    this.emitEvent("slash_command:executed", {
+      sessionId: session.id,
+      command: pending.command,
+      source: "cli",
+      durationMs: 0,
+    });
   }
 
   /** Whether a BackendAdapter is configured. */
@@ -156,6 +244,7 @@ export class BackendLifecycleManager {
         if (rawMsg.type !== "user") return false;
         const pending = session.pendingPassthroughs.shift();
         if (!pending) return false;
+        this.passthroughTextBuffers.delete(session.id);
 
         const content = this.cliUserEchoToText(rawMsg.message.content);
         this.broadcaster.broadcast(session, {
@@ -212,6 +301,7 @@ export class BackendLifecycleManager {
     });
     session.backendSession = null;
     session.backendAbort = null;
+    this.passthroughTextBuffers.delete(session.id);
     // Avoid sending stale session_id metadata on the next turn before a fresh
     // session_init arrives after reconnect/relaunch.
     session.backendSessionId = undefined;
@@ -278,6 +368,11 @@ export class BackendLifecycleManager {
         for await (const msg of session.backendSession.messages) {
           if (signal.aborted) break;
           session.lastActivity = Date.now();
+          this.emitEvent("backend:message", { sessionId, message: msg });
+          // Some CLI versions return slash command output as regular assistant/result
+          // messages without a user-echo. Convert that first textual response into a
+          // slash_command_result so passthrough commands remain reliable.
+          this.maybeEmitPendingPassthroughFromUnified(session, msg);
           this.routeUnifiedMessage(session, msg);
         }
       } catch (err) {
@@ -294,6 +389,7 @@ export class BackendLifecycleManager {
       if (!signal.aborted) {
         session.backendSession = null;
         session.backendAbort = null;
+        this.passthroughTextBuffers.delete(session.id);
         // Stream ended without an intentional abort. Clear stale backend session id
         // so resumed sessions don't route turns to a dead conversation id.
         session.backendSessionId = undefined;
