@@ -10,12 +10,7 @@ import { createServer } from "node:net";
 import { expect } from "vitest";
 import { WebSocket } from "ws";
 import type { SessionManager } from "../../core/session-manager.js";
-import {
-  closeWebSockets,
-  collectMessages,
-  waitForMessage,
-  waitForMessageType,
-} from "../helpers/test-utils.js";
+import { collectMessages, waitForMessageType } from "../helpers/test-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types

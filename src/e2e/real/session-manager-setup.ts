@@ -46,7 +46,8 @@ export async function setupRealSession(
     initializeTimeoutMs: options?.config?.initializeTimeoutMs ?? 20_000,
     reconnectGracePeriodMs: options?.config?.reconnectGracePeriodMs ?? 10_000,
   };
-  const storage = options?.storage ?? new MemoryStorage();
+  const memStorage = new MemoryStorage();
+  const storage = options?.storage ?? memStorage;
 
   const adapterResolver = createAdapterResolver({ processManager }, adapterName);
 
@@ -56,7 +57,7 @@ export async function setupRealSession(
     server,
     adapterResolver,
     authenticator: options?.authenticator,
-    launcher: new SdkUrlLauncher({ processManager, config, storage }),
+    launcher: new SdkUrlLauncher({ processManager, config, storage: memStorage }),
   });
 
   attachTrace(manager);
