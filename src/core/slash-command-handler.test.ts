@@ -188,6 +188,27 @@ describe("SlashCommandHandler", () => {
     });
   });
 
+  describe("handleSlashCommand — concurrent passthrough", () => {
+    it("queues two forwarded commands without clobbering", () => {
+      const { handler, session } = setup();
+
+      handler.handleSlashCommand(session, {
+        type: "slash_command",
+        command: "/compact",
+        request_id: "req-1",
+      });
+      handler.handleSlashCommand(session, {
+        type: "slash_command",
+        command: "/model",
+        request_id: "req-2",
+      });
+
+      expect(session.pendingPassthroughs).toHaveLength(2);
+      expect(session.pendingPassthroughs[0]).toEqual({ command: "/compact", requestId: "req-1" });
+      expect(session.pendingPassthroughs[1]).toEqual({ command: "/model", requestId: "req-2" });
+    });
+  });
+
   describe("executeSlashCommand (programmatic API)", () => {
     it("returns content and source for local commands", async () => {
       const { handler, session } = setup();

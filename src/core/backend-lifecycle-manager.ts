@@ -153,7 +153,7 @@ export class BackendLifecycleManager {
     if (this.supportsPassthroughHandler(backendSession)) {
       backendSession.setPassthroughHandler((rawMsg) => {
         if (rawMsg.type !== "user") return false;
-        const pending = session.pendingPassthrough;
+        const pending = session.pendingPassthroughs.shift();
         if (!pending) return false;
 
         const content = this.cliUserEchoToText(rawMsg.message.content);
@@ -170,7 +170,6 @@ export class BackendLifecycleManager {
           source: "cli",
           durationMs: 0,
         });
-        session.pendingPassthrough = null;
         return true;
       });
     }

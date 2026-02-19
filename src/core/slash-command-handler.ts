@@ -112,10 +112,10 @@ export class SlashCommandHandler {
 
   /** Forward a command to the CLI and set up echo interception. */
   private forwardToCLI(session: Session, command: string, requestId?: string): void {
-    session.pendingPassthrough = {
+    session.pendingPassthroughs.push({
       command: commandName(command),
       requestId,
-    };
+    });
     this.sendUserMessage(session.id, command);
   }
 }
