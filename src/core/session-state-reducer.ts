@@ -10,6 +10,7 @@
  * No side effects — does not emit events, persist, or broadcast.
  */
 
+import type { SessionState } from "../types/session-state.js";
 import { reduceTeamState } from "./team-state-reducer.js";
 import type { CorrelatedToolUse } from "./team-tool-correlation.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
@@ -17,7 +18,6 @@ import { recognizeTeamToolUses } from "./team-tool-recognizer.js";
 import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 import { isToolResultContent } from "./types/unified-message.js";
-import type { SessionState } from "../types/session-state.js";
 
 /**
  * Apply a UnifiedMessage to session state, returning a new state.
@@ -40,6 +40,8 @@ export function reduce(
       return reduceResult(state, message);
     case "control_response":
       return reduceControlResponse(state, message);
+    case "configuration_change":
+      return reduceConfigurationChange(state, message);
     default:
       break;
   }
@@ -133,6 +135,29 @@ function reduceResult(state: SessionState, msg: UnifiedMessage): SessionState {
   }
 
   return newState;
+}
+
+function reduceConfigurationChange(state: SessionState, msg: UnifiedMessage): SessionState {
+  const m = msg.metadata;
+  const newState = { ...state };
+  let changed = false;
+
+  if (typeof m.model === "string" && m.model !== state.model) {
+    newState.model = m.model;
+    changed = true;
+  }
+  const newMode =
+    typeof m.mode === "string"
+      ? m.mode
+      : typeof m.permissionMode === "string"
+        ? m.permissionMode
+        : undefined;
+  if (newMode !== undefined && newMode !== state.permissionMode) {
+    newState.permissionMode = newMode;
+    changed = true;
+  }
+
+  return changed ? newState : state;
 }
 
 function reduceControlResponse(state: SessionState, _msg: UnifiedMessage): SessionState {

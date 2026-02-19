@@ -56,7 +56,7 @@ describe("translateSessionUpdate", () => {
 
       expect(result.type).toBe("stream_event");
       expect(result.role).toBe("assistant");
-      expect(result.content[0]).toEqual({ type: "text", text: "Let me think..." });
+      expect(result.content[0]).toEqual({ type: "thinking", thinking: "Let me think..." });
       expect(result.metadata.thought).toBe(true);
     });
   });
@@ -169,7 +169,7 @@ describe("translateSessionUpdate", () => {
     });
   });
 
-  describe("available_commands_update → unknown", () => {
+  describe("available_commands_update → configuration_change", () => {
     it("translates as forward-compat passthrough", () => {
       const commands = [{ name: "web", description: "Search the web" }];
       const update: AcpSessionUpdate = {
@@ -179,8 +179,9 @@ describe("translateSessionUpdate", () => {
       };
       const result = translateSessionUpdate(update);
 
-      expect(result.type).toBe("unknown");
+      expect(result.type).toBe("configuration_change");
       expect(result.role).toBe("system");
+      expect(result.metadata.subtype).toBe("available_commands_update");
       expect(result.metadata.availableCommands).toEqual(commands);
     });
   });

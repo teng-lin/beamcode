@@ -42,6 +42,26 @@ export function mapAssistantMessage(msg: UnifiedMessage): ConsumerMessage {
               content: block.content,
               is_error: block.is_error,
             };
+          case "thinking":
+            return {
+              type: "thinking" as const,
+              thinking: block.thinking,
+              budget_tokens: block.budget_tokens,
+            };
+          case "code":
+            return {
+              type: "code" as const,
+              language: block.language,
+              code: block.code,
+            };
+          case "image":
+            return {
+              type: "image" as const,
+              media_type: block.source.media_type,
+              data: block.source.data,
+            };
+          case "refusal":
+            return { type: "refusal" as const, refusal: block.refusal };
           default:
             return { type: "text" as const, text: "" };
         }
@@ -71,7 +91,7 @@ export function mapAssistantMessage(msg: UnifiedMessage): ConsumerMessage {
 export function mapResultMessage(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
   const isError = (m.is_error as boolean) ?? false;
-  const subtype = (m.subtype as string | undefined) as
+  const subtype = m.subtype as string | undefined as
     | "success"
     | "error_during_execution"
     | "error_max_turns"
@@ -121,6 +141,8 @@ export function mapResultMessage(msg: UnifiedMessage): ConsumerMessage {
         | undefined,
       total_lines_added: m.total_lines_added as number | undefined,
       total_lines_removed: m.total_lines_removed as number | undefined,
+      error_code: m.error_code as string | undefined,
+      error_message: m.error_message as string | undefined,
     },
   };
 }
@@ -205,5 +227,32 @@ export function mapAuthStatus(msg: UnifiedMessage): ConsumerMessage {
     isAuthenticating: m.isAuthenticating as boolean,
     output: m.output as string[],
     error: m.error as string | undefined,
+  };
+}
+
+/**
+ * Map a UnifiedMessage of type "configuration_change" to a ConsumerMessage.
+ */
+export function mapConfigurationChange(msg: UnifiedMessage): ConsumerMessage {
+  return mapMetadataMessage("configuration_change", msg);
+}
+
+/**
+ * Map a UnifiedMessage of type "session_lifecycle" to a ConsumerMessage.
+ */
+export function mapSessionLifecycle(msg: UnifiedMessage): ConsumerMessage {
+  return mapMetadataMessage("session_lifecycle", msg);
+}
+
+/** Shared mapper for message types that forward subtype + metadata. */
+function mapMetadataMessage(
+  type: "configuration_change" | "session_lifecycle",
+  msg: UnifiedMessage,
+): ConsumerMessage {
+  const { subtype: sub, ...rest } = msg.metadata;
+  return {
+    type,
+    subtype: (sub as string) ?? "unknown",
+    metadata: rest,
   };
 }

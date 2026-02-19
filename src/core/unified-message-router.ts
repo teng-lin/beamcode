@@ -20,16 +20,18 @@ import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import {
   mapAssistantMessage,
   mapAuthStatus,
+  mapConfigurationChange,
   mapPermissionRequest,
   mapResultMessage,
+  mapSessionLifecycle,
   mapStreamEvent,
   mapToolProgress,
   mapToolUseSummary,
 } from "./consumer-message-mapper.js";
 import { applyGitInfo, type GitInfoTracker } from "./git-info-tracker.js";
 import type { MessageQueueHandler } from "./message-queue-handler.js";
-import type { Session } from "./session-store.js";
 import { reduce as reduceState } from "./session-state-reducer.js";
+import type { Session } from "./session-store.js";
 import { diffTeamState } from "./team-event-differ.js";
 import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
@@ -114,6 +116,12 @@ export class UnifiedMessageRouter {
         break;
       case "auth_status":
         this.handleAuthStatus(session, msg);
+        break;
+      case "configuration_change":
+        this.handleConfigurationChange(session, msg);
+        break;
+      case "session_lifecycle":
+        this.handleSessionLifecycle(session, msg);
         break;
     }
   }
@@ -317,6 +325,35 @@ export class UnifiedMessageRouter {
       output: m.output as string[],
       error: m.error as string | undefined,
     });
+  }
+
+  private handleConfigurationChange(session: Session, msg: UnifiedMessage): void {
+    const consumerMsg = mapConfigurationChange(msg);
+    this.broadcaster.broadcast(session, consumerMsg);
+
+    // Also broadcast a session_update so frontend state stays in sync
+    const m = msg.metadata;
+    const patch: Record<string, unknown> = {};
+    if (typeof m.model === "string") patch.model = m.model;
+    const modeValue =
+      typeof m.mode === "string"
+        ? m.mode
+        : typeof m.permissionMode === "string"
+          ? m.permissionMode
+          : undefined;
+    if (modeValue !== undefined) patch.permissionMode = modeValue;
+    if (Object.keys(patch).length > 0) {
+      this.broadcaster.broadcast(session, {
+        type: "session_update",
+        session: patch as Partial<SessionState>,
+      });
+      this.persistSession(session);
+    }
+  }
+
+  private handleSessionLifecycle(session: Session, msg: UnifiedMessage): void {
+    const consumerMsg = mapSessionLifecycle(msg);
+    this.broadcaster.broadcast(session, consumerMsg);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

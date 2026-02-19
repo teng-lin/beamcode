@@ -970,7 +970,7 @@ describe("CodexSession — response handling", () => {
     expect(sent.params.threadId).toBe("legacy-conv");
   });
 
-  it("handles response with non-message items (skips them)", async () => {
+  it("handles response with non-message items (translates them)", async () => {
     const iter = session.messages[Symbol.asyncIterator]();
 
     emitMsg(ws, {
@@ -989,6 +989,12 @@ describe("CodexSession — response handling", () => {
         ],
       },
     });
+
+    // function_call items now produce tool_progress messages
+    const toolProgress = await iter.next();
+    expect(toolProgress.value.type).toBe("tool_progress");
+    expect(toolProgress.value.metadata.name).toBe("test");
+    expect(toolProgress.value.metadata.item_id).toBe("fc-1");
 
     const assistant = await iter.next();
     expect(assistant.value.type).toBe("assistant");

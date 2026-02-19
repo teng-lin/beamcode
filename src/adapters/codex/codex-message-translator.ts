@@ -286,6 +286,7 @@ function translateCompleted(event: CodexTurnEvent): UnifiedMessage {
 }
 
 function translateFailed(event: CodexTurnEvent): UnifiedMessage {
+  const errorMsg = event.response?.status ?? "unknown_error";
   return createUnifiedMessage({
     type: "result",
     role: "system",
@@ -293,7 +294,9 @@ function translateFailed(event: CodexTurnEvent): UnifiedMessage {
       status: "failed",
       is_error: true,
       response_id: event.response?.id,
-      error: event.response?.status ?? "unknown_error",
+      error: errorMsg,
+      error_code: "execution_error",
+      error_message: errorMsg,
     },
   });
 }
@@ -304,7 +307,7 @@ function itemContentToUnified(item: CodexItem): UnifiedContent[] {
 
   return item.content.map((part): UnifiedContent => {
     if (part.type === "refusal") {
-      return { type: "text", text: `[Refusal] ${part.refusal}` };
+      return { type: "refusal", refusal: part.refusal };
     }
     return { type: "text", text: part.text };
   });

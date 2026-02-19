@@ -126,7 +126,7 @@ function translateAgentThoughtChunk(update: AcpSessionUpdate): UnifiedMessage {
   const content: UnifiedContent[] = [];
   const textChunk = update.content as { type?: string; text?: string } | undefined;
   if (textChunk?.text) {
-    content.push({ type: "text", text: textChunk.text });
+    content.push({ type: "thinking", thinking: textChunk.text });
   }
 
   return createUnifiedMessage({
@@ -194,9 +194,10 @@ function translatePlan(update: AcpSessionUpdate): UnifiedMessage {
 
 function translateAvailableCommandsUpdate(update: AcpSessionUpdate): UnifiedMessage {
   return createUnifiedMessage({
-    type: "unknown",
+    type: "configuration_change",
     role: "system",
     metadata: {
+      subtype: "available_commands_update",
       sessionId: update.sessionId,
       availableCommands: update.availableCommands,
     },
@@ -208,6 +209,7 @@ function translateCurrentModeUpdate(update: AcpSessionUpdate): UnifiedMessage {
     type: "configuration_change",
     role: "system",
     metadata: {
+      subtype: "current_mode_update",
       sessionId: update.sessionId,
       modeId: update.modeId as string,
     },
