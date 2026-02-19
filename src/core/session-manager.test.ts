@@ -154,6 +154,17 @@ describe("SessionManager", () => {
       const session = mgr.launcher.getSession(info.sessionId);
       expect(session?.state).toBe("connected");
     });
+
+    it("seeds bridge session state when launcher spawns a process", () => {
+      mgr.start();
+      const info = mgr.launcher.launch({ cwd: "/tmp", model: "test-model" });
+
+      const snapshot = mgr.bridge.getSession(info.sessionId);
+      expect(snapshot).toBeDefined();
+      expect(snapshot!.state.cwd).toBe("/tmp");
+      expect(snapshot!.state.model).toBe("test-model");
+      expect(snapshot!.state.adapterName).toBe("claude");
+    });
   });
 
   // -----------------------------------------------------------------------

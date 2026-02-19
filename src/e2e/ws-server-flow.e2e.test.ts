@@ -254,7 +254,8 @@ describe("E2E: WebSocket Server CLI+Consumer Bidirectional Flow", () => {
   // ── 1. CLI sends message, consumer receives it ──────────────────────────
 
   it("CLI sends assistant message, consumer receives it", async () => {
-    const { port } = await startWiredServer();
+    const { bridge, port } = await startWiredServer();
+    bridge.getOrCreateSession(UUID_1);
 
     // Connect consumer first (will get session_init, identity, etc.)
     const consumer = await connect(`ws://localhost:${port}/ws/consumer/${UUID_1}`);
@@ -337,7 +338,8 @@ describe("E2E: WebSocket Server CLI+Consumer Bidirectional Flow", () => {
   // ── 3. Multiple consumers receive broadcast ─────────────────────────────
 
   it("all consumers receive CLI broadcast", async () => {
-    const { port } = await startWiredServer();
+    const { bridge, port } = await startWiredServer();
+    bridge.getOrCreateSession(UUID_1);
 
     // Connect 3 consumers
     const consumers = await Promise.all([
@@ -395,7 +397,9 @@ describe("E2E: WebSocket Server CLI+Consumer Bidirectional Flow", () => {
   // ── 4. Session isolation E2E ────────────────────────────────────────────
 
   it("messages do not leak between sessions", async () => {
-    const { port } = await startWiredServer();
+    const { bridge, port } = await startWiredServer();
+    bridge.getOrCreateSession(UUID_1);
+    bridge.getOrCreateSession(UUID_2);
 
     // Set up 2 separate sessions
     const consumer1 = await connect(`ws://localhost:${port}/ws/consumer/${UUID_1}`);

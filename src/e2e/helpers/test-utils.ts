@@ -105,9 +105,14 @@ export interface TestSession {
 }
 
 export function createTestSession(testManager: TestSessionManager): TestSession {
-  const { sessionId } = testManager.manager.launcher.launch({ cwd: process.cwd() });
+  const launched = testManager.manager.launcher.launch({ cwd: process.cwd() });
+  testManager.manager.bridge.seedSessionState(launched.sessionId, {
+    cwd: launched.cwd,
+    model: launched.model,
+  });
+  testManager.manager.bridge.setAdapterName(launched.sessionId, "claude");
   const port = testManager.server.port ?? 0;
-  return { sessionId, port };
+  return { sessionId: launched.sessionId, port };
 }
 
 // ── WebSocket Helpers ────────────────────────────────────────────────────────
