@@ -210,16 +210,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   /** Close all sockets (CLI + consumers) and backend sessions, then remove. */
-  closeSession(sessionId: string): void {
+  async closeSession(sessionId: string): Promise<void> {
     const session = this.store.get(sessionId);
     if (!session) return;
 
     this.capabilitiesProtocol.cancelPendingInitialize(session);
 
-    // Close backend session
+    // Close backend session and await it so the subprocess is fully terminated
+    // before the caller proceeds (prevents port-reuse races in sequential tests).
     if (session.backendSession) {
       session.backendAbort?.abort();
-      session.backendSession.close().catch((err) => {
+      await session.backendSession.close().catch((err) => {
         this.logger.warn("Failed to close backend session", { sessionId: session.id, error: err });
       });
       session.backendSession = null;
@@ -246,10 +247,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   /** Close all sessions and clear all state (for graceful shutdown). */
-  close(): void {
-    for (const sessionId of Array.from(this.store.keys())) {
-      this.closeSession(sessionId);
-    }
+  async close(): Promise<void> {
+    await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
     this.slashCommandExecutor.dispose();
     this.removeAllListeners();
   }

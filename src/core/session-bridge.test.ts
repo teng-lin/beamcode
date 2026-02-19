@@ -91,22 +91,22 @@ describe("SessionBridge", () => {
       const closedHandler = vi.fn();
       bridge.on("session:closed", closedHandler);
 
-      bridge.closeSession("sess-1");
+      await bridge.closeSession("sess-1");
 
       expect(consumerSocket.close).toHaveBeenCalled();
       expect(bridge.getSession("sess-1")).toBeUndefined();
       expect(closedHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
-    it("closeSession is a no-op for nonexistent sessions", () => {
-      expect(() => bridge.closeSession("nonexistent")).not.toThrow();
+    it("closeSession is a no-op for nonexistent sessions", async () => {
+      await expect(bridge.closeSession("nonexistent")).resolves.toBeUndefined();
     });
 
     it("close shuts down all sessions and removes all listeners", async () => {
       await bridge.connectBackend("sess-1");
       await bridge.connectBackend("sess-2");
 
-      bridge.close();
+      await bridge.close();
 
       expect(bridge.getAllSessions()).toHaveLength(0);
     });
@@ -868,7 +868,7 @@ describe("SessionBridge", () => {
       }
     });
 
-    it("closeSession handles consumer socket close error gracefully", () => {
+    it("closeSession handles consumer socket close error gracefully", async () => {
       bridge.getOrCreateSession("sess-1");
       const consumerSocket = createMockSocket();
       consumerSocket.close = vi.fn(() => {
@@ -876,7 +876,7 @@ describe("SessionBridge", () => {
       });
       bridge.handleConsumerOpen(consumerSocket, authContext("sess-1"));
 
-      expect(() => bridge.closeSession("sess-1")).not.toThrow();
+      await expect(bridge.closeSession("sess-1")).resolves.toBeUndefined();
       expect(bridge.getSession("sess-1")).toBeUndefined();
     });
 

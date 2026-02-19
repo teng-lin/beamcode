@@ -145,7 +145,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       this.launcher.markConnected(sessionId);
     } catch (err) {
       this.launcher.removeSession(sessionId);
-      this.bridge.closeSession(sessionId);
+      void this.bridge.closeSession(sessionId);
       throw err;
     }
 
@@ -307,7 +307,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     }
 
     await this.launcher.killAll();
-    this.bridge.close();
+    await this.bridge.close();
     this.started = false;
   }
 
@@ -333,7 +333,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.relaunchingSet.delete(sessionId);
 
     // Close WS connections and remove per-session JSON from storage
-    this.bridge.closeSession(sessionId);
+    await this.bridge.closeSession(sessionId);
 
     // Remove from launcher's in-memory map and re-persist launcher.json
     this.launcher.removeSession(sessionId);
@@ -642,7 +642,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           this.logger.info(
             `Closing idle session ${sessionId} (idle for ${(idleMs / 1000).toFixed(1)}s)`,
           );
-          this.bridge.closeSession(sessionId);
+          void this.bridge.closeSession(sessionId);
         }
       }
 

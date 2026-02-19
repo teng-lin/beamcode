@@ -79,9 +79,9 @@ export class SessionOperationalHandler implements OperationalHandler {
     };
   }
 
-  private closeSession(sessionId: string, reason?: string) {
+  private async closeSession(sessionId: string, reason?: string) {
     try {
-      this.bridge.closeSession(sessionId);
+      await this.bridge.closeSession(sessionId);
       return {
         success: true,
         sessionId,
