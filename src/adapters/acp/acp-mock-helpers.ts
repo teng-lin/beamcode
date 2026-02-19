@@ -97,10 +97,11 @@ export function autoRespond(
         const sessionId = parsed.params?.sessionId ?? defaultSession.sessionId;
         setTimeout(() => respondToRequest(stdout, parsed.id, { sessionId }), 0);
       } else if (options?.echoPrompts && parsed.method === "session/prompt") {
+        const sessionId = parsed.params?.sessionId ?? "compliance";
         setTimeout(
           () =>
             sendNotification(stdout, "session/update", {
-              sessionId: "compliance",
+              sessionId,
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: "echo" },
             }),
