@@ -23,6 +23,11 @@ describe("createAdapter", () => {
     expect(adapter.name).toBe("acp");
   });
 
+  it("returns GeminiAdapter for 'gemini'", () => {
+    const adapter = createAdapter("gemini", { processManager: mockProcessManager });
+    expect(adapter.name).toBe("gemini");
+  });
+
   it("throws for 'agent-sdk' (requires queryFn)", () => {
     expect(() => createAdapter("agent-sdk", { processManager: mockProcessManager })).toThrow(
       /queryFn/i,
