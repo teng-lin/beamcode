@@ -258,6 +258,19 @@ export function sendCodexResponse(ws: MockWebSocket, id: number, result: unknown
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, result })));
 }
 
+export function sendCodexErrorResponse(
+  ws: MockWebSocket,
+  id: number,
+  code: number,
+  message: string,
+) {
+  ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })));
+}
+
+export function sendCodexRequest(ws: MockWebSocket, id: number, method: string, params: unknown) {
+  ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params })));
+}
+
 // ---------------------------------------------------------------------------
 // Agent SDK mock helpers
 // ---------------------------------------------------------------------------
