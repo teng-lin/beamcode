@@ -280,14 +280,21 @@ describe("E2E Real Codex SessionManager", () => {
         }),
       );
 
-      // Wait briefly for the turn to start streaming
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for streaming to start (event-based, no arbitrary sleep)
+      await waitForMessage(
+        consumer,
+        (msg) => {
+          const m = msg as { type?: string };
+          return m.type === "stream_event" || m.type === "assistant_message";
+        },
+        15_000,
+      );
 
       // Send interrupt
       consumer.send(JSON.stringify({ type: "interrupt" }));
 
-      // Give time for the cancel to process
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for the turn to finish (result signals completion)
+      await waitForMessageType(consumer, "result", 15_000);
 
       // Backend should still be functional (not crashed)
       expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
