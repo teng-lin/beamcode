@@ -161,6 +161,7 @@ function tick(ms = 10): Promise<void> {
 function createDeps(overrides?: Partial<BackendLifecycleDeps>): BackendLifecycleDeps {
   return {
     adapter: new TestAdapter(),
+    adapterResolver: null,
     logger: noopLogger,
     metrics: null,
     broadcaster: {

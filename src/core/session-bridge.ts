@@ -1,3 +1,4 @@
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import { ConsoleLogger } from "../adapters/console-logger.js";
 import { normalizeInbound, toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
@@ -72,6 +73,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     metrics?: MetricsCollector;
     /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
+    /** Per-session adapter resolver (resolves adapter by name). */
+    adapterResolver?: AdapterResolver;
   }) {
     super();
     this.store = new SessionStore(options?.storage ?? null, {
@@ -101,6 +104,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.slashCommandExecutor = new SlashCommandExecutor();
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
+      adapterResolver: options?.adapterResolver ?? null,
       logger: this.logger,
       metrics: this.metrics,
       broadcaster: this.broadcaster,
