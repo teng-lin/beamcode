@@ -7,10 +7,10 @@ describe("createAdapterResolver", () => {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any,
   };
 
-  it("resolves sdk-url adapter", () => {
+  it("resolves claude adapter", () => {
     const resolver = createAdapterResolver(mockDeps);
-    const adapter = resolver.resolve("sdk-url");
-    expect(adapter.name).toBe("sdk-url");
+    const adapter = resolver.resolve("claude");
+    expect(adapter.name).toBe("claude");
   });
 
   it("resolves codex adapter", () => {
@@ -31,16 +31,16 @@ describe("createAdapterResolver", () => {
     expect(adapter.name).toBe("codex");
   });
 
-  it("falls back to sdk-url when no default specified", () => {
+  it("falls back to claude when no default specified", () => {
     const resolver = createAdapterResolver(mockDeps);
     const adapter = resolver.resolve(undefined);
-    expect(adapter.name).toBe("sdk-url");
+    expect(adapter.name).toBe("claude");
   });
 
-  it("returns same SdkUrlAdapter instance (singleton)", () => {
+  it("returns same ClaudeAdapter instance (singleton)", () => {
     const resolver = createAdapterResolver(mockDeps);
-    const a1 = resolver.resolve("sdk-url");
-    const a2 = resolver.resolve("sdk-url");
+    const a1 = resolver.resolve("claude");
+    const a2 = resolver.resolve("claude");
     expect(a1).toBe(a2);
   });
 
@@ -51,11 +51,11 @@ describe("createAdapterResolver", () => {
     expect(a1).not.toBe(a2);
   });
 
-  it("eagerly creates sdkUrlAdapter on construction", () => {
+  it("eagerly creates claudeAdapter on construction", () => {
     const resolver = createAdapterResolver(mockDeps);
-    // SdkUrlAdapter is created eagerly, not lazily
-    expect(resolver.sdkUrlAdapter).not.toBeNull();
-    expect(resolver.sdkUrlAdapter?.name).toBe("sdk-url");
+    // ClaudeAdapter is created eagerly, not lazily
+    expect(resolver.claudeAdapter).not.toBeNull();
+    expect(resolver.claudeAdapter?.name).toBe("claude");
   });
 
   it("throws for unknown adapter name", () => {
@@ -65,6 +65,6 @@ describe("createAdapterResolver", () => {
 
   it("returns available adapter names", () => {
     const resolver = createAdapterResolver(mockDeps);
-    expect(resolver.availableAdapters).toEqual(["sdk-url", "codex", "acp", "gemini", "opencode"]);
+    expect(resolver.availableAdapters).toEqual(["claude", "codex", "acp", "gemini", "opencode"]);
   });
 });

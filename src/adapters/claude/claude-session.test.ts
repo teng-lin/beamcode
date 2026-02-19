@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import { tick } from "../../testing/adapter-test-helpers.js";
-import { SdkUrlSession } from "./sdk-url-session.js";
+import { ClaudeSession } from "./claude-session.js";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -39,7 +39,7 @@ function makeUserMsg(text = "hello"): UnifiedMessage {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("SdkUrlSession", () => {
+describe("ClaudeSession", () => {
   // -------------------------------------------------------------------------
   // 1. send() before socket connect queues the message
   // -------------------------------------------------------------------------
@@ -50,7 +50,7 @@ describe("SdkUrlSession", () => {
       resolveSocket = r;
     });
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -84,7 +84,7 @@ describe("SdkUrlSession", () => {
       resolveSocket = r;
     });
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -117,7 +117,7 @@ describe("SdkUrlSession", () => {
       resolveSocket = r;
     });
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -154,7 +154,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -200,7 +200,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -226,7 +226,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -264,7 +264,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -283,7 +283,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -340,7 +340,7 @@ describe("SdkUrlSession", () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -358,7 +358,7 @@ describe("SdkUrlSession", () => {
   describe("passthrough handler", () => {
     it("suppresses user messages when handler returns true", async () => {
       const { resolve, promise } = Promise.withResolvers<any>();
-      const session = new SdkUrlSession({ sessionId: "pt-1", socketPromise: promise });
+      const session = new ClaudeSession({ sessionId: "pt-1", socketPromise: promise });
 
       const intercepted: any[] = [];
       session.setPassthroughHandler((msg) => {
@@ -405,7 +405,7 @@ describe("SdkUrlSession", () => {
 
     it("yields user messages when no handler is set (translate returns null)", async () => {
       const { resolve, promise } = Promise.withResolvers<any>();
-      const session = new SdkUrlSession({ sessionId: "pt-2", socketPromise: promise });
+      const session = new ClaudeSession({ sessionId: "pt-2", socketPromise: promise });
       // No handler set
 
       const ws = new MockWebSocket();
@@ -442,7 +442,7 @@ describe("SdkUrlSession", () => {
 
     it("yields user messages when handler returns false", async () => {
       const { resolve, promise } = Promise.withResolvers<any>();
-      const session = new SdkUrlSession({ sessionId: "pt-3", socketPromise: promise });
+      const session = new ClaudeSession({ sessionId: "pt-3", socketPromise: promise });
 
       session.setPassthroughHandler(() => false); // don't intercept
 
@@ -480,7 +480,7 @@ describe("SdkUrlSession", () => {
 
     it("handler receives the raw parsed CLI message", async () => {
       const { resolve, promise } = Promise.withResolvers<any>();
-      const session = new SdkUrlSession({ sessionId: "pt-4", socketPromise: promise });
+      const session = new ClaudeSession({ sessionId: "pt-4", socketPromise: promise });
 
       let received: any = null;
       session.setPassthroughHandler((msg) => {
@@ -503,7 +503,7 @@ describe("SdkUrlSession", () => {
 
     it("handler can be cleared by setting null", async () => {
       const { resolve, promise } = Promise.withResolvers<any>();
-      const session = new SdkUrlSession({ sessionId: "pt-5", socketPromise: promise });
+      const session = new ClaudeSession({ sessionId: "pt-5", socketPromise: promise });
 
       session.setPassthroughHandler(() => true);
       session.setPassthroughHandler(null); // clear
@@ -545,7 +545,7 @@ describe("SdkUrlSession", () => {
   it("socket promise rejection terminates the session", async () => {
     const socketPromise = Promise.reject(new Error("connection failed"));
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });
@@ -567,7 +567,7 @@ describe("SdkUrlSession", () => {
       resolveSocket = r;
     });
 
-    const session = new SdkUrlSession({
+    const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
     });

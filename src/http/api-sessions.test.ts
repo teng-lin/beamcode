@@ -69,7 +69,7 @@ function mockSessionManager(
         (async () => ({
           sessionId: "new-id",
           cwd: process.cwd(),
-          adapterName: "sdk-url",
+          adapterName: "claude",
           state: "starting",
           createdAt: Date.now(),
         })),
@@ -171,7 +171,7 @@ describe("handleApiSessions", () => {
     const created = {
       sessionId: "new-1",
       cwd: "/tmp",
-      adapterName: "sdk-url",
+      adapterName: "claude",
       state: "starting",
       createdAt: 1000,
     };

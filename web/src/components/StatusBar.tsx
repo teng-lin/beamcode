@@ -5,7 +5,6 @@ import { cwdBasename } from "../utils/format";
 import { send } from "../ws";
 
 const ADAPTER_LABELS: Record<string, string> = {
-  "sdk-url": "Claude Code",
   claude: "Claude Code",
   codex: "Codex",
   acp: "ACP",
@@ -14,7 +13,6 @@ const ADAPTER_LABELS: Record<string, string> = {
 };
 
 const ADAPTER_COLORS: Record<string, string> = {
-  "sdk-url": "bg-bc-adapter-claude text-bc-bg",
   claude: "bg-bc-adapter-claude text-bc-bg",
   codex: "bg-bc-adapter-codex text-bc-bg",
   acp: "bg-bc-adapter-codex text-bc-bg",
@@ -23,7 +21,6 @@ const ADAPTER_COLORS: Record<string, string> = {
 };
 
 const ADAPTER_DOT_COLORS: Record<string, string> = {
-  "sdk-url": "bg-bc-adapter-claude",
   claude: "bg-bc-adapter-claude",
   codex: "bg-bc-adapter-codex",
   acp: "bg-bc-adapter-codex",

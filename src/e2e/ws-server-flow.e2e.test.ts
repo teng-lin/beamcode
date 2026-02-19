@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { toNDJSON } from "../adapters/claude/inbound-translator.js";
+import { translate } from "../adapters/claude/message-translator.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
-import { translate } from "../adapters/sdk-url/message-translator.js";
 import type {
   BackendAdapter,
   BackendCapabilities,

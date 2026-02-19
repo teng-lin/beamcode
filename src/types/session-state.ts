@@ -19,9 +19,9 @@ export interface InitializeCapabilities {
 }
 
 /**
- * Full session state for SdkUrl-based backends.
+ * Full session state for Claude-based backends.
  * Extends DevToolSessionState (which extends CoreSessionState) with
- * SdkUrl-specific fields like model info, tools, MCP servers, etc.
+ * Claude-specific fields like model info, tools, MCP servers, etc.
  */
 export interface SessionState extends DevToolSessionState {
   model: string;
@@ -32,7 +32,7 @@ export interface SessionState extends DevToolSessionState {
   mcp_servers: { name: string; status: string }[];
   agents: string[]; // Deprecated — populated from team.members by the state reducer
   team?: TeamState;
-  /** Backend adapter name (e.g. "sdk-url", "codex", "acp"). */
+  /** Backend adapter name (e.g. "claude", "codex", "acp"). */
   adapterName?: string;
   slash_commands: string[];
   skills: string[];
@@ -65,8 +65,8 @@ export interface SessionState extends DevToolSessionState {
   } | null;
 }
 
-/** Explicit alias for the SdkUrl-specific full session state. */
-export type SdkUrlSessionState = SessionState;
+/** Explicit alias for the Claude-specific full session state. */
+export type ClaudeSessionState = SessionState;
 
 /** Snapshot of a session's full state (for getSession() return) */
 export interface SessionSnapshot {

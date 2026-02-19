@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Adapters
 
-- **SdkUrlAdapter** (Phase 1): Extracted Claude Code `--sdk-url` NDJSON/WebSocket logic from monolithic SessionBridge into a standalone adapter
-  - `SdkUrlLauncher` — process lifecycle, `--sdk-url` URL construction, `--resume` support
+- **ClaudeAdapter** (Phase 1): Extracted Claude Code `--sdk-url` NDJSON/WebSocket logic from monolithic SessionBridge into a standalone adapter
+  - `ClaudeLauncher` — process lifecycle, `--sdk-url` URL construction, `--resume` support
   - Inbound translator (CLI NDJSON → UnifiedMessage)
   - Outbound message translator (consumer messages → CLI NDJSON)
   - State reducer (derives session state from CLI message stream)

@@ -1,7 +1,7 @@
 /**
  * Shared helpers for real backend e2e tests.
  *
- * Extracted from the sdk-url test to be reusable across all
+ * Extracted from the claude test to be reusable across all
  * real backend test files (codex, gemini, opencode, etc.).
  */
 

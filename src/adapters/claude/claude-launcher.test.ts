@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
 import { flushPromises, noopLogger } from "../../testing/cli-message-factories.js";
 import { MockProcessManager } from "../../testing/mock-process-manager.js";
-import { SdkUrlLauncher, type SdkUrlLauncherOptions } from "./sdk-url-launcher.js";
+import { ClaudeLauncher, type ClaudeLauncherOptions } from "./claude-launcher.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -19,10 +19,10 @@ function createMockStorage(): LauncherStateStorage {
   };
 }
 
-function createLauncher(overrides?: Partial<SdkUrlLauncherOptions>) {
+function createLauncher(overrides?: Partial<ClaudeLauncherOptions>) {
   const pm = new MockProcessManager();
   const storage = createMockStorage();
-  const launcher = new SdkUrlLauncher({
+  const launcher = new ClaudeLauncher({
     processManager: pm,
     config: { port: 3456, defaultClaudeBinary: "claude" },
     storage,
@@ -38,7 +38,7 @@ function lastSpawnArgs(pm: MockProcessManager) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("SdkUrlLauncher", () => {
+describe("ClaudeLauncher", () => {
   let uuidCounter = 0;
 
   beforeEach(() => {

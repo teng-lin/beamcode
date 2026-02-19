@@ -119,7 +119,7 @@ describe("StatusBar", () => {
       for (const [type, label] of [
         ["claude", "Claude Code"],
         ["codex", "Codex"],
-        ["sdk-url", "Claude Code"],
+        ["claude", "Claude Code"],
         ["acp", "ACP"],
       ] as const) {
         resetStore();

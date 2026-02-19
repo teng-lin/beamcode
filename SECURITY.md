@@ -170,7 +170,7 @@ The HMAC shared secret is established locally between the daemon process and the
 
 ### CLI Binary Validation
 
-The `claudeBinary` parameter is validated before spawning a child process (`src/adapters/sdk-url/sdk-url-launcher.ts`):
+The `claudeBinary` parameter is validated before spawning a child process (`src/adapters/claude/claude-launcher.ts`):
 
 - **Absolute paths**: Must match `/^\/[a-zA-Z0-9_./-]+$/` (no shell metacharacters, no `..`).
 - **Simple basenames**: Must match `/^[a-zA-Z0-9_.-]+$/` (e.g., `claude`, `claude_dev.2`).

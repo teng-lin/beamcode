@@ -4,9 +4,9 @@ const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import type { CliAdapterName } from "../adapters/create-adapter.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
@@ -64,7 +64,7 @@ class TestProcessManager implements ProcessManager {
 const noopLogger = { info() {}, warn() {}, error() {}, debug() {} };
 
 function createLauncher(pm: ProcessManager, storage?: MemoryStorage) {
-  return new SdkUrlLauncher({
+  return new ClaudeLauncher({
     processManager: pm,
     config: { port: 3456 },
     storage,
@@ -74,9 +74,9 @@ function createLauncher(pm: ProcessManager, storage?: MemoryStorage) {
 
 function mockResolver(
   adapters: Record<string, BackendAdapter>,
-  defaultName: CliAdapterName = "sdk-url",
+  defaultName: CliAdapterName = "claude",
 ): AdapterResolver {
-  const sdkUrl = adapters["sdk-url"] ?? new MockBackendAdapter();
+  const claude = adapters.claude ?? new MockBackendAdapter();
   return {
     resolve: vi.fn((name?: CliAdapterName) => {
       const resolved = name ?? defaultName;
@@ -84,9 +84,9 @@ function mockResolver(
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    sdkUrlAdapter: sdkUrl as any,
+    claudeAdapter: claude as any,
     defaultName,
-    availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"],
+    availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"],
   };
 }
 
@@ -95,7 +95,7 @@ function mockResolver(
 // ---------------------------------------------------------------------------
 
 describe("SessionManager.createSession", () => {
-  it("for sdk-url: delegates to launcher.launch()", async () => {
+  it("for claude: delegates to launcher.launch()", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const mgr = new SessionManager({
@@ -110,7 +110,7 @@ describe("SessionManager.createSession", () => {
 
     expect(result.sessionId).toBeTruthy();
     expect(result.cwd).toBe(process.cwd());
-    expect(result.adapterName).toBe("sdk-url");
+    expect(result.adapterName).toBe("claude");
     expect(result.state).toBe("starting");
     expect(result.createdAt).toBeGreaterThan(0);
 
@@ -127,7 +127,7 @@ describe("SessionManager.createSession", () => {
     const codexAdapter = new MockBackendAdapter();
     const connectSpy = vi.spyOn(codexAdapter, "connect");
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: codexAdapter,
     });
 
@@ -161,12 +161,12 @@ describe("SessionManager.createSession", () => {
     await mgr.stop();
   });
 
-  it("both sdk-url and codex sessions appear in listSessions", async () => {
+  it("both claude and codex sessions appear in listSessions", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const codexAdapter = new MockBackendAdapter();
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: codexAdapter,
     });
 
@@ -193,14 +193,14 @@ describe("SessionManager.createSession", () => {
     await mgr.stop();
   });
 
-  it("on connect failure for non-sdk-url: cleans up registered session", async () => {
+  it("on connect failure for non-claude: cleans up registered session", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const failingAdapter = new MockBackendAdapter();
     failingAdapter.setShouldFail(true);
 
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: failingAdapter,
     });
 
@@ -230,7 +230,7 @@ describe("SessionManager.createSession", () => {
     const codexAdapter = new MockBackendAdapter();
     const connectSpy = vi.spyOn(codexAdapter, "connect");
     const resolver = mockResolver(
-      { "sdk-url": new MockBackendAdapter(), codex: codexAdapter },
+      { claude: new MockBackendAdapter(), codex: codexAdapter },
       "codex",
     );
 
@@ -253,7 +253,7 @@ describe("SessionManager.createSession", () => {
 });
 
 describe("SessionManager.deleteSession", () => {
-  it("deletes session with a PID (sdk-url)", async () => {
+  it("deletes session with a PID (claude)", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const mgr = new SessionManager({
@@ -271,12 +271,12 @@ describe("SessionManager.deleteSession", () => {
     expect(mgr.launcher.getSession(result.sessionId)).toBeUndefined();
   });
 
-  it("deletes session without a PID (non-sdk-url)", async () => {
+  it("deletes session without a PID (non-claude)", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const codexAdapter = new MockBackendAdapter();
     const resolver = mockResolver({
-      "sdk-url": new MockBackendAdapter(),
+      claude: new MockBackendAdapter(),
       codex: codexAdapter,
     });
 

@@ -1,5 +1,7 @@
 // Core interfaces
 
+export type { ClaudeLauncherOptions } from "./adapters/claude/claude-launcher.js";
+export { ClaudeLauncher } from "./adapters/claude/claude-launcher.js";
 // Adapters
 export { ConsoleLogger } from "./adapters/console-logger.js";
 export { ConsoleMetricsCollector } from "./adapters/console-metrics-collector.js";
@@ -10,8 +12,6 @@ export { NodeProcessManager } from "./adapters/node-process-manager.js";
 export type { NodeWebSocketServerOptions } from "./adapters/node-ws-server.js";
 export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
 export { NoopLogger } from "./adapters/noop-logger.js";
-export type { SdkUrlLauncherOptions } from "./adapters/sdk-url/sdk-url-launcher.js";
-export { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";

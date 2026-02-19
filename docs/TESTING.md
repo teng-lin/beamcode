@@ -215,7 +215,7 @@ Tests are auto-skipped when prerequisites are not met.
 
 | Backend | Binary | Auth | Notes |
 |---------|--------|------|-------|
-| **sdk-url** (Claude) | `claude` | `ANTHROPIC_API_KEY` or `claude auth login` | Prompt tests skipped without auth |
+| **claude** (Claude) | `claude` | `ANTHROPIC_API_KEY` or `claude auth login` | Prompt tests skipped without auth |
 | **codex** | `codex` | Handled by CLI (e.g. `codex auth`) | Binary availability is the only gate |
 | **gemini** | `gemini-cli-a2a-server` | Handled by CLI (e.g. `GOOGLE_API_KEY`) | Binary availability is the only gate |
 | **opencode** | `opencode` | Handled by CLI config | Binary availability is the only gate |
@@ -269,7 +269,7 @@ Real backend scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast
 | Helper group | Purpose |
 |--------------|---------|
 | `MessageReader`, `collectUnifiedMessages()` | Read from `BackendSession.messages` streams |
-| `createMockChild()`, `createAcpAutoResponder()` | ACP (Claude `--sdk-url`) mock subprocess |
+| `createMockChild()`, `createAcpAutoResponder()` | ACP (Claude) mock subprocess |
 | `MockWebSocket`, `sendCodexNotification()` | Codex mock WebSocket |
 | `makeSSE()`, `sseResponse()`, `buildA2A*Event()` | Gemini A2A mock SSE responses |
 | `createMockOpencodeHttpClient()`, `buildOpencode*Event()` | Opencode mock HTTP+SSE |
@@ -304,10 +304,10 @@ Real backend scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast
 
 | File | Backend | What it tests |
 |------|---------|---------------|
-| `smoke.e2e.test.ts` | sdk-url | Basic Claude CLI smoke checks |
-| `handshake.e2e.test.ts` | sdk-url | `--sdk-url` WebSocket handshake |
-| `process-smoke.e2e.test.ts` | sdk-url | Process spawn and lifecycle |
-| `session-manager-sdk-url.e2e.test.ts` | sdk-url | Full SessionManager lifecycle, live turns, multi-consumer, resume |
+| `smoke.e2e.test.ts` | claude | Basic Claude CLI smoke checks |
+| `handshake.e2e.test.ts` | claude | `--sdk-url` WebSocket handshake |
+| `process-smoke.e2e.test.ts` | claude | Process spawn and lifecycle |
+| `session-manager-claude.e2e.test.ts` | claude | Full SessionManager lifecycle, live turns, multi-consumer, resume |
 | `session-manager-codex.e2e.test.ts` | codex | Codex session lifecycle, consumer comms, live prompt, slash commands |
 | `session-manager-gemini.e2e.test.ts` | gemini | Gemini session lifecycle, streamed responses, cancel mid-turn |
 | `session-manager-opencode.e2e.test.ts` | opencode | Opencode session lifecycle, HTTP+SSE connection, streamed responses |

@@ -1,10 +1,10 @@
 import { WebSocket } from "ws";
+import { ClaudeAdapter } from "../../adapters/claude/claude-adapter.js";
+import { ClaudeLauncher } from "../../adapters/claude/claude-launcher.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { MockProcessManager } from "../../adapters/mock-process-manager.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
-import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
-import { SdkUrlLauncher } from "../../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
@@ -90,9 +90,9 @@ export async function setupTestSessionManager(
     config,
     storage,
     server,
-    adapter: new SdkUrlAdapter(),
+    adapter: new ClaudeAdapter(),
     authenticator: options.authenticator,
-    launcher: new SdkUrlLauncher({ processManager, config, storage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
 
   await manager.start();

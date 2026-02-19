@@ -1,7 +1,7 @@
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import { normalizeInbound, toNDJSON } from "../adapters/claude/inbound-translator.js";
+import { reduce as reduceState } from "../adapters/claude/state-reducer.js";
 import { ConsoleLogger } from "../adapters/console-logger.js";
-import { normalizeInbound, toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
-import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -981,7 +981,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.persistSession(session);
 
     // If the adapter already provided capabilities in the init message (e.g. Codex),
-    // apply them directly instead of sending a separate control_request (SdkUrl-only).
+    // apply them directly instead of sending a separate control_request (Claude-only).
     if (m.capabilities && typeof m.capabilities === "object") {
       const caps = m.capabilities as {
         commands?: InitializeCommand[];

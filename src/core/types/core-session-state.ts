@@ -12,7 +12,7 @@ export interface CoreSessionState {
 
 /**
  * Development-tool-specific session state — shared by CLI-based adapters
- * that work with source code repositories (e.g., SdkUrl, future LSP adapters).
+ * that work with source code repositories (e.g., Claude, future LSP adapters).
  */
 export interface DevToolSessionState extends CoreSessionState {
   git_branch: string;

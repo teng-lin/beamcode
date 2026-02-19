@@ -2,15 +2,15 @@
  * Generic real-backend session setup for e2e tests.
  *
  * Uses AdapterResolver + SessionManager.createSession() to set up
- * sessions for any backend adapter (codex, gemini, opencode, sdk-url).
+ * sessions for any backend adapter (codex, gemini, opencode, claude).
  */
 
 import { createAdapterResolver } from "../../adapters/adapter-resolver.js";
+import { ClaudeLauncher } from "../../adapters/claude/claude-launcher.js";
 import type { CliAdapterName } from "../../adapters/create-adapter.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
-import { SdkUrlLauncher } from "../../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import type { SessionStorage } from "../../interfaces/storage.js";
@@ -32,7 +32,7 @@ export interface RealSessionContext {
 /**
  * Set up a real backend session using SessionManager.createSession().
  *
- * Works for all adapter types: sdk-url, codex, gemini, opencode.
+ * Works for all adapter types: claude, codex, gemini, opencode.
  */
 export async function setupRealSession(
   adapterName: CliAdapterName,
@@ -57,7 +57,7 @@ export async function setupRealSession(
     server,
     adapterResolver,
     authenticator: options?.authenticator,
-    launcher: new SdkUrlLauncher({ processManager, config, storage: memStorage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage: memStorage }),
   });
 
   attachTrace(manager);

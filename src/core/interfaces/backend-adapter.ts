@@ -2,7 +2,7 @@
  * BackendAdapter — the contract every coding-agent backend must implement.
  *
  * Adapters translate between BeamCode's UnifiedMessage envelope and a
- * specific CLI protocol (SdkUrl / NDJSON, ACP, Codex, etc.).
+ * specific CLI protocol (Claude / NDJSON, ACP, Codex, etc.).
  */
 
 import type { UnifiedMessage } from "../types/unified-message.js";
@@ -26,7 +26,7 @@ export interface AdapterSlashExecutor {
 
 /** Declares what a backend adapter supports. */
 export interface BackendCapabilities {
-  /** Whether the backend streams partial responses (SdkUrl: true, ACP: false). */
+  /** Whether the backend streams partial responses (Claude: true, ACP: false). */
   streaming: boolean;
   /** Whether the backend handles permission requests natively. */
   permissions: boolean;
@@ -76,7 +76,7 @@ export interface BackendSession {
 
 /** A backend adapter that can create sessions. */
 export interface BackendAdapter {
-  /** Human-readable adapter identifier (e.g. "sdk-url", "acp", "codex"). */
+  /** Human-readable adapter identifier (e.g. "claude", "acp", "codex"). */
   readonly name: string;
   /** What this adapter supports. */
   readonly capabilities: BackendCapabilities;

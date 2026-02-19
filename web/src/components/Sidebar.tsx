@@ -13,7 +13,6 @@ import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../util
 import { connectToSession, disconnectSession } from "../ws";
 
 const ADAPTER_COLORS: Record<string, string> = {
-  "sdk-url": "bg-bc-adapter-claude",
   claude: "bg-bc-adapter-claude",
   codex: "bg-bc-adapter-codex",
   acp: "bg-bc-adapter-codex",
@@ -22,7 +21,7 @@ const ADAPTER_COLORS: Record<string, string> = {
 };
 
 const ADAPTER_OPTIONS: { value: string; label: string }[] = [
-  { value: "sdk-url", label: "Claude Code" },
+  { value: "claude", label: "Claude Code" },
   { value: "codex", label: "Codex" },
   { value: "acp", label: "ACP" },
 ];

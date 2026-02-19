@@ -8,7 +8,7 @@ export default defineConfig([
       "adapters/acp": "src/adapters/acp/index.ts",
       "adapters/codex": "src/adapters/codex/index.ts",
       "adapters/agent-sdk": "src/adapters/agent-sdk/index.ts",
-      "adapters/sdk-url": "src/adapters/sdk-url/index.ts",
+      "adapters/claude": "src/adapters/claude/index.ts",
       daemon: "src/daemon/index.ts",
     },
     format: ["esm", "cjs"],

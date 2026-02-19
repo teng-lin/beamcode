@@ -8,9 +8,9 @@ const mockProcessManager: ProcessManager = {
 };
 
 describe("createAdapter", () => {
-  it("returns SdkUrlAdapter for 'sdk-url'", () => {
-    const adapter = createAdapter("sdk-url", { processManager: mockProcessManager });
-    expect(adapter.name).toBe("sdk-url");
+  it("returns ClaudeAdapter for 'claude'", () => {
+    const adapter = createAdapter("claude", { processManager: mockProcessManager });
+    expect(adapter.name).toBe("claude");
   });
 
   it("returns CodexAdapter for 'codex'", () => {
@@ -45,8 +45,8 @@ describe("createAdapter", () => {
     );
   });
 
-  it("defaults to 'sdk-url' when name is undefined", () => {
+  it("defaults to 'claude' when name is undefined", () => {
     const adapter = createAdapter(undefined, { processManager: mockProcessManager });
-    expect(adapter.name).toBe("sdk-url");
+    expect(adapter.name).toBe("claude");
   });
 });

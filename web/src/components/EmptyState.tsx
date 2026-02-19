@@ -1,6 +1,6 @@
 const ADAPTER_OPTIONS = [
   {
-    name: "sdk-url",
+    name: "claude",
     label: "Claude Code",
     description: "Claude CLI via WebSocket",
     color: "bg-bc-adapter-claude",

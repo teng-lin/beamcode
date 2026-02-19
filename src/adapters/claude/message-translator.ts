@@ -1,5 +1,5 @@
 /**
- * SdkUrl Message Translator — Phase 1a.1
+ * Claude Message Translator — Phase 1a.1
  *
  * Pure function that translates CLIMessage → UnifiedMessage.
  * No side effects, no state mutation, no I/O.
