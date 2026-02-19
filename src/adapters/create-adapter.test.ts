@@ -28,6 +28,11 @@ describe("createAdapter", () => {
     expect(adapter.name).toBe("gemini");
   });
 
+  it("returns OpencodeAdapter for 'opencode'", () => {
+    const adapter = createAdapter("opencode", { processManager: mockProcessManager });
+    expect(adapter.name).toBe("opencode");
+  });
+
   it("throws for 'agent-sdk' (requires queryFn)", () => {
     expect(() => createAdapter("agent-sdk", { processManager: mockProcessManager })).toThrow(
       /queryFn/i,
