@@ -494,6 +494,12 @@ describe("E2E Real SDK-URL SessionManager", () => {
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId);
     try {
+      // In real runs, cli_connected can arrive slightly before initialize completes.
+      // Ensure capabilities are available before asserting passthrough behavior.
+      if (!manager.bridge.getSession(sessionId)?.state.capabilities) {
+        await waitForMessageType(consumer, "capabilities_ready", 30_000);
+      }
+
       consumer.send(
         JSON.stringify({
           type: "slash_command",
@@ -674,6 +680,15 @@ describe("E2E Real SDK-URL SessionManager", () => {
       expect(relaunched).toBe(true);
       await waitForBackendConnectedOrExit(manager, sessionId, 30_000);
       await reconnected;
+      await waitForMessage(
+        consumer,
+        (msg) =>
+          typeof msg === "object" &&
+          msg !== null &&
+          "type" in msg &&
+          ["session_init", "capabilities_ready"].includes((msg as { type?: string }).type ?? ""),
+        30_000,
+      );
 
       consumer.send(
         JSON.stringify({
