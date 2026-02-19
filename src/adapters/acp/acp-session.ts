@@ -63,8 +63,12 @@ export class AcpSession implements BackendSession {
 
     switch (action.type) {
       case "request": {
-        const { raw } = this.codec.createRequest(action.method!, action.params);
+        const { id, raw } = this.codec.createRequest(action.method!, action.params);
         rpcMsg = raw;
+        this.pendingRequests.set(id, {
+          resolve: () => {}, // Handled via routeMessage stream
+          reject: () => {},
+        });
         break;
       }
       case "notification": {
@@ -254,11 +258,12 @@ export class AcpSession implements BackendSession {
       if (pending) {
         this.pendingRequests.delete(msg.id);
         if (msg.error) {
-          pending.reject(new Error(msg.error.message));
-        } else {
-          pending.resolve(msg.result);
+          return translatePromptResult({
+            sessionId: this.sessionId,
+            stopReason: "error",
+            error: msg.error.message,
+          });
         }
-        return null;
       }
 
       // If no pending request matches, treat as a prompt result
