@@ -539,6 +539,54 @@ describe("SessionManager", () => {
       await watchdogMgr.stop();
     });
 
+    it("continues relaunching remaining stale sessions when one relaunch fails", async () => {
+      const testStorage = new MemoryStorage();
+      testStorage.saveLauncherState([
+        {
+          sessionId: "stale-1",
+          pid: 77771,
+          state: "connected",
+          cwd: "/tmp",
+          archived: false,
+        },
+        {
+          sessionId: "stale-2",
+          pid: 77772,
+          state: "connected",
+          cwd: "/tmp",
+          archived: false,
+        },
+      ]);
+
+      const alivePm = new MockProcessManager();
+      const origIsAlive = alivePm.isAlive.bind(alivePm);
+      alivePm.isAlive = (pid: number) => pid === 77771 || pid === 77772 || origIsAlive(pid);
+
+      const watchdogMgr = new SessionManager({
+        config: { port: 3456, reconnectGracePeriodMs: 50 },
+        storage: testStorage,
+        logger: noopLogger,
+        launcher: createLauncher(alivePm, { storage: testStorage, logger: noopLogger }),
+      });
+      watchdogMgr.start();
+
+      const relaunchSpy = vi
+        .spyOn(watchdogMgr.launcher, "relaunch")
+        .mockImplementation(async (sessionId: string) => {
+          if (sessionId === "stale-1") {
+            throw new Error("boom");
+          }
+          return true;
+        });
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(relaunchSpy).toHaveBeenCalledWith("stale-1");
+      expect(relaunchSpy).toHaveBeenCalledWith("stale-2");
+
+      await watchdogMgr.stop();
+    });
+
     it("does not set a timer when there are no starting sessions", () => {
       const timerMgr = new SessionManager({
         config: { port: 3456, reconnectGracePeriodMs: 500 },
@@ -629,6 +677,39 @@ describe("SessionManager", () => {
       const snap = idleMgr.bridge.getSession("active-session");
       expect(snap).toBeDefined();
       expect(snap!.cliConnected).toBe(true);
+
+      await idleMgr.stop();
+    });
+
+    it("logs close failures and keeps reaping remaining idle sessions", async () => {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const idleMgr = new SessionManager({
+        config: { port: 3456, idleSessionTimeoutMs: 100 },
+        storage,
+        logger,
+        launcher: createLauncher(pm, { storage, logger }),
+      });
+      idleMgr.start();
+
+      idleMgr.bridge.getOrCreateSession("idle-fail-1");
+      idleMgr.bridge.getOrCreateSession("idle-fail-2");
+
+      const closeSpy = vi
+        .spyOn(idleMgr.bridge, "closeSession")
+        .mockImplementation(async (sessionId: string) => {
+          if (sessionId === "idle-fail-1") {
+            throw new Error("close failed");
+          }
+        });
+
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(closeSpy).toHaveBeenCalledWith("idle-fail-1");
+      expect(closeSpy).toHaveBeenCalledWith("idle-fail-2");
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to close idle session idle-fail-1"),
+        expect.objectContaining({ error: expect.any(Error) }),
+      );
 
       await idleMgr.stop();
     });

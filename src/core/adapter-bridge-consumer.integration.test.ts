@@ -4,7 +4,6 @@ import type { WebSocketLike } from "../interfaces/transport.js";
 import {
   createBridgeWithAdapter,
   type MockBackendAdapter,
-  type MockBackendSession,
   makeAssistantUnifiedMsg,
   makeResultUnifiedMsg,
   tick,
@@ -63,6 +62,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
     });
     bridge = created.bridge;
     adapter = created.adapter;
+    bridge.getOrCreateSession(sessionId);
   });
 
   // ── 1. Basic flow ────────────────────────────────────────────────────────
@@ -341,6 +341,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
     const sessionId2 = "integration-session-2";
 
     it("messages do not leak between sessions", async () => {
+      bridge.getOrCreateSession(sessionId2);
       const socket1 = createMockSocket();
       const socket2 = createMockSocket();
 
@@ -386,6 +387,7 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
     });
 
     it("consumer counts are independent per session", () => {
+      bridge.getOrCreateSession(sessionId2);
       const socket1 = createMockSocket();
       const socket2 = createMockSocket();
       const socket3 = createMockSocket();

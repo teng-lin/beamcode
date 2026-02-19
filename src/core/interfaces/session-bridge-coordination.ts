@@ -14,7 +14,6 @@ export type EmitBridgeEvent = <K extends keyof BridgeEventMap>(
 
 export interface SessionStorePort {
   get(sessionId: string): Session | undefined;
-  getOrCreate(sessionId: string): Session;
 }
 
 export interface ConsumerGatekeeperPort {
