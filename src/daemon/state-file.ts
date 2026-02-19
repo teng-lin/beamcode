@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, rename, unlink, writeFile } from "node:fs/promises";
 
 export interface DaemonState {
   pid: number;
@@ -15,8 +15,10 @@ export interface DaemonState {
 export async function writeState(statePath: string, state: DaemonState): Promise<void> {
   const tmpPath = `${statePath}.${randomBytes(4).toString("hex")}.tmp`;
   try {
-    await writeFile(tmpPath, JSON.stringify(state), "utf-8");
+    await writeFile(tmpPath, JSON.stringify(state), { encoding: "utf-8", mode: 0o600 });
     await rename(tmpPath, statePath);
+    // Ensure owner-only permissions survive regardless of umask at creation time.
+    await chmod(statePath, 0o600);
   } catch (err) {
     try {
       await unlink(tmpPath);

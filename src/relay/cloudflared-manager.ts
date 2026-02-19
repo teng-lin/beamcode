@@ -103,10 +103,11 @@ export class CloudflaredManager {
   private spawnProcess(): void {
     if (!this.config) throw new Error("start() must be called before spawnProcess()");
     const config = this.config;
-    const args = this.buildArgs(config);
+    const { args, env } = this.buildArgs(config);
 
     const proc = spawn("cloudflared", args, {
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
 
     this.process = proc;
@@ -158,13 +159,14 @@ export class CloudflaredManager {
     });
   }
 
-  private buildArgs(config: TunnelConfig): string[] {
+  private buildArgs(config: TunnelConfig): { args: string[]; env: NodeJS.ProcessEnv } {
     if (config.mode === "production" && config.tunnelToken) {
-      const args = ["tunnel", "run", "--token", config.tunnelToken];
+      // Pass token via env var to avoid leaking it in /proc/<pid>/cmdline
+      const args = ["tunnel", "run"];
       if (config.metricsPort) {
         args.push("--metrics", `127.0.0.1:${config.metricsPort}`);
       }
-      return args;
+      return { args, env: { ...process.env, TUNNEL_TOKEN: config.tunnelToken } };
     }
 
     // Development mode: quick tunnel via trycloudflare.com
@@ -172,7 +174,7 @@ export class CloudflaredManager {
     if (config.metricsPort) {
       args.push("--metrics", `127.0.0.1:${config.metricsPort}`);
     }
-    return args;
+    return { args, env: process.env };
   }
 
   private scheduleRestart(): void {

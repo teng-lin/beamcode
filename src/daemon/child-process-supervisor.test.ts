@@ -111,4 +111,14 @@ describe("ChildProcessSupervisor", () => {
     supervisor.createSession({ cwd: "/b" });
     expect(supervisor.sessionCount).toBe(2);
   });
+
+  it("enforces maxSessions limit", () => {
+    const limited = new ChildProcessSupervisor({
+      processManager: pm,
+      maxSessions: 2,
+    });
+    limited.createSession({ cwd: "/a" });
+    limited.createSession({ cwd: "/b" });
+    expect(() => limited.createSession({ cwd: "/c" })).toThrow("Maximum session limit reached (2)");
+  });
 });

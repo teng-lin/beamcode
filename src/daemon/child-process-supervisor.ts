@@ -27,6 +27,8 @@ interface SpawnPayload {
   cwd: string;
 }
 
+const DEFAULT_MAX_SESSIONS = 50;
+
 /**
  * A simplified child-process supervisor for the daemon.
  * Manages CLI sessions as child processes, tracking their metadata in memory.
@@ -34,11 +36,13 @@ interface SpawnPayload {
 export class ChildProcessSupervisor extends ProcessSupervisor {
   private sessions = new Map<string, DaemonSessionInfo>();
   private defaultBinary: string;
+  private maxSessions: number;
 
   constructor(options: {
     processManager: ProcessManager;
     logger?: Logger;
     defaultBinary?: string;
+    maxSessions?: number;
   }) {
     const supervisorOptions: ProcessSupervisorOptions = {
       processManager: options.processManager,
@@ -46,6 +50,7 @@ export class ChildProcessSupervisor extends ProcessSupervisor {
     };
     super(supervisorOptions);
     this.defaultBinary = options.defaultBinary ?? "claude";
+    this.maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
   }
 
   protected buildSpawnArgs(
@@ -68,6 +73,10 @@ export class ChildProcessSupervisor extends ProcessSupervisor {
   }
 
   createSession(options: CreateSessionOptions): DaemonSessionInfo {
+    if (this.sessions.size >= this.maxSessions) {
+      throw new Error(`Maximum session limit reached (${this.maxSessions})`);
+    }
+
     const sessionId = randomUUID();
     const binary = options.claudeBinary ?? this.defaultBinary;
 

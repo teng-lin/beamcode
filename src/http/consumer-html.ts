@@ -53,20 +53,29 @@ export function loadConsumerHtml(): string {
   return cachedHtml;
 }
 
-/** Inject API key as a <meta> tag and recompute cached gzip + CSP. */
-export function injectApiKey(apiKey: string): void {
+/**
+ * Inject a consumer token as a <meta> tag and recompute cached gzip + CSP.
+ * This should be a scoped consumer token, NOT the master API key,
+ * so that consumer page access does not grant full API access.
+ */
+export function injectConsumerToken(token: string): void {
   const baseHtml = loadConsumerHtml();
-  const escaped = apiKey
+  const escaped = token
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   cachedHtml = baseHtml.replace(
     "<head>",
-    `<head>\n  <meta name="beamcode-api-key" content="${escaped}">`,
+    `<head>\n  <meta name="beamcode-consumer-token" content="${escaped}">`,
   );
   cachedGzip = gzipSync(cachedHtml);
   cachedCsp = buildCsp(cachedHtml);
+}
+
+/** @deprecated Use injectConsumerToken instead. Kept for backward compatibility. */
+export function injectApiKey(apiKey: string): void {
+  injectConsumerToken(apiKey);
 }
 
 export function handleConsumerHtml(req: IncomingMessage, res: ServerResponse): void {

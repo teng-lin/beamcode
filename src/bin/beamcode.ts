@@ -13,9 +13,10 @@ import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
-import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
+import { injectConsumerToken, loadConsumerHtml } from "../http/consumer-html.js";
 import { createBeamcodeServer } from "../http/server.js";
 import { CloudflaredManager } from "../relay/cloudflared-manager.js";
+import { ApiKeyAuthenticator } from "../server/api-key-authenticator.js";
 import { OriginValidator } from "../server/origin-validator.js";
 import { resolvePackageVersion } from "../utils/resolve-package-version.js";
 
@@ -215,6 +216,18 @@ async function main(): Promise<void> {
     logger,
   });
 
+  // 4. Generate API key (for HTTP API) and consumer token (for WS connections).
+  // The consumer token is embedded in the HTML page. Keeping them separate ensures
+  // that consumer page access does not grant full HTTP API access.
+  const apiKey = randomBytes(24).toString("base64url");
+  const consumerToken = randomBytes(24).toString("base64url");
+  injectConsumerToken(consumerToken);
+
+  // When a tunnel is active, enforce token auth on consumer WebSocket connections.
+  // Tunnel-forwarded requests bypass bind-address and origin checks, so the only
+  // protection would be UUID unpredictability without this authenticator.
+  const authenticator = tunnelUrl ? new ApiKeyAuthenticator(consumerToken) : undefined;
+
   const sessionManager = new SessionManager({
     config: providerConfig,
     storage,
@@ -224,13 +237,11 @@ async function main(): Promise<void> {
     adapter,
     adapterResolver,
     launcher,
+    authenticator,
     rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
       new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
   });
 
-  // 4. Generate API key, inject into HTML, and create HTTP server
-  const apiKey = randomBytes(24).toString("base64url");
-  injectApiKey(apiKey);
   const httpServer = createBeamcodeServer({
     sessionManager,
     activeSessionId: "",

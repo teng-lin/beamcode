@@ -1,7 +1,14 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { stat } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import type { ChildProcessSupervisor, CreateSessionOptions } from "./child-process-supervisor.js";
+import type {
+  ChildProcessSupervisor,
+  CreateSessionOptions,
+  DaemonSessionInfo,
+} from "./child-process-supervisor.js";
+
+const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
 export interface ControlApiOptions {
   supervisor: ChildProcessSupervisor;
@@ -61,6 +68,10 @@ export class ControlApi {
       this.handleCreateSession(req, res);
     } else if (method === "DELETE" && path.startsWith("/sessions/")) {
       const id = path.slice("/sessions/".length);
+      if (!SESSION_ID_PATTERN.test(id)) {
+        sendJson(res, 400, { error: "Invalid session ID format" });
+        return;
+      }
       this.handleDeleteSession(id, res);
     } else if (method === "POST" && path === "/revoke-device") {
       sendJson(res, 501, { error: "Not implemented" });
@@ -99,7 +110,7 @@ export class ControlApi {
     }
 
     readBody(req)
-      .then((body) => {
+      .then(async (body) => {
         let parsed: CreateSessionOptions;
         try {
           parsed = JSON.parse(body) as CreateSessionOptions;
@@ -113,7 +124,24 @@ export class ControlApi {
           return;
         }
 
-        const session = this.supervisor.createSession(parsed);
+        const isValidDir = await stat(parsed.cwd)
+          .then((s) => s.isDirectory())
+          .catch(() => false);
+        if (!isValidDir) {
+          sendJson(res, 400, { error: "cwd is not an existing directory" });
+          return;
+        }
+
+        let session: DaemonSessionInfo;
+        try {
+          session = this.supervisor.createSession(parsed);
+        } catch (err) {
+          if (err instanceof Error && err.message.includes("Maximum session limit")) {
+            sendJson(res, 429, { error: err.message });
+            return;
+          }
+          throw err;
+        }
         sendJson(res, 201, session);
       })
       .catch((err: unknown) => {

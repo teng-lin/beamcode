@@ -127,6 +127,16 @@ describe("ControlApi", () => {
     expect(body.error).toContain("cwd");
   });
 
+  it("rejects POST with non-existent cwd", async () => {
+    const { status, body } = await request("/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/nonexistent/path/that/does/not/exist" }),
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("not an existing directory");
+  });
+
   it("rejects POST with invalid JSON", async () => {
     const { status } = await request("/sessions", {
       method: "POST",
@@ -153,8 +163,16 @@ describe("ControlApi", () => {
     expect(body.status).toBe("stopped");
   });
 
-  it("returns 404 for unknown session delete", async () => {
-    const { status } = await request("/sessions/nonexistent", {
+  it("returns 400 for invalid session ID format", async () => {
+    const { status, body } = await request("/sessions/nonexistent", {
+      method: "DELETE",
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("Invalid session ID");
+  });
+
+  it("returns 404 for valid UUID that doesn't match a session", async () => {
+    const { status } = await request("/sessions/00000000-0000-0000-0000-000000000000", {
       method: "DELETE",
     });
     expect(status).toBe(404);
