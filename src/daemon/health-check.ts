@@ -1,7 +1,13 @@
+import { noopLogger } from "../adapters/noop-logger.js";
 import type { Logger } from "../interfaces/logger.js";
 import { updateHeartbeat } from "./state-file.js";
 
 const DEFAULT_INTERVAL_MS = 60_000;
+
+export interface HealthCheckOptions {
+  logger?: Logger;
+  intervalMs?: number;
+}
 
 /**
  * Start a periodic heartbeat that updates the daemon state file.
@@ -9,9 +15,10 @@ const DEFAULT_INTERVAL_MS = 60_000;
  */
 export function startHealthCheck(
   statePath: string,
-  logger: Logger,
-  intervalMs: number = DEFAULT_INTERVAL_MS,
+  options: HealthCheckOptions = {},
 ): NodeJS.Timeout {
+  const logger = options.logger ?? noopLogger;
+  const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   let consecutiveFailures = 0;
 
   const timer = setInterval(() => {

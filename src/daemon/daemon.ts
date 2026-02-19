@@ -63,10 +63,10 @@ export class Daemon {
 
       await writeState(this.statePath, state);
 
-      this.healthTimer = startHealthCheck(this.statePath, this.logger);
+      this.healthTimer = startHealthCheck(this.statePath, { logger: this.logger });
       this.running = true;
 
-      registerSignalHandlers(() => this.stop(), this.logger);
+      registerSignalHandlers(() => this.stop(), { logger: this.logger });
 
       return { port, controlApiToken };
     } catch (err) {
