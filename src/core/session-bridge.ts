@@ -1,6 +1,6 @@
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import { noopLogger } from "../adapters/noop-logger.js";
-import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
+import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
@@ -15,13 +15,13 @@ import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
-import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeeper.js";
+import { ConsumerTransportCoordinator } from "./consumer-transport-coordinator.js";
 import { GitInfoTracker } from "./git-info-tracker.js";
 import { normalizeInbound } from "./inbound-normalizer.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
@@ -59,6 +59,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private capabilitiesProtocol: CapabilitiesProtocol;
   private backendLifecycle: BackendLifecycleManager;
   private messageRouter: UnifiedMessageRouter;
+  private consumerTransport: ConsumerTransportCoordinator;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -134,6 +135,20 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       routeUnifiedMessage: (session, msg) => this.messageRouter.route(session, msg),
       emitEvent,
     });
+    this.consumerTransport = new ConsumerTransportCoordinator({
+      sessions: {
+        get: (sessionId) => this.store.get(sessionId),
+        getOrCreate: (sessionId) => this.getOrCreateSession(sessionId),
+      },
+      gatekeeper: this.gatekeeper,
+      broadcaster: this.broadcaster,
+      gitTracker: this.gitTracker,
+      logger: this.logger,
+      metrics: this.metrics,
+      emit: this.forwardBridgeEvent.bind(this),
+      routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
+      maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
+    });
   }
 
   // ── Event forwarding ─────────────────────────────────────────────────────
@@ -141,6 +156,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   /** Forward a typed event from a delegate to the bridge's event emitter. */
   private forwardEvent(type: string, payload: unknown): void {
     this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]);
+  }
+
+  private forwardBridgeEvent<K extends keyof BridgeEventMap>(
+    type: K,
+    payload: BridgeEventMap[K],
+  ): void {
+    this.emit(type, payload);
   }
 
   // ── Persistence ──────────────────────────────────────────────────────────
@@ -266,242 +288,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   // ── Consumer WebSocket handlers ──────────────────────────────────────────
 
   handleConsumerOpen(ws: WebSocketLike, context: AuthContext): void {
-    const session = this.getOrCreateSession(context.sessionId);
-
-    if (this.gatekeeper.hasAuthenticator()) {
-      // Async auth path — authenticateAsync may throw synchronously or reject
-      let authResult: Promise<ConsumerIdentity | null>;
-      try {
-        authResult = this.gatekeeper.authenticateAsync(ws, context);
-      } catch (err) {
-        this.rejectConsumer(ws, context.sessionId, err);
-        return;
-      }
-      authResult
-        .then((identity) => {
-          if (!identity) return; // socket closed during auth
-          this.acceptConsumer(ws, context.sessionId, identity);
-        })
-        .catch((err) => {
-          this.rejectConsumer(ws, context.sessionId, err);
-        });
-    } else {
-      // Sync anonymous auth path (preserves original synchronous behavior)
-      session.anonymousCounter++;
-      const identity = this.gatekeeper.createAnonymousIdentity(session.anonymousCounter);
-      this.acceptConsumer(ws, context.sessionId, identity);
-    }
-  }
-
-  private rejectConsumer(ws: WebSocketLike, sessionId: string, err: unknown): void {
-    const reason = err instanceof Error ? err.message : String(err);
-    this.emit("consumer:auth_failed", { sessionId, reason });
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "auth:failed",
-      sessionId,
-      reason,
-    });
-    try {
-      ws.close(4001, "Authentication failed");
-    } catch {
-      // ignore close errors
-    }
-  }
-
-  private acceptConsumer(ws: WebSocketLike, sessionId: string, identity: ConsumerIdentity): void {
-    const session = this.store.get(sessionId);
-    if (!session) {
-      // Session was removed during async authentication
-      this.rejectConsumer(ws, sessionId, new Error("Session closed during authentication"));
-      return;
-    }
-    session.consumerSockets.set(ws, identity);
-    this.logger.info(
-      `Consumer connected for session ${sessionId} (${session.consumerSockets.size} consumers)`,
-    );
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "consumer:connected",
-      sessionId,
-      userId: identity.userId,
-    });
-
-    // Send identity to the new consumer
-    this.broadcaster.sendTo(ws, {
-      type: "identity",
-      userId: identity.userId,
-      displayName: identity.displayName,
-      role: identity.role,
-    });
-
-    // Eagerly resolve git info if cwd is known but git info is missing
-    // (e.g. resumed session where CLI hasn't reconnected yet)
-    this.gitTracker.resolveGitInfo(session);
-
-    // Send current session state as snapshot
-    this.broadcaster.sendTo(ws, {
-      type: "session_init",
-      session: session.state,
-    });
-
-    // Replay message history so the consumer can reconstruct the conversation
-    if (session.messageHistory.length > 0) {
-      this.broadcaster.sendTo(ws, {
-        type: "message_history",
-        messages: session.messageHistory,
-      });
-    }
-
-    // Send capabilities if already available
-    if (session.state.capabilities) {
-      this.broadcaster.sendTo(ws, {
-        type: "capabilities_ready",
-        commands: session.state.capabilities.commands,
-        models: session.state.capabilities.models,
-        account: session.state.capabilities.account,
-        skills: session.state.skills,
-      });
-    }
-
-    // Send pending permission requests only to participants
-    if (identity.role === "participant") {
-      for (const perm of session.pendingPermissions.values()) {
-        this.broadcaster.sendTo(ws, { type: "permission_request", request: perm });
-      }
-    }
-
-    // Send current queued message state (if any)
-    if (session.queuedMessage) {
-      this.broadcaster.sendTo(ws, {
-        type: "message_queued",
-        consumer_id: session.queuedMessage.consumerId,
-        display_name: session.queuedMessage.displayName,
-        content: session.queuedMessage.content,
-        images: session.queuedMessage.images,
-        queued_at: session.queuedMessage.queuedAt,
-      });
-    }
-
-    // Broadcast presence update to all consumers
-    this.broadcaster.broadcastPresence(session);
-
-    this.emit("consumer:authenticated", {
-      sessionId,
-      userId: identity.userId,
-      displayName: identity.displayName,
-      role: identity.role,
-    });
-    this.emit("consumer:connected", {
-      sessionId,
-      consumerCount: session.consumerSockets.size,
-      identity,
-    });
-
-    // Notify consumer of current backend connection state
-    if (session.backendSession) {
-      this.broadcaster.sendTo(ws, { type: "cli_connected" });
-    } else {
-      this.broadcaster.sendTo(ws, { type: "cli_disconnected" });
-      this.logger.info(
-        `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
-      );
-      this.emit("backend:relaunch_needed", { sessionId });
-    }
+    this.consumerTransport.handleConsumerOpen(ws, context);
   }
 
   handleConsumerMessage(ws: WebSocketLike, sessionId: string, data: string | Buffer): void {
-    const raw = typeof data === "string" ? data : data.toString("utf-8");
-    const session = this.store.get(sessionId);
-    if (!session) return;
-
-    session.lastActivity = Date.now();
-
-    // Reject oversized messages before parsing
-    if (raw.length > MAX_CONSUMER_MESSAGE_SIZE) {
-      this.logger.warn(
-        `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${MAX_CONSUMER_MESSAGE_SIZE})`,
-      );
-      ws.close(1009, "Message Too Big");
-      return;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      this.logger.warn(`Failed to parse consumer message: ${raw.substring(0, 200)}`);
-      return;
-    }
-
-    const result = inboundMessageSchema.safeParse(parsed);
-    if (!result.success) {
-      this.logger.warn(`Invalid consumer message`, {
-        error: result.error.issues,
-        raw: raw.substring(0, 200),
-      });
-      return;
-    }
-    const msg: InboundMessage = result.data;
-
-    // Reject messages from unregistered sockets (not yet authenticated or already removed)
-    const identity = session.consumerSockets.get(ws);
-    if (!identity) return;
-
-    // Role-based access control: observers cannot send participant-only messages
-    if (!this.gatekeeper.authorize(identity, msg.type)) {
-      this.broadcaster.sendTo(ws, {
-        type: "error",
-        message: `Observers cannot send ${msg.type} messages`,
-      });
-      return;
-    }
-
-    // Rate limiting: check if consumer has exceeded message rate limit
-    if (!this.gatekeeper.checkRateLimit(ws, session)) {
-      this.logger.warn(`Rate limit exceeded for consumer in session ${sessionId}`);
-      this.metrics?.recordEvent({
-        timestamp: Date.now(),
-        type: "ratelimit:exceeded",
-        sessionId,
-        source: "consumer",
-      });
-      this.broadcaster.sendTo(ws, {
-        type: "error",
-        message: "Rate limit exceeded. Please slow down your message rate.",
-      });
-      return;
-    }
-
-    this.emit("message:inbound", { sessionId, message: msg });
-    this.routeConsumerMessage(session, msg, ws);
+    this.consumerTransport.handleConsumerMessage(ws, sessionId, data);
   }
 
   handleConsumerClose(ws: WebSocketLike, sessionId: string): void {
-    this.gatekeeper.cancelPendingAuth(ws); // cancel auth in progress
-    const session = this.store.get(sessionId);
-    if (!session) return;
-
-    const identity = session.consumerSockets.get(ws);
-    session.consumerSockets.delete(ws);
-    session.consumerRateLimiters.delete(ws); // Clean up rate limiter
-    this.logger.info(
-      `Consumer disconnected for session ${sessionId} (${session.consumerSockets.size} consumers)`,
-    );
-    if (identity) {
-      this.metrics?.recordEvent({
-        timestamp: Date.now(),
-        type: "consumer:disconnected",
-        sessionId,
-        userId: identity.userId,
-      });
-    }
-    this.emit("consumer:disconnected", {
-      sessionId,
-      consumerCount: session.consumerSockets.size,
-      identity,
-    });
-    this.broadcaster.broadcastPresence(session);
+    this.consumerTransport.handleConsumerClose(ws, sessionId);
   }
 
   // ── Programmatic API ─────────────────────────────────────────────────────
