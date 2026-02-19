@@ -224,7 +224,7 @@ describe("BackendLifecycleManager", () => {
       await mgr.connectBackend(session);
 
       expect(metrics.recordEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "cli:connected", sessionId: "sess-1" }),
+        expect.objectContaining({ type: "backend:connected", sessionId: "sess-1" }),
       );
     });
 
@@ -401,7 +401,7 @@ describe("BackendLifecycleManager", () => {
       await mgr.disconnectBackend(session);
 
       expect(metrics.recordEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "cli:disconnected" }),
+        expect.objectContaining({ type: "backend:disconnected" }),
       );
     });
   });

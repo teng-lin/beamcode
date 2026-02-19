@@ -35,13 +35,13 @@ export interface ConsumerDisconnectedEvent extends MetricsEvent {
   userId: string;
 }
 
-export interface CLIConnectedEvent extends MetricsEvent {
-  type: "cli:connected";
+export interface BackendConnectedEvent extends MetricsEvent {
+  type: "backend:connected";
   sessionId: string;
 }
 
-export interface CLIDisconnectedEvent extends MetricsEvent {
-  type: "cli:disconnected";
+export interface BackendDisconnectedEvent extends MetricsEvent {
+  type: "backend:disconnected";
   sessionId: string;
 }
 
@@ -120,8 +120,8 @@ export type MetricsEventType =
   | SessionClosedEvent
   | ConsumerConnectedEvent
   | ConsumerDisconnectedEvent
-  | CLIConnectedEvent
-  | CLIDisconnectedEvent
+  | BackendConnectedEvent
+  | BackendDisconnectedEvent
   | MessageReceivedEvent
   | MessageSentEvent
   | MessageDroppedEvent

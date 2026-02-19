@@ -152,10 +152,6 @@ export class UnifiedMessageRouter {
         sessionId: session.id,
         backendSessionId: m.session_id as string,
       });
-      this.emitEvent("cli:session_id", {
-        sessionId: session.id,
-        cliSessionId: m.session_id as string,
-      });
     }
 
     // Resolve git info (unconditional: CLI is authoritative, cwd may differ from seed)

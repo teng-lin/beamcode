@@ -11,13 +11,7 @@ import type { ConsumerMessage } from "./consumer-messages.js";
 import type { InboundMessage } from "./inbound-messages.js";
 
 export interface BridgeEventMap {
-  // ── Existing CLI-specific events (kept for backward compat) ──
-  "cli:session_id": { sessionId: string; cliSessionId: string };
-  "cli:connected": { sessionId: string };
-  "cli:disconnected": { sessionId: string };
-  "cli:relaunch_needed": { sessionId: string };
-
-  // ── Generalized backend events (adapter-agnostic) ──
+  // ── Backend events (adapter-agnostic) ──
   "backend:connected": { sessionId: string };
   "backend:disconnected": { sessionId: string; code: number; reason: string };
   "backend:session_id": { sessionId: string; backendSessionId: string };

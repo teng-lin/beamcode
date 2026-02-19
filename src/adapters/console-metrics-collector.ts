@@ -7,7 +7,7 @@ import type { MetricsCollector, MetricsEventType } from "../interfaces/metrics.j
  */
 export class ConsoleMetricsCollector implements MetricsCollector {
   private sessionEventCounts = new Map<string, number>();
-  private sessionConnections = new Map<string, { cli: number; consumers: number }>();
+  private sessionConnections = new Map<string, { backend: number; consumers: number }>();
 
   constructor(private logger: Logger) {}
 
@@ -24,7 +24,7 @@ export class ConsoleMetricsCollector implements MetricsCollector {
     switch (event.type) {
       case "session:created":
         this.logger.info(`[METRICS] Session created: ${event.sessionId}`);
-        this.sessionConnections.set(event.sessionId, { cli: 0, consumers: 0 });
+        this.sessionConnections.set(event.sessionId, { backend: 0, consumers: 0 });
         break;
 
       case "session:closed":
@@ -37,7 +37,7 @@ export class ConsoleMetricsCollector implements MetricsCollector {
 
       case "consumer:connected":
         {
-          const conn = this.sessionConnections.get(sessionId) || { cli: 0, consumers: 0 };
+          const conn = this.sessionConnections.get(sessionId) || { backend: 0, consumers: 0 };
           conn.consumers++;
           this.sessionConnections.set(sessionId, conn);
           this.logger.debug?.(
@@ -56,20 +56,20 @@ export class ConsoleMetricsCollector implements MetricsCollector {
         }
         break;
 
-      case "cli:connected":
+      case "backend:connected":
         {
-          const conn = this.sessionConnections.get(sessionId) || { cli: 0, consumers: 0 };
-          conn.cli = 1;
+          const conn = this.sessionConnections.get(sessionId) || { backend: 0, consumers: 0 };
+          conn.backend = 1;
           this.sessionConnections.set(sessionId, conn);
-          this.logger.debug?.(`[METRICS] CLI connected: session=${sessionId}`);
+          this.logger.debug?.(`[METRICS] Backend connected: session=${sessionId}`);
         }
         break;
 
-      case "cli:disconnected":
+      case "backend:disconnected":
         {
           const conn = this.sessionConnections.get(sessionId);
-          if (conn) conn.cli = 0;
-          this.logger.debug?.(`[METRICS] CLI disconnected: session=${sessionId}`);
+          if (conn) conn.backend = 0;
+          this.logger.debug?.(`[METRICS] Backend disconnected: session=${sessionId}`);
         }
         break;
 
@@ -135,7 +135,7 @@ export class ConsoleMetricsCollector implements MetricsCollector {
       return {
         sessionId,
         eventCount: this.sessionEventCounts.get(sessionId) || 0,
-        connections: this.sessionConnections.get(sessionId) || { cli: 0, consumers: 0 },
+        connections: this.sessionConnections.get(sessionId) || { backend: 0, consumers: 0 },
       };
     }
 
@@ -145,13 +145,13 @@ export class ConsoleMetricsCollector implements MetricsCollector {
       (sum, conn) => sum + conn.consumers,
       0,
     );
-    const cliConnected = Array.from(this.sessionConnections.values()).filter(
-      (conn) => conn.cli > 0,
+    const backendConnected = Array.from(this.sessionConnections.values()).filter(
+      (conn) => conn.backend > 0,
     ).length;
 
     return {
       totalSessions,
-      cliConnected,
+      backendConnected,
       totalConsumers,
       totalEvents: Array.from(this.sessionEventCounts.values()).reduce((a, b) => a + b, 0),
     };

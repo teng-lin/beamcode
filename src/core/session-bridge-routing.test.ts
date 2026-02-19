@@ -49,16 +49,16 @@ describe("SessionBridge — CLI message routing", () => {
     consumerSocket.sentMessages.length = 0;
   });
 
-  it("system init updates session state and emits cli:session_id", async () => {
+  it("system init updates session state and emits backend:session_id", async () => {
     const handler = vi.fn();
-    bridge.on("cli:session_id", handler);
+    bridge.on("backend:session_id", handler);
 
     backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
     await tick();
 
     expect(handler).toHaveBeenCalledWith({
       sessionId: "sess-1",
-      cliSessionId: "cli-abc",
+      backendSessionId: "cli-abc",
     });
 
     const state = bridge.getSession("sess-1")!.state;

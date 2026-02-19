@@ -179,12 +179,11 @@ export class BackendLifecycleManager {
     this.logger.info(`Backend connected for session ${session.id} via ${adapter.name}`);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
-      type: "cli:connected",
+      type: "backend:connected",
       sessionId: session.id,
     });
     this.broadcaster.broadcast(session, { type: "cli_connected" });
     this.emitEvent("backend:connected", { sessionId: session.id });
-    this.emitEvent("cli:connected", { sessionId: session.id });
 
     // Flush any pending messages
     if (session.pendingMessages.length > 0) {
@@ -213,7 +212,7 @@ export class BackendLifecycleManager {
     this.logger.info(`Backend disconnected for session ${session.id}`);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
-      type: "cli:disconnected",
+      type: "backend:disconnected",
       sessionId: session.id,
     });
     this.broadcaster.broadcast(session, { type: "cli_disconnected" });
@@ -222,7 +221,6 @@ export class BackendLifecycleManager {
       code: 1000,
       reason: "normal",
     });
-    this.emitEvent("cli:disconnected", { sessionId: session.id });
 
     this.cancelPendingPermissions(session);
   }
@@ -294,8 +292,6 @@ export class BackendLifecycleManager {
           code: 1000,
           reason: "stream ended",
         });
-        this.emitEvent("cli:disconnected", { sessionId });
-
         this.cancelPendingPermissions(session);
       }
     })();

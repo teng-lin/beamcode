@@ -454,12 +454,8 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       }
     });
 
-    // Forward all bridge events (both legacy cli:* and new backend:* for transition)
+    // Forward all bridge events to session manager listeners
     for (const event of [
-      "cli:session_id",
-      "cli:connected",
-      "cli:disconnected",
-      "cli:relaunch_needed",
       "backend:connected",
       "backend:disconnected",
       "backend:session_id",

@@ -394,7 +394,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.logger.info(
         `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
       );
-      this.emit("cli:relaunch_needed", { sessionId });
       this.emit("backend:relaunch_needed", { sessionId });
     }
   }

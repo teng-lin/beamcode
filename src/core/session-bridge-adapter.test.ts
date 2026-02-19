@@ -190,16 +190,13 @@ describe("SessionBridge (BackendAdapter path)", () => {
       expect(snapshot).toBeDefined();
     });
 
-    it("emits backend:connected and cli:connected events", async () => {
+    it("emits backend:connected event", async () => {
       const backendHandler = vi.fn();
-      const cliHandler = vi.fn();
       bridge.on("backend:connected", backendHandler);
-      bridge.on("cli:connected", cliHandler);
 
       await bridge.connectBackend("sess-1");
 
       expect(backendHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
     it("broadcasts cli_connected to consumers", async () => {
@@ -279,13 +276,11 @@ describe("SessionBridge (BackendAdapter path)", () => {
   // ── 3. disconnectBackend ───────────────────────────────────────────────
 
   describe("disconnectBackend", () => {
-    it("disconnects backend and emits events", async () => {
+    it("disconnects backend and emits backend:disconnected event", async () => {
       await bridge.connectBackend("sess-1");
 
       const backendHandler = vi.fn();
-      const cliHandler = vi.fn();
       bridge.on("backend:disconnected", backendHandler);
-      bridge.on("cli:disconnected", cliHandler);
 
       await bridge.disconnectBackend("sess-1");
 
@@ -295,7 +290,6 @@ describe("SessionBridge (BackendAdapter path)", () => {
         code: 1000,
         reason: "normal",
       });
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
     it("broadcasts cli_disconnected to consumers", async () => {
@@ -407,11 +401,9 @@ describe("SessionBridge (BackendAdapter path)", () => {
       expect(init.session.tools).toEqual(["Bash", "Read"]);
     });
 
-    it("emits backend:session_id and cli:session_id events", async () => {
+    it("emits backend:session_id event", async () => {
       const backendHandler = vi.fn();
-      const cliHandler = vi.fn();
       bridge.on("backend:session_id", backendHandler);
-      bridge.on("cli:session_id", cliHandler);
 
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
@@ -421,10 +413,6 @@ describe("SessionBridge (BackendAdapter path)", () => {
       expect(backendHandler).toHaveBeenCalledWith({
         sessionId: "sess-1",
         backendSessionId: "backend-123",
-      });
-      expect(cliHandler).toHaveBeenCalledWith({
-        sessionId: "sess-1",
-        cliSessionId: "backend-123",
       });
     });
 
@@ -870,11 +858,9 @@ describe("SessionBridge (BackendAdapter path)", () => {
   // ── 7. Backend stream termination ──────────────────────────────────────
 
   describe("backend stream termination", () => {
-    it("emits disconnected events when stream ends naturally", async () => {
+    it("emits backend:disconnected when stream ends naturally", async () => {
       const backendHandler = vi.fn();
-      const cliHandler = vi.fn();
       bridge.on("backend:disconnected", backendHandler);
-      bridge.on("cli:disconnected", cliHandler);
 
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
@@ -887,7 +873,6 @@ describe("SessionBridge (BackendAdapter path)", () => {
         code: 1000,
         reason: "stream ended",
       });
-      expect(cliHandler).toHaveBeenCalledWith({ sessionId: "sess-1" });
     });
 
     it("broadcasts cli_disconnected when stream ends", async () => {
