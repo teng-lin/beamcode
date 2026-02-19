@@ -238,8 +238,7 @@ describe("E2E: AcpAdapter", () => {
 
     session.send(createUserMessage("trigger crash"));
 
-    const messages = await reader.collect(2, 2000);
-    expect(messages.length).toBeGreaterThanOrEqual(1);
+    const messages = await reader.collect(1, 2000);
     expect(messages[0].type).toBe("stream_event");
   });
 

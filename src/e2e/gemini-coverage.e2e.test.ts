@@ -987,8 +987,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("crash now"));
 
-    const msgs = await reader.collect(2, 2000);
-    expect(msgs.length).toBeGreaterThanOrEqual(1);
+    const msgs = await reader.collect(1, 2000);
     expect(msgs[0].type).toBe("stream_event");
   });
 

@@ -15,6 +15,7 @@ import {
   createMockProcessManager,
   createPermissionResponse,
   createUserMessage,
+  MessageReader,
   MockWebSocket,
   sendCodexErrorResponse,
   sendCodexNotification,
@@ -265,9 +266,8 @@ describe("E2E: CodexAdapter", () => {
     // Close the WebSocket mid-turn
     ws.emit("close");
 
-    // Should get the partial message, then stream should end
-    const messages = await collectUnifiedMessages(session, 2, 1000);
-    expect(messages.length).toBeGreaterThanOrEqual(1);
+    // Should get the partial message before stream ends
+    const messages = await collectUnifiedMessages(session, 1, 1000);
     expect(messages[0].type).toBe("stream_event");
     expect(messages[0].metadata.delta).toBe("partial...");
   });
@@ -281,10 +281,10 @@ describe("E2E: CodexAdapter", () => {
     // Emit error
     ws.emit("error", new Error("Connection lost"));
 
-    // Stream should end
-    const messages = await collectUnifiedMessages(session, 1, 500);
-    // May or may not collect any messages, but stream shouldn't hang
-    expect(messages.length).toBeLessThanOrEqual(1);
+    // Stream should terminate (not hang). The iterator ends when the
+    // session detects the error, so next() resolves with done: true.
+    const reader = new MessageReader(session);
+    await expect(reader.collect(1, 500)).rejects.toThrow(/stream ended early|timed out/);
   });
 
   it("send after close throws", async () => {
