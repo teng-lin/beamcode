@@ -153,6 +153,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return session;
   }
 
+  /** Set the adapter name for a session (persisted for restore). */
+  setAdapterName(sessionId: string, name: string): void {
+    const session = this.getOrCreateSession(sessionId);
+    session.adapterName = name;
+    session.state.adapterName = name;
+    this.persistSession(session);
+  }
+
   /**
    * Seed a session's state with known launch parameters (cwd, model, etc.)
    * and eagerly resolve git info. Call this right after launcher.launch()
@@ -655,9 +663,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.queueHandler.handleCancelQueuedMessage(session, ws);
         break;
       case "set_adapter":
-        this.logger.info(
-          `[set_adapter] session=${session.id} adapter=${msg.adapter} (no-op: adapter switching not yet supported)`,
-        );
+        this.broadcaster.sendTo(ws, {
+          type: "error",
+          message:
+            "Adapter cannot be changed on an active session. Create a new session with the desired adapter.",
+        });
         break;
     }
   }
