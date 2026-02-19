@@ -398,12 +398,37 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       if (this.relaunchingSet.has(sessionId)) return;
 
       const info = this.launcher.getSession(sessionId);
-      if (info?.archived) return;
-      if (info && info.state !== "starting") {
+      if (!info || info.archived) return;
+
+      // SdkUrl sessions with a PID — relaunch via launcher (existing path)
+      if (info.pid && info.state !== "starting") {
         this.relaunchingSet.add(sessionId);
-        this.logger.info(`Auto-relaunching backend for session ${sessionId}`);
+        this.logger.info(`Auto-relaunching SdkUrl backend for session ${sessionId}`);
         try {
           await this.launcher.relaunch(sessionId);
+        } finally {
+          const timer = setTimeout(() => {
+            this.relaunchingSet.delete(sessionId);
+            this.relaunchDedupTimers.delete(sessionId);
+          }, this.config.relaunchDedupMs);
+          this.relaunchDedupTimers.set(sessionId, timer);
+        }
+        return;
+      }
+
+      // Non-SdkUrl sessions (no PID) — reconnect via bridge
+      if (!this.bridge.isBackendConnected(sessionId)) {
+        this.relaunchingSet.add(sessionId);
+        this.logger.info(
+          `Auto-reconnecting ${info.adapterName ?? "unknown"} backend for session ${sessionId}`,
+        );
+        try {
+          await this.bridge.connectBackend(sessionId, {
+            adapterOptions: { cwd: info.cwd },
+          });
+          this.launcher.markConnected(sessionId);
+        } catch (err) {
+          this.logger.error(`Failed to reconnect backend for session ${sessionId}: ${err}`);
         } finally {
           const timer = setTimeout(() => {
             this.relaunchingSet.delete(sessionId);
@@ -497,6 +522,17 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       this.logger.info(
         `Restored ${launcherCount} launcher session(s) and ${bridgeCount} bridge session(s) from storage`,
       );
+    }
+
+    // Mark non-SdkUrl sessions as "exited" so the reconnect watchdog / relaunch
+    // handler will re-establish their backend connection when a consumer connects.
+    for (const info of this.launcher.listSessions()) {
+      if (!info.pid && !info.archived && info.adapterName && info.adapterName !== "sdk-url") {
+        info.state = "exited";
+        this.logger.info(
+          `Restored non-SdkUrl session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
+        );
+      }
     }
   }
 
