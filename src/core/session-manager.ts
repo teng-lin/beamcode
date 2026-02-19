@@ -194,8 +194,8 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
     this.wireEvents();
     this.restoreFromStorage();
-    this.reconnectController.start();
-    this.idleSessionReaper.start();
+    this.startReconnectWatchdog();
+    this.startIdleReaper();
     await this.transportHub.start();
   }
 
@@ -491,6 +491,22 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         );
       }
     }
+  }
+
+  /**
+   * Backward-compatible shim retained for tests and legacy internal callers.
+   * Delegates to ReconnectController after extraction.
+   */
+  private startReconnectWatchdog(): void {
+    this.reconnectController.start();
+  }
+
+  /**
+   * Backward-compatible shim retained for tests and legacy internal callers.
+   * Delegates to IdleSessionReaper after extraction.
+   */
+  private startIdleReaper(): void {
+    this.idleSessionReaper.start();
   }
 
 }
