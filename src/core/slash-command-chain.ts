@@ -121,8 +121,9 @@ export class AdapterNativeHandler implements CommandHandler {
 
   execute(ctx: CommandHandlerContext): void {
     const { command, requestId, session } = ctx;
-    session
-      .adapterSlashExecutor!.execute(command)
+    if (!session.adapterSlashExecutor) return;
+    session.adapterSlashExecutor
+      .execute(command)
       .then((result) => {
         if (!result) return;
         this.deps.broadcaster.broadcast(session, {
