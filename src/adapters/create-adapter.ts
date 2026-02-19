@@ -40,10 +40,7 @@ export function createAdapter(
     case "acp":
       return new AcpAdapter();
     case "gemini":
-      return new GeminiAdapter({
-        processManager: deps.processManager,
-        logger: deps.logger,
-      });
+      return new GeminiAdapter();
     case "opencode":
       return new OpencodeAdapter({
         processManager: deps.processManager,

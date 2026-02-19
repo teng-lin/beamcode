@@ -1,107 +1,25 @@
-import type { ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { SpawnFn } from "./acp-adapter.js";
 import { AcpAdapter } from "./acp-adapter.js";
-
-// ---------------------------------------------------------------------------
-// Mock subprocess helpers
-// ---------------------------------------------------------------------------
-
-class MockStream extends EventEmitter {
-  readonly chunks: string[] = [];
-
-  write(data: string): boolean {
-    this.chunks.push(data);
-    return true;
-  }
-}
-
-function createMockChild() {
-  const stdin = new MockStream();
-  const stdout = new MockStream();
-  const stderr = new MockStream();
-  const child = new EventEmitter() as ChildProcess;
-
-  Object.assign(child, {
-    stdin,
-    stdout,
-    stderr,
-    pid: 12345,
-    killed: false,
-    kill: vi.fn((_signal?: string) => {
-      (child as unknown as { killed: boolean }).killed = true;
-      child.emit("exit", 0, null);
-      return true;
-    }),
-  });
-
-  return { child, stdin, stdout, stderr };
-}
-
-function respondToRequest(stdout: MockStream, id: number, result: unknown) {
-  const response = `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`;
-  stdout.emit("data", Buffer.from(response));
-}
-
-function sendNotification(stdout: MockStream, method: string, params: unknown) {
-  const notification = `${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`;
-  stdout.emit("data", Buffer.from(notification));
-}
-
-function sendRequest(stdout: MockStream, id: number, method: string, params: unknown) {
-  const request = `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`;
-  stdout.emit("data", Buffer.from(request));
-}
+import {
+  autoRespond,
+  createMockChild,
+  type MockChild,
+  respondToRequest,
+  sendNotification,
+  sendRequest,
+} from "./acp-mock-helpers.js";
 
 /** Allow the adapter to process async microtasks between responses. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
-
-/**
- * Auto-responder: watches stdin for JSON-RPC requests and
- * responds to initialize + session/new|session/load automatically.
- * Returns a promise that resolves when the handshake completes.
- */
-function autoRespond(
-  stdin: MockStream,
-  stdout: MockStream,
-  initResult?: Record<string, unknown>,
-  sessionResult?: Record<string, unknown>,
-): void {
-  const defaultInit = {
-    protocolVersion: 1,
-    agentCapabilities: { streaming: true },
-    agentInfo: { name: "test-agent", version: "1.0" },
-    ...initResult,
-  };
-  const defaultSession = { sessionId: "sess-1", ...sessionResult };
-
-  // Watch for writes to stdin and auto-respond
-  const origWrite = stdin.write.bind(stdin);
-  stdin.write = (data: string): boolean => {
-    origWrite(data);
-    try {
-      const parsed = JSON.parse(data.trim());
-      if (parsed.method === "initialize") {
-        // Use setTimeout to ensure response arrives after listener is attached
-        setTimeout(() => respondToRequest(stdout, parsed.id, defaultInit), 0);
-      } else if (parsed.method === "session/new" || parsed.method === "session/load") {
-        setTimeout(() => respondToRequest(stdout, parsed.id, defaultSession), 0);
-      }
-    } catch {
-      // ignore
-    }
-    return true;
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("AcpAdapter", () => {
-  let mockChild: ReturnType<typeof createMockChild>;
+  let mockChild: MockChild;
   let mockSpawn: SpawnFn;
   let spawnCalls: Array<{ command: string; args: string[] }>;
 
@@ -137,7 +55,7 @@ describe("AcpAdapter", () => {
     it("spawns subprocess with specified command", async () => {
       setup();
       autoRespond(mockChild.stdin, mockChild.stdout, {
-        agentInfo: { name: "my-agent", version: "1.0" },
+        initResult: { agentInfo: { name: "my-agent", version: "1.0" } },
       });
 
       const adapter = new AcpAdapter(mockSpawn);
