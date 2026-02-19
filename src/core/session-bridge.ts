@@ -248,7 +248,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
-    await Promise.all(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
+    await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
     this.slashCommandExecutor.dispose();
     this.removeAllListeners();
   }
