@@ -1,16 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  archiveSession,
-  createSession,
-  deleteSession,
-  renameSession,
-  unarchiveSession,
-} from "../api";
-import { useDropdown } from "../hooks/useDropdown";
+import { archiveSession, deleteSession, renameSession, unarchiveSession } from "../api";
 import { type SdkSessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
 import { connectToSession, disconnectSession } from "../ws";
+import { ADAPTER_LABELS } from "./NewSessionDialog";
 
 const ADAPTER_COLORS: Record<string, string> = {
   claude: "bg-bc-adapter-claude",
@@ -18,13 +12,8 @@ const ADAPTER_COLORS: Record<string, string> = {
   acp: "bg-bc-adapter-codex",
   continue: "bg-bc-adapter-continue",
   gemini: "bg-bc-adapter-gemini",
+  opencode: "bg-bc-adapter-opencode",
 };
-
-const ADAPTER_OPTIONS: { value: string; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "codex", label: "Codex" },
-  { value: "acp", label: "ACP" },
-];
 
 function adapterColor(info?: SdkSessionInfo): string {
   const type = info?.adapterName ?? info?.adapterType ?? "default";
@@ -266,6 +255,15 @@ const SessionItem = memo(function SessionItem({
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-bc-text-muted/70">
           <StatusDot status={status} exitCode={info.exitCode} />
+          <span>
+            {ADAPTER_LABELS[info.adapterName ?? info.adapterType ?? ""] ??
+              info.adapterName ??
+              info.adapterType ??
+              "—"}
+          </span>
+          <span>·</span>
+          <span>{(status ? STATUS_STYLES[status] : null)?.label ?? STATUS_DEFAULT.label}</span>
+          <span>·</span>
           <span>{formatTime(info.createdAt)}</span>
         </div>
       </div>
@@ -438,36 +436,8 @@ export function Sidebar() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const setCurrentSession = useStore((s) => s.setCurrentSession);
   const updateSession = useStore((s) => s.updateSession);
-  const [creating, setCreating] = useState(false);
+  const setNewSessionDialogOpen = useStore((s) => s.setNewSessionDialogOpen);
   const [search, setSearch] = useState("");
-  const creatingRef = useRef(false);
-  const {
-    open: adapterMenuOpen,
-    toggle: toggleAdapterMenu,
-    close: closeAdapterMenu,
-    ref: adapterMenuRef,
-  } = useDropdown();
-
-  const handleNewSession = useCallback(
-    async (adapter?: string) => {
-      if (creatingRef.current) return;
-      creatingRef.current = true;
-      setCreating(true);
-      try {
-        const session = await createSession(adapter ? { adapter } : {});
-        updateSession(session.sessionId, session);
-        setCurrentSession(session.sessionId);
-        connectToSession(session.sessionId);
-        updateSessionUrl(session.sessionId, "push");
-      } catch (err) {
-        console.error("[sidebar] Failed to create session:", err);
-      } finally {
-        creatingRef.current = false;
-        setCreating(false);
-      }
-    },
-    [updateSession, setCurrentSession],
-  );
 
   const sessionList = useMemo(() => sortedSessions(sessions), [sessions]);
 
@@ -553,58 +523,25 @@ export function Sidebar() {
           </div>
           <span className="text-sm font-semibold text-bc-text">BeamCode</span>
         </div>
-        <div className="relative flex items-center" ref={adapterMenuRef}>
-          <button
-            type="button"
-            className="flex h-6 items-center rounded-l-md bg-bc-surface-2 px-2 text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text disabled:opacity-50"
-            aria-label="New session"
-            disabled={creating}
-            onClick={() => handleNewSession()}
+        <button
+          type="button"
+          data-new-session-trigger
+          className="flex h-6 items-center rounded-md bg-bc-surface-2 px-2 text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
+          aria-label="New session"
+          onClick={() => setNewSessionDialogOpen(true)}
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="currentColor"
+            className="mr-1"
+            aria-hidden="true"
           >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="currentColor"
-              className="mr-1"
-              aria-hidden="true"
-            >
-              <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.3" fill="none" />
-            </svg>
-            New
-          </button>
-          <button
-            type="button"
-            className="flex h-6 items-center rounded-r-md border-l border-bc-border/40 bg-bc-surface-2 px-1 text-[11px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text disabled:opacity-50"
-            aria-label="Choose adapter"
-            disabled={creating}
-            onClick={toggleAdapterMenu}
-          >
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
-              <path d="M2 3l2 2.5L6 3" />
-            </svg>
-          </button>
-          {adapterMenuOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
-              {ADAPTER_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => {
-                    closeAdapterMenu();
-                    handleNewSession(opt.value);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-bc-text-muted transition-colors hover:bg-bc-hover hover:text-bc-text"
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${ADAPTER_COLORS[opt.value] ?? "bg-bc-adapter-default"}`}
-                  />
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+            <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.3" fill="none" />
+          </svg>
+          New
+        </button>
       </div>
 
       {/* Search filter */}

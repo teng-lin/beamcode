@@ -35,8 +35,13 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Escape: close quick switcher > agent pane > shortcuts modal
+      // Escape: close new session dialog > quick switcher > agent pane > shortcuts modal
       if (e.key === "Escape") {
+        if (state.newSessionDialogOpen) {
+          e.preventDefault();
+          state.setNewSessionDialogOpen(false);
+          return;
+        }
         if (state.quickSwitcherOpen) {
           e.preventDefault();
           state.setQuickSwitcherOpen(false);

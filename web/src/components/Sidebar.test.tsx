@@ -115,67 +115,12 @@ describe("Sidebar", () => {
   // ── handleNewSession ───────────────────────────────────────────────────
 
   describe("handleNewSession", () => {
-    it("creates a session, updates store, connects, and pushes URL", async () => {
+    it("opens the new session dialog when New button is clicked", async () => {
       const user = userEvent.setup();
-      const newSession = makeSessionInfo({ sessionId: "new-1", cwd: "/tmp/new" });
-      vi.mocked(createSession).mockResolvedValueOnce(newSession);
-
       render(<Sidebar />);
       await user.click(screen.getByLabelText("New session"));
-
-      await waitFor(() => {
-        expect(createSession).toHaveBeenCalledWith({});
-      });
-      expect(useStore.getState().sessions["new-1"]).toBeDefined();
-      expect(useStore.getState().currentSessionId).toBe("new-1");
-      expect(connectToSession).toHaveBeenCalledWith("new-1");
-      // URL should contain the session param
-      expect(window.location.search).toContain("session=new-1");
-    });
-
-    it("logs error and resets creating state on failure", async () => {
-      const user = userEvent.setup();
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      vi.mocked(createSession).mockRejectedValueOnce(new Error("network error"));
-
-      render(<Sidebar />);
-      await user.click(screen.getByLabelText("New session"));
-
-      await waitFor(() => {
-        expect(consoleSpy).toHaveBeenCalledWith(
-          "[sidebar] Failed to create session:",
-          expect.any(Error),
-        );
-      });
-      // Button should be re-enabled after error
-      expect(screen.getByLabelText("New session")).not.toBeDisabled();
-      consoleSpy.mockRestore();
-    });
-
-    it("prevents double-click while creating", async () => {
-      const user = userEvent.setup();
-      // Use a promise that we control resolution for
-      let resolveCreate!: (v: SdkSessionInfo) => void;
-      vi.mocked(createSession).mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            resolveCreate = resolve;
-          }),
-      );
-
-      render(<Sidebar />);
-      const btn = screen.getByLabelText("New session");
-
-      // Click once — starts creation
-      await user.click(btn);
-      expect(createSession).toHaveBeenCalledTimes(1);
-
-      // Button should be disabled while creating
-      expect(btn).toBeDisabled();
-
-      // Resolve the pending creation
-      resolveCreate(makeSessionInfo({ sessionId: "new-2", cwd: "/tmp" }));
-      await waitFor(() => expect(btn).not.toBeDisabled());
+      expect(useStore.getState().newSessionDialogOpen).toBe(true);
+      expect(createSession).not.toHaveBeenCalled();
     });
   });
 
