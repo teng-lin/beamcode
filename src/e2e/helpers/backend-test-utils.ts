@@ -35,17 +35,29 @@ export class MessageReader {
     this.iter = session.messages[Symbol.asyncIterator]();
   }
 
-  /** Collect N messages from the stream. */
+  /** Collect N messages from the stream. Throws if the stream ends or times out before N messages arrive. */
   async collect(count: number, timeoutMs = 5000): Promise<UnifiedMessage[]> {
     const collected: UnifiedMessage[] = [];
     for (let i = 0; i < count; i++) {
       const result = await Promise.race([
         this.iter.next(),
-        new Promise<IteratorResult<UnifiedMessage>>((r) =>
-          setTimeout(() => r({ value: undefined, done: true }), timeoutMs),
+        new Promise<IteratorResult<UnifiedMessage>>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `MessageReader.collect timed out after ${timeoutMs}ms: expected ${count} messages, got ${collected.length}. Types received: [${collected.map((m) => m.type).join(", ")}]`,
+                ),
+              ),
+            timeoutMs,
+          ),
         ),
       ]);
-      if (result.done) break;
+      if (result.done) {
+        throw new Error(
+          `MessageReader.collect: stream ended early — expected ${count} messages, got ${collected.length}. Types received: [${collected.map((m) => m.type).join(", ")}]`,
+        );
+      }
       collected.push(result.value);
     }
     return collected;

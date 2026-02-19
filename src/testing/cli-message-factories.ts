@@ -40,6 +40,16 @@ export function createTestSocket(opts?: { bufferedAmount?: number }): WebSocketL
   return socket;
 }
 
+/** Parse all JSON messages sent to a test socket. */
+export function parseSent(socket: { sentMessages: string[] }): any[] {
+  return socket.sentMessages.map((m) => JSON.parse(m));
+}
+
+/** Find the first message of a given type in a test socket's sent messages. */
+export function findMessage(socket: { sentMessages: string[] }, type: string): any {
+  return parseSent(socket).find((m: { type: string }) => m.type === type);
+}
+
 export const noopLogger = {
   debug() {},
   info() {},

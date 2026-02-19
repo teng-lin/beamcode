@@ -15,6 +15,7 @@ import {
 import {
   authContext,
   createTestSocket as createMockSocket,
+  findMessage,
 } from "../testing/cli-message-factories.js";
 import type { SessionBridge } from "./session-bridge.js";
 
@@ -52,21 +53,6 @@ async function simulateMessageStart(backendSession: MockBackendSession) {
 async function simulateResult(backendSession: MockBackendSession) {
   backendSession.pushMessage(makeResultUnifiedMsg());
   await tick();
-}
-
-/** Parse all JSON messages sent to a socket and return them. */
-function parseSent(socket: ReturnType<typeof createMockSocket>) {
-  return socket.sentMessages.map((m) => JSON.parse(m));
-}
-
-/** Find a message of a given type in a socket's sent messages. */
-function findMessage(socket: ReturnType<typeof createMockSocket>, type: string) {
-  return parseSent(socket).find((m: { type: string }) => m.type === type);
-}
-
-/** Find all messages of a given type in a socket's sent messages. */
-function _findMessages(socket: ReturnType<typeof createMockSocket>, type: string) {
-  return parseSent(socket).filter((m: { type: string }) => m.type === type);
 }
 
 /**
