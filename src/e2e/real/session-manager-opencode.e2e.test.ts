@@ -161,10 +161,16 @@ describe("E2E Real Opencode SessionManager", () => {
     const first = await connectConsumerAndWaitReady(port, sessionId, {
       requireCliConnected: false,
     });
-    await closeWebSockets(first);
 
-    // Brief pause for the bridge to process the disconnect.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Attach listener BEFORE closing so the event isn't missed.
+    const disconnected = new Promise<void>((resolve) => {
+      manager.once("consumer:disconnected", ({ sessionId: sid }) => {
+        if (sid === sessionId) resolve();
+      });
+    });
+    await closeWebSockets(first);
+    await disconnected;
+
     expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
 
     const second = await connectConsumerAndWaitReady(port, sessionId, {
