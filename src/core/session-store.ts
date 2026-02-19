@@ -63,6 +63,8 @@ export interface Session {
   adapterName?: string;
   /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */
   adapterSlashExecutor: AdapterSlashExecutor | null;
+  /** True if the connected adapter supports CLI passthrough for slash commands. */
+  adapterSupportsSlashPassthrough: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -204,6 +206,7 @@ export class SessionStore {
       pendingPassthroughs: [],
       adapterName: undefined,
       adapterSlashExecutor: null,
+      adapterSupportsSlashPassthrough: false,
     };
   }
 

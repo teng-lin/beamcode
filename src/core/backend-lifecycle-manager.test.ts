@@ -319,6 +319,27 @@ describe("BackendLifecycleManager", () => {
 
       await expect(mgr.connectBackend(session)).rejects.toThrow("No BackendAdapter configured");
     });
+
+    it("sets adapterSupportsSlashPassthrough true when adapter capabilities.slashCommands is true", async () => {
+      const deps = createDeps();
+      // Override slashCommands on the TestAdapter's capabilities
+      (deps.adapter as TestAdapter).capabilities = {
+        ...(deps.adapter as TestAdapter).capabilities,
+        slashCommands: true,
+      };
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(true);
+    });
+
+    it("sets adapterSupportsSlashPassthrough false when adapter capabilities.slashCommands is false", async () => {
+      const deps = createDeps(); // TestAdapter has slashCommands: false by default
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(false);
+    });
   });
 
   describe("sendToBackend", () => {
@@ -403,6 +424,20 @@ describe("BackendLifecycleManager", () => {
       expect(metrics.recordEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "backend:disconnected" }),
       );
+    });
+
+    it("resets adapterSupportsSlashPassthrough to false on disconnect", async () => {
+      const deps = createDeps();
+      (deps.adapter as TestAdapter).capabilities = {
+        ...(deps.adapter as TestAdapter).capabilities,
+        slashCommands: true,
+      };
+      const manager = new BackendLifecycleManager(deps);
+      const session = createSession();
+      await manager.connectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(true);
+      await manager.disconnectBackend(session);
+      expect(session.adapterSupportsSlashPassthrough).toBe(false);
     });
   });
 

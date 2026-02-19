@@ -93,6 +93,7 @@ export function createMockSession(overrides?: Partial<Session>): Session {
     } as any,
     pendingPassthroughs: [],
     adapterSlashExecutor: null,
+    adapterSupportsSlashPassthrough: false,
     ...overrides,
   };
 }
