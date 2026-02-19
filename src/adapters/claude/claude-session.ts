@@ -79,7 +79,7 @@ export class ClaudeSession implements BackendSession {
       { format: "Claude NDJSON", body: ndjson },
       { sessionId: this.sessionId },
     );
-    this.tracer?.send("backend", message.type, ndjson, { sessionId: this.sessionId });
+    this.tracer?.send("backend", message.type, message, { sessionId: this.sessionId });
     this.sendToSocket(ndjson);
   }
 

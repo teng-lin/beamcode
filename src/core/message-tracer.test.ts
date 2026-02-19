@@ -159,18 +159,11 @@ describe("MessageTracerImpl", () => {
     });
   });
 
-  describe("smart truncation", () => {
+  describe("smart sanitization", () => {
     it("truncates long text content", () => {
       const { tracer, events } = createTracer({ level: "smart" });
       const longContent = "a".repeat(500);
-      tracer.send(
-        "bridge",
-        "user_message",
-        { content: longContent },
-        {
-          traceId: "t_1",
-        },
-      );
+      tracer.send("bridge", "user_message", { content: longContent }, { traceId: "t_1" });
       const body = events()[0].body as Record<string, unknown>;
       expect(typeof body.content).toBe("string");
       expect((body.content as string).length).toBeLessThan(300);
@@ -184,16 +177,54 @@ describe("MessageTracerImpl", () => {
         role: "user",
         content: `msg ${i}`,
       }));
-      tracer.send(
-        "bridge",
-        "session_init",
-        { message_history: history },
-        {
-          traceId: "t_1",
-        },
-      );
+      tracer.send("bridge", "session_init", { message_history: history }, { traceId: "t_1" });
       const body = events()[0].body as Record<string, unknown>;
       expect(body.message_history).toBe("[42 messages]");
+      tracer.destroy();
+    });
+
+    it("replaces large data fields with size placeholder", () => {
+      const { tracer, events } = createTracer({ level: "smart" });
+      const largeData = "x".repeat(2000);
+      tracer.send("bridge", "msg", { data: largeData, other: "visible" }, { traceId: "t_1" });
+      const body = events()[0].body as Record<string, unknown>;
+      expect(body.data).toMatch(/^\[image \d+KB\]$/);
+      expect(body.other).toBe("visible");
+      tracer.destroy();
+    });
+
+    it("redacts sensitive keys in a single pass", () => {
+      const { tracer, events } = createTracer({ level: "smart" });
+      tracer.send(
+        "bridge",
+        "msg",
+        { token: "secret", content: "a".repeat(300), normal: "ok" },
+        { traceId: "t_1" },
+      );
+      const body = events()[0].body as Record<string, unknown>;
+      expect(body.token).toBe("[REDACTED]");
+      expect(body.content as string).toContain("...["); // truncated
+      expect(body.normal).toBe("ok");
+      tracer.destroy();
+    });
+
+    it("handles null and undefined bodies", () => {
+      const { tracer, events } = createTracer({ level: "smart" });
+      tracer.send("bridge", "msg", null, { traceId: "t_1" });
+      tracer.send("bridge", "msg", undefined, { traceId: "t_2" });
+      const evts = events();
+      // null body: sanitizeBody(null) returns null, but body is passed
+      expect(evts[0].body).toBeNull();
+      // undefined body: not set on event
+      expect(evts[1].body).toBeUndefined();
+      tracer.destroy();
+    });
+
+    it("handles small arrays without collapsing", () => {
+      const { tracer, events } = createTracer({ level: "smart" });
+      tracer.send("bridge", "msg", { items: [1, 2, 3] }, { traceId: "t_1" });
+      const body = events()[0].body as Record<string, unknown>;
+      expect(Array.isArray(body.items)).toBe(true); // not collapsed (≤3 items)
       tracer.destroy();
     });
   });
@@ -201,17 +232,43 @@ describe("MessageTracerImpl", () => {
   describe("headers level", () => {
     it("includes size_bytes but not body", () => {
       const { tracer, events } = createTracer({ level: "headers" });
-      tracer.send(
-        "bridge",
-        "user_message",
-        { content: "hello" },
-        {
-          traceId: "t_1",
-        },
-      );
+      tracer.send("bridge", "user_message", { content: "hello" }, { traceId: "t_1" });
       const e = events()[0];
       expect(e.size_bytes).toBeGreaterThan(0);
       expect(e.body).toBeUndefined();
+      tracer.destroy();
+    });
+
+    it("excludes from/to bodies in translate events", () => {
+      const { tracer, events } = createTracer({ level: "headers" });
+      tracer.translate(
+        "fn",
+        "T1",
+        { format: "A", body: { secret: "value" } },
+        { format: "B", body: { other: "data" } },
+        { traceId: "t_1" },
+      );
+      const e = events()[0];
+      expect(e.from).toBeUndefined();
+      expect(e.to).toBeUndefined();
+      tracer.destroy();
+    });
+  });
+
+  describe("size estimation", () => {
+    it("estimates string size by length", () => {
+      const { tracer, events } = createTracer();
+      tracer.send("bridge", "msg", "hello world", { traceId: "t_1" });
+      const e = events()[0];
+      expect(e.size_bytes).toBe(11); // "hello world".length
+      tracer.destroy();
+    });
+
+    it("estimates object size roughly", () => {
+      const { tracer, events } = createTracer();
+      tracer.send("bridge", "msg", { key: "value" }, { traceId: "t_1" });
+      const e = events()[0];
+      expect(e.size_bytes).toBeGreaterThan(5);
       tracer.destroy();
     });
   });
@@ -233,7 +290,6 @@ describe("MessageTracerImpl", () => {
   describe("summary", () => {
     it("returns summary stats", () => {
       const { tracer } = createTracer();
-      // Send + recv creates a trace, then a bridge:send completes it
       tracer.recv("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
       tracer.send("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
       const summary = tracer.summary("s1");
@@ -244,10 +300,87 @@ describe("MessageTracerImpl", () => {
 
     it("does not double-count errors", () => {
       const { tracer } = createTracer();
-      // An error trace that is also in openTraces should be counted once
       tracer.error("bridge", "msg", "fail", { traceId: "t_err", sessionId: "s1" });
       const summary = tracer.summary("s1");
       expect(summary.errors).toBe(1);
+      tracer.destroy();
+    });
+
+    it("returns zero summary when no traces exist", () => {
+      const { tracer } = createTracer();
+      const summary = tracer.summary("s_none");
+      expect(summary).toEqual({
+        totalTraces: 0,
+        complete: 0,
+        stale: 0,
+        errors: 0,
+        avgRoundTripMs: 0,
+      });
+      tracer.destroy();
+    });
+  });
+
+  describe("trace completion", () => {
+    it("completes trace on bridge:send", () => {
+      const { tracer } = createTracer();
+      tracer.recv("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      tracer.send("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      expect(tracer.summary("s1").complete).toBe(1);
+      tracer.destroy();
+    });
+
+    it("completes trace on frontend:send", () => {
+      const { tracer } = createTracer();
+      tracer.recv("frontend", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      tracer.send("frontend", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      expect(tracer.summary("s1").complete).toBe(1);
+      tracer.destroy();
+    });
+
+    it("does not complete trace on backend:send", () => {
+      const { tracer } = createTracer();
+      tracer.recv("backend", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      tracer.send("backend", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      expect(tracer.summary("s1").complete).toBe(0);
+      tracer.destroy();
+    });
+
+    it("does not complete trace on recv (any layer)", () => {
+      const { tracer } = createTracer();
+      tracer.recv("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      tracer.recv("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      expect(tracer.summary("s1").complete).toBe(0);
+      tracer.destroy();
+    });
+
+    it("does not complete trace with error on send", () => {
+      const { tracer } = createTracer();
+      tracer.recv("bridge", "msg", {}, { traceId: "t_1", sessionId: "s1" });
+      tracer.error("bridge", "msg", "failed", { traceId: "t_1", sessionId: "s1" });
+      // Error events use direction="recv" so they don't complete, but even
+      // a send event with a trace that has an error should not complete it
+      // via the error() method (which uses "recv" direction)
+      expect(tracer.summary("s1").complete).toBe(0);
+      tracer.destroy();
+    });
+  });
+
+  describe("destroy", () => {
+    it("is idempotent", () => {
+      const { tracer } = createTracer();
+      tracer.destroy();
+      tracer.destroy(); // should not throw
+    });
+  });
+
+  describe("error without sessionId", () => {
+    it("emits error event without seq", () => {
+      const { tracer, events } = createTracer();
+      tracer.error("bridge", "msg", "fail", { traceId: "t_1" });
+      const e = events()[0];
+      expect(e.error).toBe("fail");
+      expect(e.sessionId).toBeUndefined();
+      expect(e.seq).toBeUndefined();
       tracer.destroy();
     });
   });

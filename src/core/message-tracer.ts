@@ -6,6 +6,7 @@
  * has zero overhead.
  */
 
+import { randomUUID } from "node:crypto";
 import { diffObjects } from "./trace-differ.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEYS.has(key.toLowerCase());
 }
 
+/** Redact sensitive keys only (used by "full" level without allowSensitive). */
 function redact(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
@@ -91,9 +93,10 @@ function redact(obj: unknown): unknown {
   return result;
 }
 
-// ─── Smart truncation ───────────────────────────────────────────────────────────
+// ─── Smart sanitize (single-pass redact + truncate) ─────────────────────────────
 
-function smartTruncate(obj: unknown): unknown {
+/** Single-pass redaction + truncation for "smart" level. */
+function smartSanitize(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === "string") {
     if (obj.length > 200) {
@@ -112,19 +115,20 @@ function smartTruncate(obj: unknown): unknown {
     ) {
       return `[${obj.length} messages]`;
     }
-    return obj.map(smartTruncate);
+    return obj.map(smartSanitize);
   }
   if (typeof obj === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      // Detect image-like fields
-      if (key === "data" && typeof value === "string" && value.length > 1000) {
+      if (isSensitiveKey(key)) {
+        result[key] = "[REDACTED]";
+      } else if (key === "data" && typeof value === "string" && value.length > 1000) {
         const sizeKb = (value.length / 1024).toFixed(0);
         result[key] = `[image ${sizeKb}KB]`;
       } else if (key === "message_history" && Array.isArray(value)) {
         result[key] = `[${value.length} messages]`;
       } else {
-        result[key] = smartTruncate(value);
+        result[key] = smartSanitize(value);
       }
     }
     return result;
@@ -193,6 +197,27 @@ interface SessionSeq {
   counter: number;
 }
 
+// ─── Size estimation ────────────────────────────────────────────────────────────
+
+function roughObjectSize(obj: unknown, depth = 0): number {
+  if (depth > 10 || obj === null || obj === undefined) return 4;
+  if (typeof obj === "string") return obj.length;
+  if (typeof obj === "number" || typeof obj === "boolean") return 8;
+  if (Array.isArray(obj)) {
+    let size = 2; // brackets
+    for (const item of obj) size += roughObjectSize(item, depth + 1) + 1;
+    return size;
+  }
+  if (typeof obj === "object") {
+    let size = 2; // braces
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      size += key.length + 3 + roughObjectSize(value, depth + 1) + 1;
+    }
+    return size;
+  }
+  return 8;
+}
+
 // ─── Implementation ─────────────────────────────────────────────────────────────
 
 export interface MessageTracerOptions {
@@ -216,6 +241,7 @@ export class MessageTracerImpl implements MessageTracer {
   private static readonly MAX_COMPLETED = 10_000;
   private static readonly MAX_STALE = 1_000;
   private static readonly MAX_ERRORS = 1_000;
+  private static readonly MAX_SESSIONS = 1_000;
 
   private readonly openTraces = new Map<string, TraceState>();
   private readonly sessionSeqs = new Map<string, SessionSeq>();
@@ -251,7 +277,7 @@ export class MessageTracerImpl implements MessageTracer {
     opts?: TraceOpts,
   ): void {
     const traceId = opts?.traceId ?? this.generateTraceId();
-    // Diff sanitized bodies so sensitive values are never leaked in the diff field
+    // Sanitize once and reuse for both diff computation and output
     const sanitizedFrom = this.sanitizeBody(from.body);
     const sanitizedTo = this.sanitizeBody(to.body);
     // Only diff when both sides are objects (skip when one is a string like NDJSON)
@@ -259,6 +285,7 @@ export class MessageTracerImpl implements MessageTracer {
       typeof sanitizedFrom === "object" && typeof sanitizedTo === "object"
         ? diffObjects(sanitizedFrom, sanitizedTo)
         : undefined;
+    // Pass pre-sanitized bodies to avoid redundant sanitization in emit
     this.emit({
       layer: "bridge",
       direction: "translate",
@@ -269,9 +296,10 @@ export class MessageTracerImpl implements MessageTracer {
       sessionId: opts?.sessionId,
       translator,
       boundary,
-      from,
-      to,
+      from: { format: from.format, body: sanitizedFrom },
+      to: { format: to.format, body: sanitizedTo },
       diff,
+      preSanitized: true,
     });
   }
 
@@ -355,13 +383,18 @@ export class MessageTracerImpl implements MessageTracer {
   }
 
   private generateTraceId(): string {
-    return `t_${crypto.randomUUID().slice(0, 8)}`;
+    return `t_${randomUUID().slice(0, 8)}`;
   }
 
   private getSeq(sessionId?: string): number | undefined {
     if (!sessionId) return undefined;
     let seq = this.sessionSeqs.get(sessionId);
     if (!seq) {
+      // Evict oldest session to bound memory
+      if (this.sessionSeqs.size >= MessageTracerImpl.MAX_SESSIONS) {
+        const oldest = this.sessionSeqs.keys().next().value!;
+        this.sessionSeqs.delete(oldest);
+      }
       seq = { counter: 0 };
       this.sessionSeqs.set(sessionId, seq);
     }
@@ -384,6 +417,8 @@ export class MessageTracerImpl implements MessageTracer {
     error?: string;
     zodErrors?: unknown[];
     action?: string;
+    /** When true, from/to bodies are already sanitized — skip redundant processing. */
+    preSanitized?: boolean;
   }): void {
     const nowBigint = this.now();
 
@@ -438,10 +473,14 @@ export class MessageTracerImpl implements MessageTracer {
     }
     if (this.level !== "headers") {
       if (params.from) {
-        event.from = { format: params.from.format, body: this.sanitizeBody(params.from.body) };
+        event.from = params.preSanitized
+          ? params.from
+          : { format: params.from.format, body: this.sanitizeBody(params.from.body) };
       }
       if (params.to) {
-        event.to = { format: params.to.format, body: this.sanitizeBody(params.to.body) };
+        event.to = params.preSanitized
+          ? params.to
+          : { format: params.to.format, body: this.sanitizeBody(params.to.body) };
       }
     }
     if (params.diff) event.diff = params.diff;
@@ -469,15 +508,16 @@ export class MessageTracerImpl implements MessageTracer {
 
   /** Apply redaction and optional truncation based on trace level. */
   private sanitizeBody(body: unknown): unknown {
-    if (this.level === "smart") return smartTruncate(redact(body));
+    if (this.level === "smart") return smartSanitize(body);
     // "full" level — redact unless sensitive logging is explicitly allowed
     return this.allowSensitive ? body : redact(body);
   }
 
   private estimateSize(body: unknown): number {
     if (body === undefined || body === null) return 0;
-    if (typeof body === "string") return Buffer.byteLength(body, "utf8");
-    return Buffer.byteLength(JSON.stringify(body), "utf8");
+    if (typeof body === "string") return body.length;
+    // Rough estimate: avoid expensive JSON.stringify for size_bytes metadata
+    return roughObjectSize(body);
   }
 
   private sweepStale(): void {

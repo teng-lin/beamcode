@@ -54,12 +54,21 @@ function typeName(value: unknown): string {
   return typeof value;
 }
 
+/** Safe serialization key for value comparison — caps at 1KB to avoid perf issues on large values. */
+function serializeKey(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value !== "object") return JSON.stringify(value);
+  const s = JSON.stringify(value);
+  return s.length > 1024 ? s.slice(0, 1024) : s;
+}
+
 function valueEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || a === undefined || b === undefined) return false;
   if (typeof a !== typeof b) return false;
   if (typeof a === "object") {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return serializeKey(a) === serializeKey(b);
   }
   return false;
 }
@@ -76,7 +85,7 @@ export function diffObjects(from: unknown, to: unknown): string[] {
   // Index "to" values by serialized value for rename detection
   const toValueIndex = new Map<string, string[]>();
   for (const [path, value] of toMap) {
-    const key = JSON.stringify(value);
+    const key = serializeKey(value);
     const arr = toValueIndex.get(key) ?? [];
     arr.push(path);
     toValueIndex.set(key, arr);
@@ -88,7 +97,7 @@ export function diffObjects(from: unknown, to: unknown): string[] {
   // Detect renames: same value, different path, path not in both maps
   for (const [fromPath, fromValue] of fromMap) {
     if (toMap.has(fromPath)) continue; // Not removed → not a rename candidate
-    const key = JSON.stringify(fromValue);
+    const key = serializeKey(fromValue);
     const candidates = toValueIndex.get(key);
     if (!candidates) continue;
     for (const toPath of candidates) {

@@ -26,9 +26,14 @@ describe("MessageTracer — security", () => {
       "cookie",
       "set-cookie",
       "api_key",
+      "apikey",
       "token",
+      "access_token",
+      "refresh_token",
       "secret",
       "password",
+      "credential",
+      "private_key",
     ];
 
     for (const key of sensitiveKeys) {
@@ -153,6 +158,44 @@ describe("MessageTracer — security", () => {
       expect(body.Authorization).toBe("[REDACTED]");
       expect(body.PASSWORD).toBe("[REDACTED]");
       expect(body.Token).toBe("[REDACTED]");
+      tracer.destroy();
+    });
+  });
+
+  describe("redaction in arrays", () => {
+    it("redacts sensitive keys inside array elements", () => {
+      const { tracer, events } = createTracer({ level: "smart" });
+      tracer.send(
+        "bridge",
+        "msg",
+        { items: [{ token: "secret1" }, { password: "secret2" }] },
+        { traceId: "t_1" },
+      );
+      const body = events()[0].body as Record<string, unknown>;
+      const items = body.items as Record<string, unknown>[];
+      expect(items[0].token).toBe("[REDACTED]");
+      expect(items[1].password).toBe("[REDACTED]");
+      tracer.destroy();
+    });
+  });
+
+  describe("full level redaction in translate", () => {
+    it("redacts from/to bodies in full mode without allowSensitive", () => {
+      const { tracer, events } = createTracer({
+        level: "full",
+        allowSensitive: false,
+      });
+      tracer.translate(
+        "fn",
+        "T1",
+        { format: "A", body: { api_key: "key123", data: "ok" } },
+        { format: "B", body: { password: "pass456", data: "ok" } },
+        { traceId: "t_1" },
+      );
+      const e = events()[0];
+      expect((e.from!.body as Record<string, unknown>).api_key).toBe("[REDACTED]");
+      expect((e.to!.body as Record<string, unknown>).password).toBe("[REDACTED]");
+      expect((e.from!.body as Record<string, unknown>).data).toBe("ok");
       tracer.destroy();
     });
   });
