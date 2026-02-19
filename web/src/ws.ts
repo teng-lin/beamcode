@@ -238,6 +238,20 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "session_init": {
+      // Ensure the session appears in the sidebar (sessions store) before
+      // listSessions() resolves. Only populate if missing or lacks createdAt,
+      // since listSessions() provides authoritative data that overwrites this.
+      const existing = store.sessions[sessionId];
+      if (!existing || typeof existing.createdAt !== "number") {
+        store.updateSession(sessionId, {
+          sessionId,
+          cwd: msg.session.cwd ?? "",
+          createdAt: Date.now(),
+          state: "connected",
+          model: msg.session.model || undefined,
+        });
+      }
+
       store.setSessionState(sessionId, {
         // Spread first to preserve optional fields (git_branch, tools, etc.)
         ...msg.session,

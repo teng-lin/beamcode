@@ -699,6 +699,63 @@ describe("handleMessage", () => {
     expect(state?.is_compacting).toBe(false);
   });
 
+  it("session_init: populates sessions store for sidebar display", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/home/user/project",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    const entry = useStore.getState().sessions["s1"];
+    expect(entry).toBeDefined();
+    expect(entry.sessionId).toBe("s1");
+    expect(entry.cwd).toBe("/home/user/project");
+    expect(typeof entry.createdAt).toBe("number");
+    expect(entry.state).toBe("connected");
+  });
+
+  it("session_init: does not overwrite existing sessions entry with correct createdAt", () => {
+    // Pre-populate sessions (as listSessions() would do)
+    useStore.getState().updateSession("s1", {
+      sessionId: "s1",
+      cwd: "/correct/path",
+      createdAt: 12345,
+      state: "connected",
+    });
+
+    const ws = openSession();
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "opus",
+          cwd: "/different/path",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    // Pre-existing authoritative entry should be preserved
+    const entry = useStore.getState().sessions["s1"];
+    expect(entry.cwd).toBe("/correct/path");
+    expect(entry.createdAt).toBe(12345);
+  });
+
   // ── session_update ──────────────────────────────────────────────────────
 
   it("session_update: merges into existing state", () => {
