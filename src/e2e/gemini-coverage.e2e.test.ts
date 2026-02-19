@@ -3,7 +3,7 @@
  * behavior, and untested code paths using ACP mock subprocess infrastructure.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpawnFn } from "../adapters/acp/acp-adapter.js";
 import { GeminiAdapter } from "../adapters/gemini/gemini-adapter.js";
 import type { BackendSession } from "../core/interfaces/backend-adapter.js";
@@ -246,9 +246,8 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     expect(permReq.metadata.toolCall).toBeDefined();
 
     session.send(createPermissionResponse("deny", permReq.id, { optionId: "reject-once" }));
-    await new Promise((r) => setTimeout(r, 50));
 
-    expect(permissionResponseReceived).toBeDefined();
+    await vi.waitFor(() => expect(permissionResponseReceived).toBeDefined());
     expect((permissionResponseReceived as any).outcome.optionId).toBe("reject-once");
   });
 
@@ -524,8 +523,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
       }),
     );
 
-    await new Promise((r) => setTimeout(r, 50));
-    expect(setModelReceived).toBeDefined();
+    await vi.waitFor(() => expect(setModelReceived).toBeDefined());
     expect(setModelReceived?.model).toBe("gemini-2.0-flash");
   });
 
@@ -565,8 +563,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
       }),
     );
 
-    await new Promise((r) => setTimeout(r, 50));
-    expect(setModeReceived).toBeDefined();
+    await vi.waitFor(() => expect(setModeReceived).toBeDefined());
     expect(setModeReceived?.modeId).toBe("yolo");
   });
 
@@ -734,9 +731,8 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     await reader.waitFor("session_init");
 
     session.send(createUserMessage("trigger fs request"));
-    await new Promise((r) => setTimeout(r, 50));
 
-    expect(errorResponseSent).toBe(true);
+    await vi.waitFor(() => expect(errorResponseSent).toBe(true));
   });
 
   it("agent-initiated terminal/ request gets error response", async () => {
@@ -773,9 +769,8 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     await reader.waitFor("session_init");
 
     session.send(createUserMessage("trigger terminal request"));
-    await new Promise((r) => setTimeout(r, 50));
 
-    expect(errorResponseSent).toBe(true);
+    await vi.waitFor(() => expect(errorResponseSent).toBe(true));
   });
 
   // -------------------------------------------------------------------------
