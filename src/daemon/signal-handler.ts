@@ -1,4 +1,12 @@
+import { noopLogger } from "../adapters/noop-logger.js";
+import type { Logger } from "../interfaces/logger.js";
+
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+export interface SignalHandlerOptions {
+  logger?: Logger;
+  timeoutMs?: number;
+}
 
 /**
  * Register SIGTERM and SIGINT handlers that run a cleanup function before exiting.
@@ -6,8 +14,10 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  */
 export function registerSignalHandlers(
   cleanup: () => Promise<void>,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  options: SignalHandlerOptions = {},
 ): void {
+  const logger = options.logger ?? noopLogger;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let shuttingDown = false;
 
   const handler = () => {
@@ -20,8 +30,8 @@ export function registerSignalHandlers(
     forceTimer.unref();
 
     cleanup()
-      .catch(() => {
-        // Best-effort cleanup — exit regardless.
+      .catch((err) => {
+        logger.error("Shutdown cleanup failed", { component: "daemon", error: err });
       })
       .finally(() => {
         clearTimeout(forceTimer);

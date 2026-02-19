@@ -31,7 +31,7 @@ describe("health-check", () => {
     };
     await writeState(statePath, state);
 
-    timer = startHealthCheck(statePath, 50);
+    timer = startHealthCheck(statePath, { intervalMs: 50 });
 
     // Poll until heartbeat updates (tolerates slow CI runners)
     let updated: DaemonState | null = null;

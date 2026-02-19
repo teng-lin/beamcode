@@ -71,7 +71,7 @@ describe("registerSignalHandlers", () => {
     // Cleanup that never resolves, simulating a stall
     const cleanup = vi.fn().mockReturnValue(new Promise(() => {}));
     const timeoutMs = 5_000;
-    registerSignalHandlers(cleanup, timeoutMs);
+    registerSignalHandlers(cleanup, { timeoutMs });
 
     const handler = registeredHandlers.get("SIGTERM")!;
     handler();

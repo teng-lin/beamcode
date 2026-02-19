@@ -13,8 +13,10 @@ import type { RawData } from "ws";
 import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
+import type { Logger } from "../../interfaces/logger.js";
 import type { CLIMessage } from "../../types/cli-messages.js";
 import { NDJSONLineBuffer } from "../../utils/ndjson.js";
+import { noopLogger } from "../noop-logger.js";
 import { toNDJSON } from "./inbound-translator.js";
 import { translate } from "./message-translator.js";
 
@@ -31,9 +33,11 @@ export class ClaudeSession implements BackendSession {
   private passthroughHandler: ((rawMsg: CLIMessage) => boolean) | null = null;
   private readonly lineBuffer = new NDJSONLineBuffer();
   private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
+  private readonly logger: Logger;
 
-  constructor(opts: { sessionId: string; socketPromise: Promise<WebSocket> }) {
+  constructor(opts: { sessionId: string; socketPromise: Promise<WebSocket>; logger?: Logger }) {
     this.sessionId = opts.sessionId;
+    this.logger = opts.logger ?? noopLogger;
     opts.socketPromise.then(
       (ws) => this.attachSocket(ws),
       () => this.queue.finish(), // socket delivery failed (timeout/cancel)
@@ -57,9 +61,7 @@ export class ClaudeSession implements BackendSession {
     if (this.closed) throw new Error("Session is closed");
     const ndjson = toNDJSON(message);
     if (ndjson === null) {
-      console.warn(
-        `[ClaudeSession] toNDJSON returned null for message type "${message.type}" — message not sent`,
-      );
+      this.logger.warn("toNDJSON returned null, message not sent", { messageType: message.type });
       return;
     }
     this.sendToSocket(ndjson);

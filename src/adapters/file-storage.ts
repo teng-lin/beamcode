@@ -10,8 +10,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, normalize, resolve } from "node:path";
+import type { Logger } from "../interfaces/logger.js";
 import type { LauncherStateStorage, SessionStorage } from "../interfaces/storage.js";
 import type { PersistedSession } from "../types/session-state.js";
+import { noopLogger } from "./noop-logger.js";
 import { CURRENT_SCHEMA_VERSION, migrateSession } from "./state-migrator.js";
 
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -50,10 +52,12 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
   private dir: string;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private debounceMs: number;
+  private logger: Logger;
 
-  constructor(dir: string, debounceMs = 150) {
+  constructor(dir: string, debounceMs = 150, logger?: Logger) {
     this.dir = dir;
     this.debounceMs = debounceMs;
+    this.logger = logger ?? noopLogger;
     mkdirSync(this.dir, { recursive: true });
     this.recoverFromPartialWrites();
   }
@@ -134,7 +138,7 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
       this.atomicWrite(this.filePath(session.id), JSON.stringify(session));
     } catch (err) {
       // Log but don't crash — storage failures shouldn't kill sessions
-      console.error(`[file-storage] Failed to save session ${session.id}:`, err);
+      this.logger.error("Failed to save session", { sessionId: session.id, error: err });
     }
   }
 
@@ -197,7 +201,7 @@ export class FileStorage implements SessionStorage, LauncherStateStorage {
       const launcherPath = join(this.dir, "launcher.json");
       this.atomicWrite(launcherPath, JSON.stringify(data));
     } catch (err) {
-      console.error("[file-storage] Failed to save launcher state:", err);
+      this.logger.error("Failed to save launcher state", { error: err });
     }
   }
 

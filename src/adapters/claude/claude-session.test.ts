@@ -225,15 +225,15 @@ describe("ClaudeSession", () => {
   it("toNDJSON() returning null logs warning, doesn't crash", async () => {
     const ws = new MockWebSocket();
     const socketPromise = Promise.resolve(ws);
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 
     const session = new ClaudeSession({
       sessionId: "s-1",
       socketPromise: socketPromise as any,
+      logger: mockLogger,
     });
 
     await tick();
-
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // session_init is a backend→consumer type; toNDJSON returns null for it
     const msg = createUnifiedMessage({
@@ -245,14 +245,14 @@ describe("ClaudeSession", () => {
     // Should not throw
     session.send(msg);
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('toNDJSON returned null for message type "session_init"'),
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "toNDJSON returned null, message not sent",
+      expect.objectContaining({ messageType: "session_init" }),
     );
 
     // Nothing should have been sent to the socket
     expect(ws.sent).toHaveLength(0);
 
-    warnSpy.mockRestore();
     await session.close();
   });
 

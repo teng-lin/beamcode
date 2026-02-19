@@ -87,8 +87,10 @@ export class ConsumerBroadcaster {
   sendTo(ws: WebSocketLike, msg: ConsumerMessage): void {
     try {
       ws.send(JSON.stringify(msg));
-    } catch {
-      // Socket will be cleaned up on close
+    } catch (err) {
+      this.logger.warn("Failed to send message to consumer", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

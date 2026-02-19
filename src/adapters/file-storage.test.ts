@@ -101,7 +101,9 @@ describe("FileStorage", () => {
 
       const loaded = storage.load(VALID_UUID);
       expect(loaded!.messageHistory).toHaveLength(1);
-      expect(loaded!.pendingMessages).toEqual([{ type: "user_message", role: "user", content: [], metadata: {} }]);
+      expect(loaded!.pendingMessages).toEqual([
+        { type: "user_message", role: "user", content: [], metadata: {} },
+      ]);
       expect(loaded!.pendingPermissions).toHaveLength(1);
       expect(loaded!.archived).toBe(true);
     });
@@ -543,29 +545,22 @@ describe("FileStorage", () => {
       const readOnlyDir = mkdtempSync(join(tmpdir(), "readonly-test-"));
 
       try {
-        // Create a storage instance with the directory
-        const readOnlyStorage = new FileStorage(readOnlyDir, 10);
+        // Create a storage instance with a mock logger
+        const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+        const readOnlyStorage = new FileStorage(readOnlyDir, 10, mockLogger);
 
         // Change to read-only AFTER construction (to avoid permission issues during mkdirSync)
         const { chmodSync } = require("node:fs");
         chmodSync(readOnlyDir, 0o444);
 
-        // Capture console.error
-        const errors: unknown[] = [];
-        const originalError = console.error;
-        console.error = (...args: unknown[]) => {
-          errors.push(args);
-        };
-
         try {
           // This should log an error but not throw
           readOnlyStorage.saveLauncherState({ sessionId: VALID_UUID, pid: 123 });
 
-          // Should have logged an error
-          expect(errors.length).toBeGreaterThan(0);
-          expect((errors[0] as any[])[0]).toContain("[file-storage]");
+          // Should have logged an error via the injected logger
+          expect(mockLogger.error).toHaveBeenCalled();
+          expect(mockLogger.error.mock.calls[0][0]).toContain("Failed to save launcher state");
         } finally {
-          console.error = originalError;
           // Restore permissions for cleanup
           chmodSync(readOnlyDir, 0o755);
         }
@@ -578,24 +573,18 @@ describe("FileStorage", () => {
       const readOnlyDir = mkdtempSync(join(tmpdir(), "readonly-test-"));
 
       try {
-        const readOnlyStorage = new FileStorage(readOnlyDir, 10);
+        const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+        const readOnlyStorage = new FileStorage(readOnlyDir, 10, mockLogger);
         const { chmodSync } = require("node:fs");
         chmodSync(readOnlyDir, 0o444);
-
-        const errors: unknown[] = [];
-        const originalError = console.error;
-        console.error = (...args: unknown[]) => {
-          errors.push(args);
-        };
 
         try {
           readOnlyStorage.saveSync(makeSession(VALID_UUID));
 
-          // Should have logged an error
-          expect(errors.length).toBeGreaterThan(0);
-          expect((errors[0] as any[])[0]).toContain("[file-storage]");
+          // Should have logged an error via the injected logger
+          expect(mockLogger.error).toHaveBeenCalled();
+          expect(mockLogger.error.mock.calls[0][0]).toContain("Failed to save session");
         } finally {
-          console.error = originalError;
           chmodSync(readOnlyDir, 0o755);
         }
       } finally {
