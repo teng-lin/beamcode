@@ -2,17 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
-import { MemoryStorage } from "../adapters/memory-storage.js";
 import {
   createBridgeWithAdapter,
   type MockBackendAdapter,
-  type MockBackendSession,
-  makeAssistantUnifiedMsg,
-  makePermissionRequestUnifiedMsg,
-  makeResultUnifiedMsg,
   makeSessionInitMsg,
   noopLogger,
-  setupInitializedSession,
   tick,
 } from "../testing/adapter-test-helpers.js";
 import {
@@ -25,13 +19,11 @@ import { SessionBridge } from "./session-bridge.js";
 
 describe("SessionBridge", () => {
   let bridge: SessionBridge;
-  let storage: MemoryStorage;
   let adapter: MockBackendAdapter;
 
   beforeEach(() => {
     const created = createBridgeWithAdapter();
     bridge = created.bridge;
-    storage = created.storage;
     adapter = created.adapter;
   });
   describe("backend:* events", () => {
@@ -117,6 +109,7 @@ describe("SessionBridge", () => {
     });
 
     it("messages queue when backend is not connected and flush on connect", async () => {
+      bridge.getOrCreateSession("sess-1");
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("sess-1"));
 
@@ -139,19 +132,20 @@ describe("SessionBridge", () => {
       expect(flushed).toBe(true);
     });
 
-    it("consumer open with unknown session auto-creates the session", () => {
+    it("consumer open with unknown session is rejected", () => {
       const ws = createMockSocket();
 
       // No backend has connected to "new-session" yet
       bridge.handleConsumerOpen(ws, authContext("new-session"));
 
-      // Session should be auto-created
+      // Session should not be auto-created
       const snapshot = bridge.getSession("new-session");
-      expect(snapshot).toBeDefined();
-      expect(snapshot!.consumerCount).toBe(1);
+      expect(snapshot).toBeUndefined();
+      expect(ws.close).toHaveBeenCalledWith(4404, "Session not found");
     });
 
     it("consumer message for session with no backend does not crash", () => {
+      bridge.getOrCreateSession("no-cli");
       const ws = createMockSocket();
       bridge.handleConsumerOpen(ws, authContext("no-cli"));
 
@@ -306,5 +300,4 @@ describe("SessionBridge", () => {
       expect(initMsg.session.git_branch).toBe("develop");
     });
   });
-
 });

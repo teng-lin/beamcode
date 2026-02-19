@@ -586,8 +586,8 @@ describe("SessionBridge — auth", () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(events).toHaveLength(1);
-      expect((events[0] as any).reason).toBe("Session closed during authentication");
-      expect(ws.close).toHaveBeenCalledWith(4001, "Authentication failed");
+      expect((events[0] as any).reason).toBe("Session not found");
+      expect(ws.close).toHaveBeenCalledWith(4404, "Session not found");
     });
 
     it("permission cancellations on CLI disconnect are only sent to participants", async () => {

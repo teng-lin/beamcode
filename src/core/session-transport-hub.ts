@@ -42,7 +42,9 @@ export class SessionTransportHub implements ISessionTransportHub {
   ): void {
     const invertedAdapter =
       this.deps.adapterResolver?.claudeAdapter ??
-      (this.deps.adapter && isInvertedConnectionAdapter(this.deps.adapter) ? this.deps.adapter : null);
+      (this.deps.adapter && isInvertedConnectionAdapter(this.deps.adapter)
+        ? this.deps.adapter
+        : null);
 
     if (!invertedAdapter || !isInvertedConnectionAdapter(invertedAdapter)) {
       this.deps.logger.warn(
@@ -124,11 +126,7 @@ export class SessionTransportHub implements ISessionTransportHub {
   ): void {
     this.deps.bridge.handleConsumerOpen(socket, context);
     socket.on("message", (data) => {
-      this.deps.bridge.handleConsumerMessage(
-        socket,
-        context.sessionId,
-        typeof data === "string" ? data : data.toString("utf-8"),
-      );
+      this.deps.bridge.handleConsumerMessage(socket, context.sessionId, data);
     });
     socket.on("close", () => this.deps.bridge.handleConsumerClose(socket, context.sessionId));
   }

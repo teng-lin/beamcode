@@ -138,7 +138,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.consumerTransport = new ConsumerTransportCoordinator({
       sessions: {
         get: (sessionId) => this.store.get(sessionId),
-        getOrCreate: (sessionId) => this.getOrCreateSession(sessionId),
       },
       gatekeeper: this.gatekeeper,
       broadcaster: this.broadcaster,

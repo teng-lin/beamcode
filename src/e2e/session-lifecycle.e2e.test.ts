@@ -50,7 +50,7 @@ async function setupTestEnv(): Promise<TestEnv> {
   await manager.start();
 
   const port = wsServer.port!;
-  const { sessionId } = manager.launcher.launch({ cwd: process.cwd() });
+  const { sessionId } = await manager.createSession({ cwd: process.cwd() });
 
   return { manager, port, sessionId };
 }

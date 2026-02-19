@@ -3,13 +3,12 @@ import type { WebSocketLike } from "../interfaces/transport.js";
 import { inboundMessageSchema } from "../types/inbound-message-schema.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { ConsumerTransportCoordinatorDeps } from "./interfaces/session-bridge-coordination.js";
+import type { Session } from "./session-store.js";
 
 export class ConsumerTransportCoordinator {
   constructor(private deps: ConsumerTransportCoordinatorDeps) {}
 
   handleConsumerOpen(ws: WebSocketLike, context: AuthContext): void {
-    const session = this.deps.sessions.getOrCreate(context.sessionId);
-
     if (this.deps.gatekeeper.hasAuthenticator()) {
       let authResult: Promise<ConsumerIdentity | null>;
       try {
@@ -21,32 +20,45 @@ export class ConsumerTransportCoordinator {
       authResult
         .then((identity) => {
           if (!identity) return;
-          this.acceptConsumer(ws, context.sessionId, identity);
+          const session = this.deps.sessions.get(context.sessionId);
+          if (!session) {
+            this.rejectMissingSession(ws, context.sessionId);
+            return;
+          }
+          this.acceptConsumer(ws, session, identity);
         })
         .catch((err) => {
           this.rejectConsumer(ws, context.sessionId, err);
         });
     } else {
+      const session = this.deps.sessions.get(context.sessionId);
+      if (!session) {
+        this.rejectMissingSession(ws, context.sessionId);
+        return;
+      }
       session.anonymousCounter++;
       const identity = this.deps.gatekeeper.createAnonymousIdentity(session.anonymousCounter);
-      this.acceptConsumer(ws, context.sessionId, identity);
+      this.acceptConsumer(ws, session, identity);
     }
   }
 
   handleConsumerMessage(ws: WebSocketLike, sessionId: string, data: string | Buffer): void {
-    const raw = typeof data === "string" ? data : data.toString("utf-8");
     const session = this.deps.sessions.get(sessionId);
     if (!session) return;
 
     session.lastActivity = Date.now();
 
-    if (raw.length > this.deps.maxConsumerMessageSize) {
+    const payloadSize =
+      typeof data === "string" ? Buffer.byteLength(data, "utf-8") : data.byteLength;
+    if (payloadSize > this.deps.maxConsumerMessageSize) {
       this.deps.logger.warn(
-        `Oversized consumer message rejected for session ${sessionId}: ${raw.length} bytes (max ${this.deps.maxConsumerMessageSize})`,
+        `Oversized consumer message rejected for session ${sessionId}: ${payloadSize} bytes (max ${this.deps.maxConsumerMessageSize})`,
       );
       ws.close(1009, "Message Too Big");
       return;
     }
+
+    const raw = typeof data === "string" ? data : data.toString("utf-8");
 
     let parsed: unknown;
     try {
@@ -139,12 +151,8 @@ export class ConsumerTransportCoordinator {
     }
   }
 
-  private acceptConsumer(ws: WebSocketLike, sessionId: string, identity: ConsumerIdentity): void {
-    const session = this.deps.sessions.get(sessionId);
-    if (!session) {
-      this.rejectConsumer(ws, sessionId, new Error("Session closed during authentication"));
-      return;
-    }
+  private acceptConsumer(ws: WebSocketLike, session: Session, identity: ConsumerIdentity): void {
+    const sessionId = session.id;
     session.consumerSockets.set(ws, identity);
     this.deps.logger.info(
       `Consumer connected for session ${sessionId} (${session.consumerSockets.size} consumers)`,
@@ -226,6 +234,23 @@ export class ConsumerTransportCoordinator {
         `Consumer connected but CLI is dead for session ${sessionId}, requesting relaunch`,
       );
       this.deps.emit("backend:relaunch_needed", { sessionId });
+    }
+  }
+
+  private rejectMissingSession(ws: WebSocketLike, sessionId: string): void {
+    const reason = "Session not found";
+    this.deps.logger.warn(`Rejecting consumer for unknown session ${sessionId}`);
+    this.deps.emit("consumer:auth_failed", { sessionId, reason });
+    this.deps.metrics?.recordEvent({
+      timestamp: Date.now(),
+      type: "auth:failed",
+      sessionId,
+      reason,
+    });
+    try {
+      ws.close(4404, reason);
+    } catch {
+      // ignore close errors
     }
   }
 }

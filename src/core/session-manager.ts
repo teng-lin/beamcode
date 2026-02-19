@@ -19,13 +19,13 @@ import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
+import { IdleSessionReaper } from "./idle-session-reaper.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import type {
   IdleSessionReaper as IIdleSessionReaper,
   ReconnectController as IReconnectController,
 } from "./interfaces/session-manager-coordination.js";
-import { IdleSessionReaper } from "./idle-session-reaper.js";
-import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import { ReconnectController } from "./reconnect-controller.js";
 import { SessionBridge } from "./session-bridge.js";
 import { SessionTransportHub } from "./session-transport-hub.js";
@@ -278,6 +278,18 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   }
 
   private wireEvents(): void {
+    // Keep bridge session state in sync for legacy launcher.launch() callers.
+    // SessionManager.createSession already seeds bridge state directly.
+    this.trackListener(this.launcher, "process:spawned", ({ sessionId }) => {
+      const info = this.launcher.getSession(sessionId);
+      if (!info) return;
+      this.bridge.seedSessionState(sessionId, {
+        cwd: info.cwd,
+        model: info.model,
+      });
+      this.bridge.setAdapterName(sessionId, (info.adapterName ?? "claude") as CliAdapterName);
+    });
+
     // When the backend reports its session_id, store it for --resume on relaunch
     this.trackListener(this.bridge, "backend:session_id", ({ sessionId, backendSessionId }) => {
       this.launcher.setBackendSessionId(sessionId, backendSessionId);
@@ -508,5 +520,4 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private startIdleReaper(): void {
     this.idleSessionReaper.start();
   }
-
 }

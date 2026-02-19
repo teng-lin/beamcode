@@ -1,5 +1,7 @@
-import type { ReconnectController as IReconnectController } from "./interfaces/session-manager-coordination.js";
-import type { ReconnectControllerDeps } from "./interfaces/session-manager-coordination.js";
+import type {
+  ReconnectController as IReconnectController,
+  ReconnectControllerDeps,
+} from "./interfaces/session-manager-coordination.js";
 
 export class ReconnectController implements IReconnectController {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -16,18 +18,15 @@ export class ReconnectController implements IReconnectController {
     );
 
     for (const info of starting) {
-      this.deps.bridge.broadcastWatchdogState(info.sessionId, { gracePeriodMs, startedAt: Date.now() });
+      this.deps.bridge.broadcastWatchdogState(info.sessionId, {
+        gracePeriodMs,
+        startedAt: Date.now(),
+      });
     }
 
-    this.reconnectTimer = setTimeout(async () => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      const stale = this.deps.launcher.getStartingSessions();
-      for (const info of stale) {
-        this.deps.bridge.broadcastWatchdogState(info.sessionId, null);
-        if (info.archived) continue;
-        this.deps.logger.info(`CLI for session ${info.sessionId} did not reconnect, relaunching...`);
-        await this.deps.launcher.relaunch(info.sessionId);
-      }
+      void this.relaunchStaleSessions();
     }, gracePeriodMs);
   }
 
@@ -35,5 +34,25 @@ export class ReconnectController implements IReconnectController {
     if (!this.reconnectTimer) return;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  private async relaunchStaleSessions(): Promise<void> {
+    const stale = this.deps.launcher.getStartingSessions();
+    const relaunches = stale.map(async (info) => {
+      this.deps.bridge.broadcastWatchdogState(info.sessionId, null);
+      if (info.archived) return;
+      this.deps.logger.info(`CLI for session ${info.sessionId} did not reconnect, relaunching...`);
+      await this.deps.launcher.relaunch(info.sessionId);
+    });
+
+    const results = await Promise.allSettled(relaunches);
+    for (const [index, result] of results.entries()) {
+      if (result.status === "rejected") {
+        const sessionId = stale[index]?.sessionId ?? "unknown";
+        this.deps.logger.warn(`Watchdog relaunch failed for session ${sessionId}`, {
+          error: result.reason,
+        });
+      }
+    }
   }
 }
