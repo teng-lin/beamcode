@@ -491,6 +491,7 @@ export class CodexSession implements BackendSession {
 
     if (notification.method === "error") {
       const errorMessage = (params as { error?: { message?: unknown } }).error?.message;
+      const errorInfo = (params as { error?: { codexErrorInfo?: string } }).error?.codexErrorInfo;
       const message =
         typeof errorMessage === "string" && errorMessage.length > 0
           ? errorMessage
@@ -504,6 +505,28 @@ export class CodexSession implements BackendSession {
             is_error: true,
             error: message,
             errors: [message],
+            error_code: errorInfo,
+          },
+        }),
+      );
+      return;
+    }
+
+    // Legacy wrapped error: codex/event/error → params.msg.{message, codex_error_info}
+    if (notification.method === "codex/event/error") {
+      const msg = (params as { msg?: { message?: string; codex_error_info?: string } }).msg;
+      const message = msg?.message || "Codex backend error";
+      const errorCode = msg?.codex_error_info;
+      this.enqueue(
+        createUnifiedMessage({
+          type: "result",
+          role: "system",
+          metadata: {
+            status: "failed",
+            is_error: true,
+            error: message,
+            errors: [message],
+            error_code: errorCode,
           },
         }),
       );
