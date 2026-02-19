@@ -7,6 +7,7 @@
 
 import WebSocket from "ws";
 import type {
+  AdapterSlashExecutor,
   BackendAdapter,
   BackendCapabilities,
   BackendSession,
@@ -18,6 +19,7 @@ import { resolvePackageVersion } from "../../utils/resolve-package-version.js";
 import { CodexLauncher } from "./codex-launcher.js";
 import type { CodexInitResponse } from "./codex-message-translator.js";
 import { CodexSession } from "./codex-session.js";
+import { CodexSlashExecutor } from "./codex-slash-executor.js";
 
 const version = resolvePackageVersion(import.meta.url, [
   "../../../package.json",
@@ -44,7 +46,7 @@ export class CodexAdapter implements BackendAdapter {
   readonly capabilities: BackendCapabilities = {
     streaming: true,
     permissions: true,
-    slashCommands: false,
+    slashCommands: true,
     availability: "local",
     teams: false,
   };
@@ -97,6 +99,13 @@ export class CodexAdapter implements BackendAdapter {
       launcher,
       initResponse,
     });
+  }
+
+  createSlashExecutor(session: BackendSession): AdapterSlashExecutor | null {
+    if (session instanceof CodexSession) {
+      return new CodexSlashExecutor(session);
+    }
+    return null;
   }
 
   private async connectWebSocket(url: string): Promise<WebSocket> {

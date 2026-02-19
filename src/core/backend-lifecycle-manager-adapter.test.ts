@@ -34,7 +34,7 @@ function mockResolver(adapters: Record<string, BackendAdapter>): AdapterResolver
     }),
     sdkUrlAdapter: sdkUrl as any,
     defaultName: "sdk-url" as any,
-    availableAdapters: ["sdk-url", "codex", "acp"] as any,
+    availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"] as any,
   };
 }
 

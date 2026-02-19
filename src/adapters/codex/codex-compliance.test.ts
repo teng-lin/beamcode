@@ -88,7 +88,7 @@ class ComplianceCodexAdapter implements BackendAdapter {
   readonly capabilities: BackendCapabilities = {
     streaming: true,
     permissions: true,
-    slashCommands: false,
+    slashCommands: true,
     availability: "local",
     teams: false,
   };

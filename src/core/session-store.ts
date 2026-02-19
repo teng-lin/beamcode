@@ -13,9 +13,11 @@ import type { WebSocketLike } from "../interfaces/transport.js";
 import type { PermissionRequest } from "../types/cli-messages.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
-import type { BackendSession } from "./interfaces/backend-adapter.js";
+import type { AdapterSlashExecutor, BackendSession } from "./interfaces/backend-adapter.js";
 import type { SlashCommandRegistry } from "./slash-command-registry.js";
 import type { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
+
+export type { AdapterSlashExecutor };
 
 // ─── Session type (internal to the bridge + store) ───────────────────────────
 
@@ -58,6 +60,8 @@ export interface Session {
   pendingPassthrough: { command: string; requestId?: string } | null;
   /** Backend adapter name for this session. */
   adapterName?: string;
+  /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */
+  adapterSlashExecutor: AdapterSlashExecutor | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -198,6 +202,7 @@ export class SessionStore {
       registry: this.factories.createRegistry(),
       pendingPassthrough: null,
       adapterName: undefined,
+      adapterSlashExecutor: null,
     };
   }
 

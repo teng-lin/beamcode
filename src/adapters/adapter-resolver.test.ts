@@ -65,6 +65,6 @@ describe("createAdapterResolver", () => {
 
   it("returns available adapter names", () => {
     const resolver = createAdapterResolver(mockDeps);
-    expect(resolver.availableAdapters).toEqual(["sdk-url", "codex", "acp"]);
+    expect(resolver.availableAdapters).toEqual(["sdk-url", "codex", "acp", "gemini", "opencode"]);
   });
 });

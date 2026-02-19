@@ -133,6 +133,21 @@ export class BackendLifecycleManager {
     });
 
     session.backendSession = backendSession;
+
+    // Set up adapter-specific slash executor (e.g. Codex → JSON-RPC translation)
+    session.adapterSlashExecutor = null;
+    if (adapter.createSlashExecutor) {
+      const executor = adapter.createSlashExecutor(backendSession);
+      if (executor) {
+        session.adapterSlashExecutor = executor;
+        const commands = executor.supportedCommands();
+        session.state.slash_commands = commands;
+        session.registry.registerFromCLI(
+          commands.map((name: string) => ({ name, description: "" })),
+        );
+      }
+    }
+
     if (this.supportsPassthroughHandler(backendSession)) {
       backendSession.setPassthroughHandler((rawMsg) => {
         if (rawMsg.type !== "user") return false;

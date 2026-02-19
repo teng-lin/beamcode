@@ -86,7 +86,7 @@ function mockResolver(
     }),
     sdkUrlAdapter: sdkUrl as any,
     defaultName,
-    availableAdapters: ["sdk-url", "codex", "acp"],
+    availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"],
   };
 }
 

@@ -38,7 +38,7 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>;
 }
 
-interface JsonRpcResponse {
+export interface JsonRpcResponse {
   jsonrpc: "2.0";
   id: number | string;
   result?: unknown;
@@ -73,6 +73,11 @@ export class CodexSession implements BackendSession {
   private closed = false;
   private threadId: string | null = null;
   private activeTurnId: string | null = null;
+
+  /** The current Codex thread ID (null until first message initializes a thread). */
+  get currentThreadId(): string | null {
+    return this.threadId;
+  }
   private initializingThread: Promise<void> | null = null;
   private queuedTurnInputs: string[] = [];
   private pendingApprovalMethods = new Map<string, string>();
@@ -222,17 +227,28 @@ export class CodexSession implements BackendSession {
     this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }));
   }
 
-  private requestRpc(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse> {
-    const id = this.nextRpcId++;
-    return new Promise<JsonRpcResponse>((resolve, reject) => {
+  requestRpc(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs = 30_000,
+  ): Promise<JsonRpcResponse> {
+    const id = this.sendRpcRequest(method, params);
+    const rpcPromise = new Promise<JsonRpcResponse>((resolve, reject) => {
       this.pendingRpc.set(id, { resolve, reject, method });
-      const msg: JsonRpcRequest = {
-        jsonrpc: "2.0",
-        id,
-        method,
-        params,
-      };
-      this.ws.send(JSON.stringify(msg));
+    });
+
+    if (timeoutMs <= 0) return rpcPromise;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        this.pendingRpc.delete(id);
+        reject(new Error(`RPC "${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    return Promise.race([rpcPromise, timeoutPromise]).finally(() => {
+      clearTimeout(timer);
     });
   }
 
@@ -289,6 +305,24 @@ export class CodexSession implements BackendSession {
     } finally {
       this.initializingThread = null;
     }
+  }
+
+  /** Start a fresh thread, interrupting any active turn first. */
+  async resetThread(): Promise<string> {
+    if (this.activeTurnId) {
+      this.interruptTurn();
+      this.activeTurnId = null;
+    }
+    // Wait for any in-flight thread initialization to settle before clearing
+    // state, otherwise the old init could resolve and overwrite our new thread.
+    if (this.initializingThread) {
+      await this.initializingThread.catch(() => {});
+    }
+    this.threadId = null;
+    this.initializingThread = null;
+    this.queuedTurnInputs = [];
+    await this.ensureThreadInitialized();
+    return this.threadId!;
   }
 
   private flushQueuedTurns(): void {
