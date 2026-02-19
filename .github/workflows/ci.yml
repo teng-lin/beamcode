@@ -155,7 +155,7 @@ jobs:
         if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:smoke:session
+        run: pnpm test:e2e:real:claude:smoke
 
   type-check:
     name: Type Check

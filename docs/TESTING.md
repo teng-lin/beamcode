@@ -21,18 +21,15 @@ cd web && pnpm test
 pnpm test && cd web && pnpm test
 ```
 
-### Full local suite (including real CLI e2e)
+### Full local suite (including real backend e2e)
 
 ```bash
-# Prereq once per machine: Claude CLI installed and authenticated
-# claude login
-
 pnpm install
 pnpm typecheck
 pnpm -r --include-workspace-root test
 pnpm test:e2e:deterministic
-pnpm test:e2e:realcli:smoke
-pnpm test:e2e:realcli:full
+pnpm test:e2e:real:smoke
+pnpm test:e2e:real:full
 ```
 
 ## Backend tests
@@ -181,47 +178,67 @@ describe("ConnectionBanner", () => {
 
 ## End-to-end tests
 
-E2E tests live in `src/e2e/` and exercise the full stack: daemon, HTTP server, WebSocket connections, and session lifecycle.
+E2E tests live in `src/e2e/` and are split into two tiers:
+
+- **Deterministic** (`src/e2e/*.e2e.test.ts`) — mock backends, fast, no external dependencies
+- **Real backend** (`src/e2e/real/*.e2e.test.ts`) — spawn real CLI binaries, require installed backends + API keys
 
 ### Running
 
 ```bash
-# Default deterministic lane (mock CLI)
+# Deterministic lane (mock backends — default)
 pnpm test:e2e
+pnpm test:e2e:deterministic          # explicit
 
-# Deterministic lane explicitly
-pnpm test:e2e:deterministic
+# Real backend — all backends, smoke lane
+pnpm test:e2e:real:smoke
 
-# Real CLI smoke lane (requires Claude CLI; API key or CLI login for auth-required tests)
-pnpm test:e2e:realcli:smoke
-
-# Real CLI full lane (same prerequisites)
-pnpm test:e2e:realcli:full
+# Real backend — all backends, full lane (includes live prompt tests)
+pnpm test:e2e:real:full
 ```
+
+### Running a single backend
+
+Each backend has a dedicated script: `pnpm test:e2e:real:<backend>`
+
+```bash
+pnpm test:e2e:real:claude
+pnpm test:e2e:real:codex
+pnpm test:e2e:real:gemini
+pnpm test:e2e:real:opencode
+```
+
+### Backend prerequisites
+
+Each real backend test is gated by binary availability and API key checks.
+Tests are auto-skipped when prerequisites are not met.
+
+| Backend | Binary | Auth | Notes |
+|---------|--------|------|-------|
+| **sdk-url** (Claude) | `claude` | `ANTHROPIC_API_KEY` or `claude auth login` | Prompt tests skipped without auth |
+| **codex** | `codex` | Handled by CLI (e.g. `codex auth`) | Binary availability is the only gate |
+| **gemini** | `gemini-cli-a2a-server` | Handled by CLI (e.g. `GOOGLE_API_KEY`) | Binary availability is the only gate |
+| **opencode** | `opencode` | Handled by CLI config | Binary availability is the only gate |
+
+Prerequisite detection is in `src/e2e/real/prereqs.ts`. Each backend exports a `get*PrereqState()` function
+that checks binary availability and API key presence.
 
 ### E2E profiles
 
 E2E tests use explicit profiles via `E2E_PROFILE`:
 
 - `deterministic` — stable/default lane using `MockProcessManager`
-- `realcli-smoke` — minimal real backend checks
-- `realcli-full` — broader real backend coverage
-
-Current real CLI inventory in `src/e2e/realcli/`:
-
-- 4 suites / 36 total tests
-- 25 tests execute real `claude` processes in smoke mode (`prereqs.ok` + localhost-bind capable SessionManager tests)
-- 33 tests execute real `claude` processes in full mode (adds live turn/control/multi-consumer/resume tests)
+- `real-smoke` — minimal real backend checks (connection, session init, cleanup)
+- `real-full` — broader real backend coverage (adds live prompt/response, cancel, slash commands)
 
 The helper in `src/e2e/helpers/test-utils.ts` resolves process manager selection in this order:
 
 1. `USE_MOCK_CLI=true` -> `MockProcessManager`
 2. `USE_REAL_CLI=true` -> `NodeProcessManager`
-3. `E2E_PROFILE in {realcli-smoke, realcli-full}` -> `NodeProcessManager`
+3. `E2E_PROFILE in {real-smoke, real-full}` -> `NodeProcessManager`
 4. deterministic fallback -> Claude CLI auto-detection
 
-Real CLI scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast when Claude CLI is missing.
-If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, auth-required tests are skipped.
+Real backend scripts run `scripts/e2e-realcli-preflight.mjs` first and fail fast when Claude CLI is missing.
 
 ### CI lanes
 
@@ -230,7 +247,6 @@ If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, aut
 - Nightly (`.github/workflows/e2e-nightly.yml`):
   - `E2E Deterministic Full`
   - `E2E Real CLI Full` (secret-gated)
-
 
 ### Shared helpers
 
@@ -248,7 +264,20 @@ If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, aut
 | `closeWebSockets(...sockets)` | Graceful WebSocket cleanup |
 | `cleanupSessionManager(mgr)` | Tear down a test session manager |
 
+`src/e2e/helpers/backend-test-utils.ts` provides mock infrastructure per adapter:
+
+| Helper group | Purpose |
+|--------------|---------|
+| `MessageReader`, `collectUnifiedMessages()` | Read from `BackendSession.messages` streams |
+| `createMockChild()`, `createAcpAutoResponder()` | ACP (Claude `--sdk-url`) mock subprocess |
+| `MockWebSocket`, `sendCodexNotification()` | Codex mock WebSocket |
+| `makeSSE()`, `sseResponse()`, `buildA2A*Event()` | Gemini A2A mock SSE responses |
+| `createMockOpencodeHttpClient()`, `buildOpencode*Event()` | Opencode mock HTTP+SSE |
+| `createScriptedQueryFn()`, `createPermissionQueryFn()` | Agent SDK scripted query functions |
+
 ### E2E test files
+
+#### Deterministic (mock backend)
 
 | File | What it tests |
 |------|---------------|
@@ -265,7 +294,23 @@ If neither `ANTHROPIC_API_KEY` nor `claude auth login` session is available, aut
 | `message-queue.e2e.test.ts` | Queued message lifecycle (queue, update, cancel, auto-send) |
 | `streaming-conversation.e2e.test.ts` | Streaming deltas and multi-turn conversation ordering |
 | `presence-rbac.e2e.test.ts` | Identity/presence updates and observer role constraints |
-| `realcli/session-manager-realcli.e2e.test.ts` | Real `SessionManager` + `--sdk-url` handshake, connection lifecycle, and full-mode live turns |
+| `acp-adapter.e2e.test.ts` | ACP adapter conversation flows with mock subprocess |
+| `agent-sdk-adapter.e2e.test.ts` | Agent SDK adapter flows with scripted query functions |
+| `codex-adapter.e2e.test.ts` | Codex adapter session with mock WebSocket |
+| `gemini-adapter.e2e.test.ts` | Gemini adapter with mock A2A SSE responses |
+| `opencode-adapter.e2e.test.ts` | Opencode adapter with mock HTTP client + SSE events |
+
+#### Real backend (`src/e2e/real/`)
+
+| File | Backend | What it tests |
+|------|---------|---------------|
+| `smoke.e2e.test.ts` | sdk-url | Basic Claude CLI smoke checks |
+| `handshake.e2e.test.ts` | sdk-url | `--sdk-url` WebSocket handshake |
+| `process-smoke.e2e.test.ts` | sdk-url | Process spawn and lifecycle |
+| `session-manager-sdk-url.e2e.test.ts` | sdk-url | Full SessionManager lifecycle, live turns, multi-consumer, resume |
+| `session-manager-codex.e2e.test.ts` | codex | Codex session lifecycle, consumer comms, live prompt, slash commands |
+| `session-manager-gemini.e2e.test.ts` | gemini | Gemini session lifecycle, streamed responses, cancel mid-turn |
+| `session-manager-opencode.e2e.test.ts` | opencode | Opencode session lifecycle, HTTP+SSE connection, streamed responses |
 
 ## Manual CLI testing
 

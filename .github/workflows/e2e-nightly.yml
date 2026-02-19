@@ -120,4 +120,4 @@ jobs:
         if: steps.realcli.outputs.enabled == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: pnpm test:e2e:realcli:full:session
+        run: pnpm test:e2e:real:claude
