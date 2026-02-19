@@ -356,13 +356,26 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "configuration_change": {
-      const meta = msg.metadata as Record<string, unknown>;
+      const prev = store.sessionData[sessionId]?.state;
+      if (!prev) break;
+      const { metadata } = msg;
+      const VALID_PERMISSION_MODES = new Set([
+        "default",
+        "acceptEdits",
+        "bypassPermissions",
+        "dontAsk",
+        "plan",
+      ]);
       const patch: Partial<ConsumerSessionState> = {};
-      if (typeof meta.model === "string") patch.model = meta.model;
-      if (typeof meta.permissionMode === "string") patch.permissionMode = meta.permissionMode;
+      if (typeof metadata.model === "string") patch.model = metadata.model;
+      if (
+        typeof metadata.permissionMode === "string" &&
+        VALID_PERMISSION_MODES.has(metadata.permissionMode)
+      ) {
+        patch.permissionMode = metadata.permissionMode;
+      }
       if (Object.keys(patch).length > 0) {
-        const prev = store.sessionData[sessionId]?.state;
-        if (prev) store.setSessionState(sessionId, { ...prev, ...patch });
+        store.setSessionState(sessionId, { ...prev, ...patch });
       }
       break;
     }

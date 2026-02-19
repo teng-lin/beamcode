@@ -70,22 +70,13 @@ function groupContentBlocks(blocks: ConsumerContentBlock[]): ContentGroup[] {
       currentToolGroup.push(block);
     } else {
       flushToolGroup();
-      if (
-        block.type === "text" ||
-        block.type === "thinking" ||
-        block.type === "tool_result" ||
-        block.type === "code" ||
-        block.type === "image" ||
-        block.type === "refusal"
-      ) {
-        const bk = blockKey(block);
-        groups.push({
-          type: block.type,
-          blocks: [block],
-          key: `${block.type}-${bk || groupIndex}`,
-        });
-        groupIndex++;
-      }
+      const bk = blockKey(block);
+      groups.push({
+        type: block.type,
+        blocks: [block],
+        key: `${block.type}-${bk || groupIndex}`,
+      });
+      groupIndex++;
     }
   }
   flushToolGroup();
@@ -167,15 +158,17 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
           case "image": {
             const block = group.blocks[0];
             if (block.type !== "image") return null;
-            return <ImageBlock key={group.key} media_type={block.media_type} data={block.data} />;
+            return <ImageBlock key={group.key} mediaType={block.media_type} data={block.data} />;
           }
 
           case "refusal": {
             const block = group.blocks[0];
             if (block.type !== "refusal") return null;
+            const text =
+              block.refusal.length > 500 ? `${block.refusal.slice(0, 500)}…` : block.refusal;
             return (
               <div key={group.key} className="text-xs text-bc-text-muted italic opacity-70 px-1">
-                {block.refusal}
+                {text}
               </div>
             );
           }

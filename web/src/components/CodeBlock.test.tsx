@@ -30,4 +30,16 @@ describe("CodeBlock", () => {
     await user.click(screen.getByRole("button", { name: /copy/i }));
     expect(writeText).toHaveBeenCalledWith("echo hi");
   });
+
+  it("does not throw when clipboard access is denied", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+    render(<CodeBlock language="bash" code="echo hi" />);
+    await expect(user.click(screen.getByRole("button", { name: /copy/i }))).resolves.not.toThrow();
+    // Button label stays "Copy" — no crash, no state change
+    expect(screen.getByRole("button", { name: /copy code/i })).toBeDefined();
+  });
 });

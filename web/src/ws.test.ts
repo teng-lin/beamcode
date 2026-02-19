@@ -1273,6 +1273,64 @@ describe("handleMessage", () => {
     ).not.toThrow();
   });
 
+  it("configuration_change: updates permissionMode for known values", () => {
+    const ws = openSession();
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "configuration_change",
+        subtype: "permission_update",
+        metadata: { permissionMode: "bypassPermissions" },
+      }),
+    );
+
+    expect(getSessionData()?.state?.permissionMode).toBe("bypassPermissions");
+  });
+
+  it("configuration_change: ignores unknown permissionMode values", () => {
+    const ws = openSession();
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+          permissionMode: "default",
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "configuration_change",
+        subtype: "permission_update",
+        metadata: { permissionMode: "admin" },
+      }),
+    );
+
+    // Unknown value should be ignored — permissionMode stays unchanged
+    expect(getSessionData()?.state?.permissionMode).toBe("default");
+  });
+
   it("configuration_change: empty metadata is a no-op", () => {
     const ws = openSession();
     ws.simulateMessage(

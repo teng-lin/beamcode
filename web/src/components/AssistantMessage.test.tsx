@@ -110,4 +110,12 @@ describe("AssistantMessage", () => {
     render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
     expect(screen.getByText(/I cannot help with that/)).toBeDefined();
   });
+
+  it("truncates refusal text exceeding 500 characters", () => {
+    const longRefusal = "x".repeat(600);
+    const message = makeAssistantContent([{ type: "refusal", refusal: longRefusal }]);
+    render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
+    const el = screen.getByText(/x+…/);
+    expect(el.textContent?.length).toBe(501); // 500 chars + ellipsis
+  });
 });
