@@ -237,7 +237,11 @@ describe("message-translator", () => {
         },
       });
       const result = translate(msg)!;
-      expect(result.content[0]).toEqual({ type: "text", text: "Let me think..." });
+      expect(result.content[0]).toEqual({
+        type: "thinking",
+        thinking: "Let me think...",
+        budget_tokens: undefined,
+      });
     });
 
     it("places usage and model in metadata", () => {

@@ -45,6 +45,7 @@ export type UnifiedMessageType =
   | "team_message"
   | "team_task_update"
   | "team_state_change"
+  | "session_lifecycle"
   | "unknown";
 
 // ---------------------------------------------------------------------------
@@ -85,12 +86,25 @@ export interface ImageContent {
   };
 }
 
+export interface ThinkingContent {
+  type: "thinking";
+  thinking: string;
+  budget_tokens?: number;
+}
+
+export interface RefusalContent {
+  type: "refusal";
+  refusal: string;
+}
+
 export type UnifiedContent =
   | TextContent
   | ToolUseContent
   | ToolResultContent
   | CodeContent
-  | ImageContent;
+  | ImageContent
+  | ThinkingContent
+  | RefusalContent;
 
 /** The discriminant values of UnifiedContent. */
 export type UnifiedContentType = UnifiedContent["type"];
@@ -167,6 +181,14 @@ export function isImageContent(block: UnifiedContent): block is ImageContent {
   return block.type === "image";
 }
 
+export function isThinkingContent(block: UnifiedContent): block is ThinkingContent {
+  return block.type === "thinking";
+}
+
+export function isRefusalContent(block: UnifiedContent): block is RefusalContent {
+  return block.type === "refusal";
+}
+
 // ---------------------------------------------------------------------------
 // UnifiedMessage type guard
 // ---------------------------------------------------------------------------
@@ -189,6 +211,7 @@ const VALID_MESSAGE_TYPES = new Set<string>([
   "team_message",
   "team_task_update",
   "team_state_change",
+  "session_lifecycle",
   "unknown",
 ]);
 
@@ -264,6 +287,38 @@ export function canonicalize(value: unknown): string {
     return `{${pairs.join(",")}}`;
   }
   return "null";
+}
+
+// ---------------------------------------------------------------------------
+// Canonical error metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical error codes used across all adapters in `result` metadata.
+ *
+ * Adapters normalize their native error representations to these codes
+ * so the consumer can distinguish error classes without adapter knowledge.
+ */
+export type UnifiedErrorCode =
+  | "provider_auth"
+  | "api_error"
+  | "context_overflow"
+  | "output_length"
+  | "aborted"
+  | "rate_limit"
+  | "max_turns"
+  | "max_budget"
+  | "execution_error"
+  | "unknown";
+
+/**
+ * Shape of error-related metadata keys in `result` messages.
+ * Adapters set these keys in `metadata` — this interface documents the contract.
+ */
+export interface UnifiedErrorMeta {
+  error_code: UnifiedErrorCode;
+  error_message: string;
+  error_source?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -281,8 +281,8 @@ describe("codex-message-translator", () => {
         };
         const result = translateCodexEvent(event)!;
         expect(result.content[0]).toEqual({
-          type: "text",
-          text: "[Refusal] I cannot do that",
+          type: "refusal",
+          refusal: "I cannot do that",
         });
       });
     });

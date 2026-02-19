@@ -5,7 +5,7 @@
  * UnifiedMessage envelope. No side effects, no state mutation, no I/O.
  */
 
-import type { UnifiedMessage } from "../../core/types/unified-message.js";
+import type { UnifiedContent, UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type {
   OpencodeEvent,
@@ -43,14 +43,31 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
       return translatePermissionUpdated(event.properties);
     case "server.connected":
       return translateServerConnected();
+    case "session.compacted":
+      return createUnifiedMessage({
+        type: "session_lifecycle",
+        role: "system",
+        metadata: {
+          subtype: "session_compacted",
+          session_id: event.properties.sessionID,
+        },
+      });
+    case "message.removed":
+      return createUnifiedMessage({
+        type: "session_lifecycle",
+        role: "system",
+        metadata: {
+          subtype: "message_removed",
+          session_id: event.properties.sessionID,
+          message_id: (event.properties as { messageID?: string }).messageID,
+        },
+      });
     case "server.heartbeat":
     case "permission.replied":
-    case "session.compacted":
     case "session.created":
     case "session.updated":
     case "session.deleted":
     case "session.diff":
-    case "message.removed":
     case "message.part.removed":
       return null;
     default:
@@ -115,7 +132,6 @@ export function extractSessionId(event: OpencodeEvent): string | undefined {
 function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessage | null {
   switch (part.type) {
     case "text":
-    case "reasoning":
       return createUnifiedMessage({
         type: "stream_event",
         role: "assistant",
@@ -125,14 +141,51 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
           message_id: part.messageID,
           session_id: part.sessionID,
           text: part.text,
-          reasoning: part.type === "reasoning",
         },
       });
+    case "reasoning": {
+      const content: UnifiedContent[] = [];
+      if (part.text) {
+        content.push({ type: "thinking", thinking: part.text });
+      }
+      return createUnifiedMessage({
+        type: "stream_event",
+        role: "assistant",
+        content,
+        metadata: {
+          delta: delta ?? "",
+          part_id: part.id,
+          message_id: part.messageID,
+          session_id: part.sessionID,
+          text: part.text,
+          reasoning: true,
+        },
+      });
+    }
     case "tool":
       return translateToolPart(part);
     case "step-start":
+      return createUnifiedMessage({
+        type: "status_change",
+        role: "system",
+        metadata: {
+          session_id: part.sessionID,
+          step: "start",
+          step_id: part.id,
+          message_id: part.messageID,
+        },
+      });
     case "step-finish":
-      return null;
+      return createUnifiedMessage({
+        type: "status_change",
+        role: "system",
+        metadata: {
+          session_id: part.sessionID,
+          step: "finish",
+          step_id: part.id,
+          message_id: part.messageID,
+        },
+      });
     default:
       return null;
   }
@@ -281,11 +334,29 @@ function translateSessionError(sessionID: string, error: OpencodeMessageError): 
       is_error: true,
       error_name: error.name,
       error_message: error.data.message,
+      error_code: normalizeOpencodeErrorCode(error.name),
       ...(error.name === "api_error" &&
         "status" in error.data &&
         typeof error.data.status === "number" && { error_status: error.data.status }),
     },
   });
+}
+
+function normalizeOpencodeErrorCode(name: string): string {
+  switch (name) {
+    case "provider_auth":
+      return "provider_auth";
+    case "output_length":
+      return "output_length";
+    case "aborted":
+      return "aborted";
+    case "context_overflow":
+      return "context_overflow";
+    case "api_error":
+      return "api_error";
+    default:
+      return "unknown";
+  }
 }
 
 function translatePermissionUpdated(properties: {

@@ -13,7 +13,10 @@ export type ConsumerContentBlock =
       content: string | ConsumerContentBlock[];
       is_error?: boolean;
     }
-  | { type: "thinking"; thinking: string; budget_tokens?: number };
+  | { type: "thinking"; thinking: string; budget_tokens?: number }
+  | { type: "code"; language: string; code: string }
+  | { type: "image"; media_type: string; data: string }
+  | { type: "refusal"; refusal: string };
 
 // ── Assistant Message ───────────────────────────────────────────────────────
 
@@ -69,6 +72,8 @@ export interface ResultData {
   >;
   total_lines_added?: number;
   total_lines_removed?: number;
+  error_code?: string;
+  error_message?: string;
 }
 
 // ── Permission Request ──────────────────────────────────────────────────────
@@ -268,7 +273,17 @@ export type ConsumerMessage =
       images?: { media_type: string; data: string }[];
     }
   | { type: "queued_message_cancelled" }
-  | { type: "queued_message_sent" };
+  | { type: "queued_message_sent" }
+  | {
+      type: "configuration_change";
+      subtype: string;
+      metadata: Record<string, unknown>;
+    }
+  | {
+      type: "session_lifecycle";
+      subtype: string;
+      metadata: Record<string, unknown>;
+    };
 
 // ── Inbound Messages (consumer → bridge) ────────────────────────────────────
 

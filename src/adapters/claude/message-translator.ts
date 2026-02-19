@@ -114,8 +114,11 @@ function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
           is_error: block.is_error,
         };
       case "thinking":
-        // Thinking blocks don't have a UnifiedContent equivalent — pass as text
-        return { type: "text" as const, text: block.thinking };
+        return {
+          type: "thinking" as const,
+          thinking: block.thinking,
+          budget_tokens: (block as { budget_tokens?: number }).budget_tokens,
+        };
       default:
         return { type: "text" as const, text: "" };
     }
@@ -158,8 +161,29 @@ function translateResult(msg: CLIResultMessage): UnifiedMessage {
       total_lines_removed: msg.total_lines_removed,
       uuid: msg.uuid,
       session_id: msg.session_id,
+      ...normalizeClaudeError(msg.subtype, msg.is_error, msg.errors),
     },
   });
+}
+
+function normalizeClaudeError(
+  subtype: string | undefined,
+  isError: boolean,
+  errors: string[] | undefined,
+): { error_code?: string; error_message?: string } {
+  if (!isError) return {};
+  const message = errors?.[0] ?? "Unknown error";
+  switch (subtype) {
+    case "error_max_turns":
+      return { error_code: "max_turns", error_message: message };
+    case "error_max_budget_usd":
+      return { error_code: "max_budget", error_message: message };
+    case "error_max_structured_output_retries":
+      return { error_code: "execution_error", error_message: message };
+    case "error_during_execution":
+    default:
+      return { error_code: "execution_error", error_message: message };
+  }
 }
 
 function translateStreamEvent(msg: CLIStreamEventMessage): UnifiedMessage {

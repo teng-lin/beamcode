@@ -130,7 +130,7 @@ describe("translateEvent: message.part.updated with text part", () => {
     expect(msg!.type).toBe("stream_event");
     expect(msg!.role).toBe("assistant");
     expect(msg!.metadata.delta).toBe(" world");
-    expect(msg!.metadata.reasoning).toBe(false);
+    expect(msg!.metadata.reasoning).toBeUndefined();
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
     expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
   });
@@ -502,12 +502,16 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(translateEvent(event)).toBeNull();
   });
 
-  it("session.compacted → null", () => {
+  it("session.compacted → session_lifecycle", () => {
     const event: OpencodeEvent = {
       type: "session.compacted",
       properties: { sessionID: SESSION_ID },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("session_compacted");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 
   it("session.created → null", () => {
@@ -554,12 +558,17 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(translateEvent(event)).toBeNull();
   });
 
-  it("message.removed → null", () => {
+  it("message.removed → session_lifecycle", () => {
     const event: OpencodeEvent = {
       type: "message.removed",
       properties: { messageID: MESSAGE_ID, sessionID: SESSION_ID },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("message_removed");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
+    expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
   });
 
   it("message.part.removed → null", () => {
@@ -578,7 +587,7 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(translateEvent(event)).toBeNull();
   });
 
-  it("step-start part → null", () => {
+  it("step-start part → status_change", () => {
     const event: OpencodeEvent = {
       type: "message.part.updated",
       properties: {
@@ -590,10 +599,14 @@ describe("translateEvent: non-user-facing events return null", () => {
         },
       },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("status_change");
+    expect(msg!.metadata.step).toBe("start");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 
-  it("step-finish part → null", () => {
+  it("step-finish part → status_change", () => {
     const event: OpencodeEvent = {
       type: "message.part.updated",
       properties: {
@@ -605,7 +618,11 @@ describe("translateEvent: non-user-facing events return null", () => {
         },
       },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("status_change");
+    expect(msg!.metadata.step).toBe("finish");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 });
 

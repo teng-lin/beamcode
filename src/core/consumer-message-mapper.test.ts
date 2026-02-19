@@ -187,7 +187,7 @@ describe("mapAssistantMessage", () => {
     const msg = createUnifiedMessage({
       type: "assistant",
       role: "assistant",
-      content: [{ type: "code", language: "ts", code: "const x = 1" }],
+      content: [{ type: "foobar" } as any],
       metadata: {
         message_id: "msg-006",
         model: "claude-sonnet-4-5-20250929",

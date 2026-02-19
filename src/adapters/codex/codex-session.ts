@@ -662,20 +662,49 @@ export class CodexSession implements BackendSession {
   private enqueueResponseItems(response: CodexResponse): void {
     const outputItems = Array.isArray(response.output) ? response.output : [];
     for (const item of outputItems) {
-      if (item.type !== "message") continue;
-      const text = this.itemToText(item);
-      if (!text) continue;
-      this.queue.enqueue(
-        createUnifiedMessage({
-          type: "assistant",
-          role: "assistant",
-          content: [{ type: "text", text }],
-          metadata: {
-            item_id: item.id,
-            status: item.status,
-          },
-        }),
-      );
+      if (item.type === "message") {
+        const text = this.itemToText(item);
+        if (!text) continue;
+        this.queue.enqueue(
+          createUnifiedMessage({
+            type: "assistant",
+            role: "assistant",
+            content: [{ type: "text", text }],
+            metadata: {
+              item_id: item.id,
+              status: item.status,
+            },
+          }),
+        );
+      } else if (item.type === "function_call") {
+        this.queue.enqueue(
+          createUnifiedMessage({
+            type: "tool_progress",
+            role: "tool",
+            metadata: {
+              name: item.name,
+              arguments: item.arguments,
+              call_id: item.call_id,
+              item_id: item.id,
+              status: item.status,
+              done: true,
+            },
+          }),
+        );
+      } else if (item.type === "function_call_output") {
+        this.queue.enqueue(
+          createUnifiedMessage({
+            type: "tool_use_summary",
+            role: "tool",
+            metadata: {
+              output: item.output,
+              call_id: item.call_id,
+              item_id: item.id,
+              status: item.status,
+            },
+          }),
+        );
+      }
     }
     this.queue.enqueue(
       createUnifiedMessage({
