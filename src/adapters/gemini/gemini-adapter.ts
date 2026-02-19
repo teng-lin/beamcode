@@ -11,11 +11,9 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
-import type { Logger } from "../../interfaces/logger.js";
 import { AcpAdapter, type SpawnFn } from "../acp/acp-adapter.js";
 
 export interface GeminiAdapterOptions {
-  logger?: Logger;
   geminiBinary?: string;
   spawnFn?: SpawnFn;
 }
@@ -31,12 +29,10 @@ export class GeminiAdapter implements BackendAdapter {
     teams: false,
   };
 
-  private readonly logger?: Logger;
   private readonly geminiBinary?: string;
   private readonly spawnFn?: SpawnFn;
 
   constructor(options?: GeminiAdapterOptions) {
-    this.logger = options?.logger;
     this.geminiBinary = options?.geminiBinary;
     this.spawnFn = options?.spawnFn;
   }
