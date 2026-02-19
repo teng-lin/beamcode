@@ -483,14 +483,21 @@ describe("SessionBridge", () => {
       expect(setModeMsg!.metadata.mode).toBe("bypassPermissions");
     });
 
-    it("set_adapter is handled without throwing (no-op)", () => {
-      expect(() => {
-        bridge.handleConsumerMessage(
-          consumerWs,
-          "sess-1",
-          JSON.stringify({ type: "set_adapter", adapter: "codex" }),
-        );
-      }).not.toThrow();
+    it("set_adapter returns an error message to the consumer", () => {
+      bridge.handleConsumerMessage(
+        consumerWs,
+        "sess-1",
+        JSON.stringify({ type: "set_adapter", adapter: "codex" }),
+      );
+      const errorMsg = (consumerWs.send as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([raw]: [string]) => {
+          const parsed = JSON.parse(raw);
+          return parsed.type === "error";
+        },
+      );
+      expect(errorMsg).toBeDefined();
+      const parsed = JSON.parse(errorMsg![0]);
+      expect(parsed.message).toMatch(/cannot be changed/i);
     });
   });
 
