@@ -58,6 +58,8 @@ export interface Session {
   registry: SlashCommandRegistry;
   /** Tracks a passthrough slash command awaiting CLI response. */
   pendingPassthrough: { command: string; requestId?: string } | null;
+  /** Backend adapter name for this session. */
+  adapterName?: string;
   /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */
   adapterSlashExecutor: AdapterSlashExecutor | null;
 }
@@ -199,6 +201,7 @@ export class SessionStore {
       teamCorrelationBuffer: this.factories.createCorrelationBuffer(),
       registry: this.factories.createRegistry(),
       pendingPassthrough: null,
+      adapterName: undefined,
       adapterSlashExecutor: null,
     };
   }
@@ -212,6 +215,7 @@ export class SessionStore {
       messageHistory: session.messageHistory,
       pendingMessages: session.pendingMessages,
       pendingPermissions: Array.from(session.pendingPermissions.entries()),
+      adapterName: session.adapterName,
     });
   }
 
@@ -228,6 +232,12 @@ export class SessionStore {
         messageHistory: p.messageHistory || [],
         pendingMessages: p.pendingMessages || [],
       });
+
+      // Restore adapter name from persisted data
+      if (p.adapterName) {
+        session.adapterName = p.adapterName;
+        session.state.adapterName = p.adapterName;
+      }
 
       // Populate registry from persisted state so slash commands work
       // before the CLI reconnects and sends a fresh system.init

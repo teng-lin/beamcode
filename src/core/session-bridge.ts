@@ -1,3 +1,4 @@
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import { ConsoleLogger } from "../adapters/console-logger.js";
 import { normalizeInbound, toNDJSON } from "../adapters/sdk-url/inbound-translator.js";
 import { reduce as reduceState } from "../adapters/sdk-url/state-reducer.js";
@@ -72,6 +73,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     metrics?: MetricsCollector;
     /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
+    /** Per-session adapter resolver (resolves adapter by name). */
+    adapterResolver?: AdapterResolver;
   }) {
     super();
     this.store = new SessionStore(options?.storage ?? null, {
@@ -101,6 +104,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.slashCommandExecutor = new SlashCommandExecutor();
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
+      adapterResolver: options?.adapterResolver ?? null,
       logger: this.logger,
       metrics: this.metrics,
       broadcaster: this.broadcaster,
@@ -151,6 +155,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       });
     }
     return session;
+  }
+
+  /** Set the adapter name for a session (persisted for restore). */
+  setAdapterName(sessionId: string, name: string): void {
+    const session = this.getOrCreateSession(sessionId);
+    session.adapterName = name;
+    session.state.adapterName = name;
+    this.persistSession(session);
   }
 
   /**
@@ -655,9 +667,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.queueHandler.handleCancelQueuedMessage(session, ws);
         break;
       case "set_adapter":
-        this.logger.info(
-          `[set_adapter] session=${session.id} adapter=${msg.adapter} (no-op: adapter switching not yet supported)`,
-        );
+        this.broadcaster.sendTo(ws, {
+          type: "error",
+          message:
+            "Adapter cannot be changed on an active session. Create a new session with the desired adapter.",
+        });
         break;
     }
   }

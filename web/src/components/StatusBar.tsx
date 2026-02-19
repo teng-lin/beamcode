@@ -5,22 +5,28 @@ import { cwdBasename } from "../utils/format";
 import { send } from "../ws";
 
 const ADAPTER_LABELS: Record<string, string> = {
+  "sdk-url": "Claude Code",
   claude: "Claude Code",
   codex: "Codex",
+  acp: "ACP",
   continue: "Continue",
   gemini: "Gemini",
 };
 
 const ADAPTER_COLORS: Record<string, string> = {
+  "sdk-url": "bg-bc-adapter-claude text-bc-bg",
   claude: "bg-bc-adapter-claude text-bc-bg",
   codex: "bg-bc-adapter-codex text-bc-bg",
+  acp: "bg-bc-adapter-codex text-bc-bg",
   continue: "bg-bc-adapter-continue text-white",
   gemini: "bg-bc-adapter-gemini text-white",
 };
 
 const ADAPTER_DOT_COLORS: Record<string, string> = {
+  "sdk-url": "bg-bc-adapter-claude",
   claude: "bg-bc-adapter-claude",
   codex: "bg-bc-adapter-codex",
+  acp: "bg-bc-adapter-codex",
   continue: "bg-bc-adapter-continue",
   gemini: "bg-bc-adapter-gemini",
 };
@@ -34,60 +40,9 @@ function ChevronDown() {
 }
 
 function AdapterSelector({ type }: { type: string }) {
-  const currentSessionId = useStore((s) => s.currentSessionId);
-  const identityRole = useStore((s) => currentData(s)?.identity?.role ?? null);
-  const isObserver = identityRole === "observer";
-  const { open, toggle, close, ref } = useDropdown();
-
-  const handleSelect = useCallback(
-    (adapter: string) => {
-      if (currentSessionId) {
-        useStore.getState().updateSession(currentSessionId, { adapterType: adapter });
-      }
-      send({ type: "set_adapter", adapter }, currentSessionId ?? undefined);
-      close();
-    },
-    [currentSessionId, close],
-  );
-
   const label = ADAPTER_LABELS[type] ?? type;
   const color = ADAPTER_COLORS[type] ?? "bg-bc-surface-2 text-bc-text-muted";
-  const adapterKeys = Object.keys(ADAPTER_LABELS);
-
-  if (isObserver || adapterKeys.length <= 1) {
-    return (
-      <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${color}`}>{label}</span>
-    );
-  }
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={toggle}
-        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-80 ${color}`}
-      >
-        {label}
-        <ChevronDown />
-      </button>
-      {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[160px] rounded-md border border-bc-border bg-bc-surface py-1 shadow-lg">
-          {adapterKeys.map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => handleSelect(key)}
-              className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bc-hover ${
-                key === type ? "font-semibold text-bc-text" : "text-bc-text-muted"
-              }`}
-            >
-              {ADAPTER_LABELS[key]}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  return <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${color}`}>{label}</span>;
 }
 
 // ── Permission Mode Picker ───────────────────────────────────────────────────
@@ -372,7 +327,11 @@ function LogsButton() {
 
 export function StatusBar() {
   const adapterType = useStore((s) =>
-    s.currentSessionId ? (s.sessions[s.currentSessionId]?.adapterType ?? null) : null,
+    s.currentSessionId
+      ? (s.sessions[s.currentSessionId]?.adapterName ??
+        s.sessions[s.currentSessionId]?.adapterType ??
+        null)
+      : null,
   );
   const cwd = useStore((s) => currentData(s)?.state?.cwd ?? null);
   const gitBranch = useStore((s) => currentData(s)?.state?.git_branch ?? null);

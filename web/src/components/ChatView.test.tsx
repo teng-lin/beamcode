@@ -10,6 +10,9 @@ import {
 } from "../test/factories";
 import { ChatView } from "./ChatView";
 
+vi.mock("../api", () => ({ createSession: vi.fn() }));
+vi.mock("../ws", () => ({ connectToSession: vi.fn() }));
+vi.mock("../utils/session", () => ({ updateSessionUrl: vi.fn() }));
 vi.mock("./AuthBanner", () => ({ AuthBanner: () => null }));
 vi.mock("./EmptyState", () => ({ EmptyState: () => <div data-testid="empty-state" /> }));
 vi.mock("./MessageFeed", () => ({ MessageFeed: () => <div data-testid="message-feed" /> }));
@@ -62,18 +65,23 @@ describe("ChatView", () => {
     resetStore();
   });
 
-  it("renders inline empty state when no currentSessionId", () => {
+  it("renders adapter picker when no sessions exist", () => {
     render(<ChatView />);
-    // The no-session path renders the BeamCode logo + a disabled composer
-    expect(screen.getByText("BeamCode")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Create a session to start...")).toBeInTheDocument();
+    // No sessions at all → adapter picker empty state
+    expect(screen.getByTestId("empty-state")).toBeInTheDocument();
   });
 
-  it("renders inline empty state when no session data", () => {
-    useStore.setState({ currentSessionId: SESSION });
+  it("renders inline empty state when sessions exist but none selected", () => {
+    useStore.setState({
+      currentSessionId: null,
+      sessions: {
+        other: { sessionId: "other", state: "connected", cwd: "/tmp", createdAt: 1 } as never,
+      },
+    });
     render(<ChatView />);
-    // sessionData[SESSION] is undefined → same inline empty state
+    // Sessions exist but no currentSessionId → inline logo + disabled composer
     expect(screen.getByText("BeamCode")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Create a session to start...")).toBeInTheDocument();
   });
 
   it("renders EmptyState when session has no messages", () => {

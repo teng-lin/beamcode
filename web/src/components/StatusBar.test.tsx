@@ -10,8 +10,6 @@ vi.mock("../ws", () => ({
   send: vi.fn(),
 }));
 
-const { send } = (await import("../ws")) as unknown as { send: ReturnType<typeof vi.fn> };
-
 const SESSION = "statusbar-test";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -110,60 +108,26 @@ describe("StatusBar", () => {
       expect(screen.getByText("Gemini")).toBeInTheDocument();
     });
 
-    it("opens dropdown with all adapter options on click", async () => {
-      const user = userEvent.setup();
-      setupSession({ adapterType: "claude" });
+    it("renders adapter badge as static text", () => {
+      setupSession({ adapterType: "codex" });
       render(<StatusBar />);
-
-      await user.click(screen.getByText("Claude Code"));
       expect(screen.getByText("Codex")).toBeInTheDocument();
-      expect(screen.getByText("Continue")).toBeInTheDocument();
-      expect(screen.getByText("Gemini")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /codex/i })).not.toBeInTheDocument();
     });
 
-    it("sends set_adapter message and closes dropdown on selection", async () => {
-      const user = userEvent.setup();
-      setupSession({ adapterType: "claude" });
-      render(<StatusBar />);
-
-      await user.click(screen.getByText("Claude Code"));
-      await user.click(screen.getByText("Codex"));
-
-      expect(send).toHaveBeenCalledWith({ type: "set_adapter", adapter: "codex" }, SESSION);
-      expect(screen.queryByText("Continue")).not.toBeInTheDocument();
-    });
-
-    it("closes dropdown on Escape key", async () => {
-      const user = userEvent.setup();
-      setupSession({ adapterType: "claude" });
-      render(<StatusBar />);
-
-      await user.click(screen.getByText("Claude Code"));
-      expect(screen.getByText("Codex")).toBeInTheDocument();
-
-      await user.keyboard("{Escape}");
-      expect(screen.queryByText("Codex")).not.toBeInTheDocument();
-    });
-
-    it("shows static badge (not a dropdown button) when observer", () => {
-      setupSession({ adapterType: "claude" });
-      store().setIdentity(SESSION, { userId: "u1", displayName: "Bob", role: "observer" });
-      render(<StatusBar />);
-
-      const label = screen.getByText("Claude Code");
-      expect(label.tagName).toBe("SPAN");
-      expect(label.closest("button")).toBeNull();
-    });
-
-    it("optimistically updates adapterType on selection", async () => {
-      const user = userEvent.setup();
-      setupSession({ adapterType: "claude" });
-      render(<StatusBar />);
-
-      await user.click(screen.getByText("Claude Code"));
-      await user.click(screen.getByText("Codex"));
-
-      expect(useStore.getState().sessions[SESSION]?.adapterType).toBe("codex");
+    it("renders static badge for all adapter types", () => {
+      for (const [type, label] of [
+        ["claude", "Claude Code"],
+        ["codex", "Codex"],
+        ["sdk-url", "Claude Code"],
+        ["acp", "ACP"],
+      ] as const) {
+        resetStore();
+        setupSession({ adapterType: type });
+        const { unmount } = render(<StatusBar />);
+        expect(screen.getByText(label)).toBeInTheDocument();
+        unmount();
+      }
     });
   });
 

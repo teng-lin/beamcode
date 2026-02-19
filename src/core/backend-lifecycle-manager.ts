@@ -6,6 +6,8 @@
  * to this class while retaining the public API surface.
  */
 
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
 import type { CLIMessage } from "../types/cli-messages.js";
@@ -24,6 +26,7 @@ type EmitEvent = (
 
 export interface BackendLifecycleDeps {
   adapter: BackendAdapter | null;
+  adapterResolver: AdapterResolver | null;
   logger: Logger;
   metrics: MetricsCollector | null;
   broadcaster: ConsumerBroadcaster;
@@ -35,6 +38,7 @@ export interface BackendLifecycleDeps {
 
 export class BackendLifecycleManager {
   private adapter: BackendAdapter | null;
+  private adapterResolver: AdapterResolver | null;
   private logger: Logger;
   private metrics: MetricsCollector | null;
   private broadcaster: ConsumerBroadcaster;
@@ -43,6 +47,7 @@ export class BackendLifecycleManager {
 
   constructor(deps: BackendLifecycleDeps) {
     this.adapter = deps.adapter;
+    this.adapterResolver = deps.adapterResolver;
     this.logger = deps.logger;
     this.metrics = deps.metrics;
     this.broadcaster = deps.broadcaster;
@@ -87,7 +92,22 @@ export class BackendLifecycleManager {
 
   /** Whether a BackendAdapter is configured. */
   get hasAdapter(): boolean {
-    return this.adapter !== null;
+    return this.adapter !== null || this.adapterResolver !== null;
+  }
+
+  /** Resolve the adapter for a session, falling back to the global adapter. */
+  private resolveAdapter(session: Session): BackendAdapter | null {
+    if (session.adapterName && this.adapterResolver) {
+      // Validate adapter name before resolving (defends against corrupted persisted data)
+      if (!CLI_ADAPTER_NAMES.includes(session.adapterName as CliAdapterName)) {
+        this.logger.warn(
+          `Invalid adapter name "${session.adapterName}" on session ${session.id}, falling back to global`,
+        );
+        return this.adapter;
+      }
+      return this.adapterResolver.resolve(session.adapterName as CliAdapterName);
+    }
+    return this.adapter;
   }
 
   /** Connect a session via BackendAdapter and start consuming messages. */
@@ -95,7 +115,8 @@ export class BackendLifecycleManager {
     session: Session,
     options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },
   ): Promise<void> {
-    if (!this.adapter) {
+    const adapter = this.resolveAdapter(session);
+    if (!adapter) {
       throw new Error("No BackendAdapter configured");
     }
 
@@ -105,7 +126,7 @@ export class BackendLifecycleManager {
       await session.backendSession.close().catch(() => {});
     }
 
-    const backendSession = await this.adapter.connect({
+    const backendSession = await adapter.connect({
       sessionId: session.id,
       resume: options?.resume,
       adapterOptions: options?.adapterOptions,
@@ -115,8 +136,8 @@ export class BackendLifecycleManager {
 
     // Set up adapter-specific slash executor (e.g. Codex → JSON-RPC translation)
     session.adapterSlashExecutor = null;
-    if (this.adapter.createSlashExecutor) {
-      const executor = this.adapter.createSlashExecutor(backendSession);
+    if (adapter.createSlashExecutor) {
+      const executor = adapter.createSlashExecutor(backendSession);
       if (executor) {
         session.adapterSlashExecutor = executor;
         const commands = executor.supportedCommands();
@@ -155,7 +176,7 @@ export class BackendLifecycleManager {
     const abort = new AbortController();
     session.backendAbort = abort;
 
-    this.logger.info(`Backend connected for session ${session.id} via ${this.adapter.name}`);
+    this.logger.info(`Backend connected for session ${session.id} via ${adapter.name}`);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
       type: "cli:connected",

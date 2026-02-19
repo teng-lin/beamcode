@@ -1,12 +1,13 @@
+import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import type { CliAdapterName } from "../adapters/create-adapter.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
-import type { ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
-import type { LauncherStateStorage, SessionStorage } from "../interfaces/storage.js";
+import type { SessionStorage } from "../interfaces/storage.js";
 import type { WebSocketServerLike } from "../interfaces/ws-server.js";
 import type {
   InitializeAccount,
@@ -19,6 +20,7 @@ import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
+import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
@@ -35,9 +37,10 @@ import { TypedEventEmitter } from "./typed-emitter.js";
  */
 export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
-  readonly launcher: SdkUrlLauncher;
+  readonly launcher: SessionLauncher;
 
   private adapter: BackendAdapter | null;
+  private adapterResolver: AdapterResolver | null;
   private config: ResolvedConfig;
   private logger: Logger;
   private server: WebSocketServerLike | null;
@@ -49,15 +52,15 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   constructor(options: {
     config: ProviderConfig;
-    processManager: ProcessManager;
-    storage?: SessionStorage & LauncherStateStorage;
+    storage?: SessionStorage;
     logger?: Logger;
     gitResolver?: GitInfoResolver;
     authenticator?: Authenticator;
-    beforeSpawn?: (sessionId: string, spawnOptions: SpawnOptions) => void;
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
     adapter?: BackendAdapter;
+    adapterResolver?: AdapterResolver;
+    launcher: SessionLauncher;
   }) {
     super();
 
@@ -67,6 +70,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
     this.server = options.server ?? null;
     this.adapter = options.adapter ?? null;
+    this.adapterResolver = options.adapterResolver ?? null;
 
     this.bridge = new SessionBridge({
       storage: options.storage,
@@ -76,15 +80,74 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       config: options.config,
       metrics: options.metrics,
       adapter: options.adapter,
+      adapterResolver: options.adapterResolver,
     });
 
-    this.launcher = new SdkUrlLauncher({
-      processManager: options.processManager,
-      config: options.config,
-      storage: options.storage,
-      logger: options.logger,
-      beforeSpawn: options.beforeSpawn,
+    this.launcher = options.launcher;
+  }
+
+  get defaultAdapterName(): CliAdapterName {
+    return this.adapterResolver?.defaultName ?? "sdk-url";
+  }
+
+  /** Create a new session, routing to the correct adapter. */
+  async createSession(options: {
+    cwd?: string;
+    model?: string;
+    adapterName?: CliAdapterName;
+  }): Promise<{
+    sessionId: string;
+    cwd: string;
+    adapterName: CliAdapterName;
+    state: string;
+    createdAt: number;
+  }> {
+    const adapterName = options.adapterName ?? this.defaultAdapterName;
+    const cwd = options.cwd ?? process.cwd();
+
+    if (adapterName === "sdk-url") {
+      const launchResult = this.launcher.launch({ cwd, model: options.model });
+      this.bridge.seedSessionState(launchResult.sessionId, {
+        cwd: launchResult.cwd,
+        model: options.model,
+      });
+      this.bridge.setAdapterName(launchResult.sessionId, adapterName);
+      return {
+        sessionId: launchResult.sessionId,
+        cwd: launchResult.cwd,
+        adapterName,
+        state: launchResult.state,
+        createdAt: launchResult.createdAt,
+      };
+    }
+
+    // Direct-connection path (Codex, ACP)
+    const sessionId = randomUUID();
+    const createdAt = Date.now();
+
+    this.launcher.registerExternalSession({
+      sessionId,
+      cwd,
+      createdAt,
+      model: options.model,
+      adapterName,
     });
+
+    this.bridge.seedSessionState(sessionId, { cwd, model: options.model });
+    this.bridge.setAdapterName(sessionId, adapterName);
+
+    try {
+      await this.bridge.connectBackend(sessionId, {
+        adapterOptions: { cwd },
+      });
+      this.launcher.markConnected(sessionId);
+    } catch (err) {
+      this.launcher.removeSession(sessionId);
+      this.bridge.closeSession(sessionId);
+      throw err;
+    }
+
+    return { sessionId, cwd, adapterName, state: "connected", createdAt };
   }
 
   /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
@@ -111,8 +174,23 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     if (this.server) {
       await this.server.listen(
         (socket, sessionId) => {
-          if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
-            const adapter = this.adapter;
+          // Use the resolver's eagerly-created SdkUrlAdapter for inverted connections.
+          // This ensures SdkUrl sessions work even when the default adapter is non-inverted (e.g., Codex).
+          const invertedAdapter =
+            this.adapterResolver?.sdkUrlAdapter ??
+            (this.adapter && isInvertedConnectionAdapter(this.adapter) ? this.adapter : null);
+          if (invertedAdapter && isInvertedConnectionAdapter(invertedAdapter)) {
+            // Validate: only accept connections for sessions we actually launched.
+            // Prevents resource exhaustion from arbitrary sessionIds.
+            const info = this.launcher.getSession(sessionId);
+            if (!info || info.state !== "starting") {
+              this.logger.warn(
+                `Rejecting unexpected CLI connection for session ${sessionId} (state=${info?.state ?? "unknown"})`,
+              );
+              socket.close();
+              return;
+            }
+            const adapter = invertedAdapter;
             // Buffer messages that arrive before the adapter socket is wired.
             // connectBackend() is async — without buffering, messages the CLI
             // sends immediately on connect (system.init, hooks) would be lost.
@@ -150,6 +228,9 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
               }) as typeof socket.on,
             };
 
+            // Tag the session as sdk-url since it arrived via the inverted connection path.
+            // This ensures resolveAdapter() finds the correct adapter via the resolver.
+            this.bridge.setAdapterName(sessionId, "sdk-url");
             this.bridge
               .connectBackend(sessionId)
               .then(() => {
@@ -229,10 +310,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
    * close WS connections + remove persisted JSON, remove from launcher map.
    */
   async deleteSession(sessionId: string): Promise<boolean> {
-    if (!this.launcher.getSession(sessionId)) return false;
+    const info = this.launcher.getSession(sessionId);
+    if (!info) return false;
 
-    // Best-effort kill — process may already be exited
-    await this.launcher.kill(sessionId);
+    // Kill process if one exists (SdkUrl sessions have PIDs, external sessions don't)
+    if (info.pid) {
+      await this.launcher.kill(sessionId);
+    }
 
     // Clear relaunch dedup state
     const dedupTimer = this.relaunchDedupTimers.get(sessionId);
@@ -258,7 +342,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private wireEvents(): void {
     // When the backend reports its session_id, store it for --resume on relaunch
     this.bridge.on("backend:session_id", ({ sessionId, backendSessionId }) => {
-      this.launcher.setCLISessionId(sessionId, backendSessionId);
+      this.launcher.setBackendSessionId(sessionId, backendSessionId);
     });
 
     // When backend connects, mark it in the launcher
@@ -324,12 +408,42 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       if (this.relaunchingSet.has(sessionId)) return;
 
       const info = this.launcher.getSession(sessionId);
-      if (info?.archived) return;
-      if (info && info.state !== "starting") {
+      if (!info || info.archived) return;
+
+      // SdkUrl sessions with a PID use the inverted connection model:
+      // the spawned CLI connects back to us via WebSocket.
+      if (info.pid) {
+        if (info.state === "starting") {
+          // Process just launched — waiting for CLI to connect back. Don't relaunch.
+          return;
+        }
         this.relaunchingSet.add(sessionId);
-        this.logger.info(`Auto-relaunching backend for session ${sessionId}`);
+        this.logger.info(`Auto-relaunching SdkUrl backend for session ${sessionId}`);
         try {
           await this.launcher.relaunch(sessionId);
+        } finally {
+          const timer = setTimeout(() => {
+            this.relaunchingSet.delete(sessionId);
+            this.relaunchDedupTimers.delete(sessionId);
+          }, this.config.relaunchDedupMs);
+          this.relaunchDedupTimers.set(sessionId, timer);
+        }
+        return;
+      }
+
+      // Non-SdkUrl sessions (no PID) — reconnect via bridge
+      if (!this.bridge.isBackendConnected(sessionId)) {
+        this.relaunchingSet.add(sessionId);
+        this.logger.info(
+          `Auto-reconnecting ${info.adapterName ?? "unknown"} backend for session ${sessionId}`,
+        );
+        try {
+          await this.bridge.connectBackend(sessionId, {
+            adapterOptions: { cwd: info.cwd },
+          });
+          this.launcher.markConnected(sessionId);
+        } catch (err) {
+          this.logger.error(`Failed to reconnect backend for session ${sessionId}: ${err}`);
         } finally {
           const timer = setTimeout(() => {
             this.relaunchingSet.delete(sessionId);
@@ -423,6 +537,17 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       this.logger.info(
         `Restored ${launcherCount} launcher session(s) and ${bridgeCount} bridge session(s) from storage`,
       );
+    }
+
+    // Mark non-SdkUrl sessions as "exited" so the reconnect watchdog / relaunch
+    // handler will re-establish their backend connection when a consumer connects.
+    for (const info of this.launcher.listSessions()) {
+      if (!info.pid && !info.archived && info.adapterName && info.adapterName !== "sdk-url") {
+        info.state = "exited";
+        this.logger.info(
+          `Restored non-SdkUrl session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
+        );
+      }
     }
   }
 

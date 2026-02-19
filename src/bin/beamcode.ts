@@ -1,17 +1,15 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { createAdapterResolver } from "../adapters/adapter-resolver.js";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
-import {
-  CLI_ADAPTER_NAMES,
-  type CliAdapterName,
-  createAdapter,
-} from "../adapters/create-adapter.js";
+import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
-import { isInvertedConnectionAdapter } from "../core/interfaces/inverted-connection-adapter.js";
+
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
@@ -31,6 +29,7 @@ const version = resolvePackageVersion(import.meta.url, [
 interface CliConfig {
   port: number;
   noTunnel: boolean;
+  noAutoLaunch: boolean;
   tunnelToken?: string;
   dataDir: string;
   model?: string;
@@ -56,7 +55,9 @@ function printHelp(): void {
     --model <name>         Model to pass to Claude CLI
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
-    --adapter <name>       Backend adapter: sdk-url (default), codex, acp
+    --default-adapter <name>  Default backend: sdk-url (default), codex, acp
+    --adapter <name>          Alias for --default-adapter
+    --no-auto-launch       Start server without creating an initial session
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 `);
@@ -74,6 +75,7 @@ function parseArgs(argv: string[]): CliConfig {
   const config: CliConfig = {
     port: 3456,
     noTunnel: false,
+    noAutoLaunch: false,
     dataDir: join(process.env.HOME ?? "~", ".beamcode"),
     cwd: process.cwd(),
     claudeBinary: "claude",
@@ -109,7 +111,11 @@ function parseArgs(argv: string[]): CliConfig {
         config.claudeBinary = argv[++i];
         break;
       case "--adapter":
-        config.adapter = validateAdapterName(argv[++i], "--adapter");
+      case "--default-adapter":
+        config.adapter = validateAdapterName(argv[++i], arg);
+        break;
+      case "--no-auto-launch":
+        config.noAutoLaunch = true;
         break;
       case "--verbose":
       case "-v":
@@ -128,6 +134,10 @@ function parseArgs(argv: string[]): CliConfig {
 
   if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
     config.adapter = validateAdapterName(process.env.BEAMCODE_ADAPTER, "BEAMCODE_ADAPTER");
+  }
+
+  if (!config.noAutoLaunch && process.env.BEAMCODE_NO_AUTO_LAUNCH === "1") {
+    config.noAutoLaunch = true;
   }
 
   return config;
@@ -187,20 +197,32 @@ async function main(): Promise<void> {
   const storage = new FileStorage(config.dataDir);
   const metrics = new ConsoleMetricsCollector(logger);
   const processManager = new NodeProcessManager();
-  const adapter = createAdapter(config.adapter, { processManager, logger });
-  const sessionManager = new SessionManager({
-    config: {
-      port: config.port,
-      defaultClaudeBinary: config.claudeBinary,
-      cliWebSocketUrlTemplate: (sessionId: string) =>
-        `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
-    },
+  const adapterResolver = createAdapterResolver({ processManager, logger }, config.adapter);
+  const adapter = adapterResolver.resolve(config.adapter);
+
+  const providerConfig = {
+    port: config.port,
+    defaultClaudeBinary: config.claudeBinary,
+    cliWebSocketUrlTemplate: (sessionId: string) =>
+      `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
+  };
+
+  const launcher = new SdkUrlLauncher({
     processManager,
+    config: providerConfig,
+    storage,
+    logger,
+  });
+
+  const sessionManager = new SessionManager({
+    config: providerConfig,
     storage,
     logger,
     metrics,
     gitResolver: new DefaultGitResolver(),
     adapter,
+    adapterResolver,
+    launcher,
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server
@@ -235,30 +257,16 @@ async function main(): Promise<void> {
   await sessionManager.start();
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
-  let activeSessionId: string;
-  const isInverted = isInvertedConnectionAdapter(adapter);
+  let activeSessionId = "";
 
-  if (isInverted) {
-    // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
-    activeSessionId = sessionManager.launcher.launch({
-      cwd: config.cwd,
-      model: config.model,
-    }).sessionId;
-  } else {
-    // Direct-connection flow (Codex, ACP): adapter handles spawning internally
-    activeSessionId = randomUUID();
-  }
-
-  sessionManager.bridge.seedSessionState(activeSessionId, {
-    cwd: config.cwd,
-    model: config.model,
-  });
-
-  if (!isInverted) {
+  if (!config.noAutoLaunch) {
     try {
-      await sessionManager.bridge.connectBackend(activeSessionId, {
-        adapterOptions: { cwd: config.cwd },
+      const session = await sessionManager.createSession({
+        cwd: config.cwd,
+        model: config.model,
+        adapterName: adapterResolver.defaultName,
       });
+      activeSessionId = session.sessionId;
     } catch (err) {
       console.error(
         `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
@@ -267,18 +275,19 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   }
+
   httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner
   const localUrl = `http://localhost:${config.port}`;
-  const tunnelSessionUrl = tunnelUrl ? `${tunnelUrl}/?session=${activeSessionId}` : null;
+  const tunnelSessionUrl =
+    tunnelUrl && activeSessionId ? `${tunnelUrl}/?session=${activeSessionId}` : null;
   console.log(`
   BeamCode v${version}
 
   Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
-
-  Session: ${activeSessionId}
-  Adapter: ${adapter.name}
+${activeSessionId ? `\n  Session: ${activeSessionId}` : ""}
+  Adapter: ${adapter.name}${config.noAutoLaunch ? " (no auto-launch)" : ""}
   CWD:     ${config.cwd}
   API Key: ${apiKey}
 

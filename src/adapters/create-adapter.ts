@@ -10,7 +10,13 @@ import { SdkUrlAdapter } from "./sdk-url/sdk-url-adapter.js";
 export type CliAdapterName = "sdk-url" | "codex" | "acp" | "gemini" | "opencode";
 export type AdapterName = CliAdapterName | "agent-sdk";
 
-export const CLI_ADAPTER_NAMES: readonly CliAdapterName[] = ["sdk-url", "codex", "acp", "gemini", "opencode"];
+export const CLI_ADAPTER_NAMES: readonly CliAdapterName[] = [
+  "sdk-url",
+  "codex",
+  "acp",
+  "gemini",
+  "opencode",
+];
 
 export interface CreateAdapterDeps {
   processManager: ProcessManager;
@@ -46,6 +52,8 @@ export function createAdapter(
     case "agent-sdk":
       throw new Error("agent-sdk adapter requires a queryFn and cannot be created via CLI flag");
     default:
-      throw new Error(`Unknown adapter "${resolved}". Valid adapters: sdk-url, codex, acp, gemini, opencode`);
+      throw new Error(
+        `Unknown adapter "${resolved}". Valid adapters: sdk-url, codex, acp, gemini, opencode`,
+      );
   }
 }

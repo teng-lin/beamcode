@@ -7,6 +7,7 @@ import { FileStorage } from "../adapters/file-storage.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SdkUrlAdapter } from "../adapters/sdk-url/sdk-url-adapter.js";
+import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../core/session-manager.js";
 import {
   closeWebSockets,
@@ -36,12 +37,15 @@ interface TestEnv {
 async function setupTestEnv(): Promise<TestEnv> {
   const wsServer = new NodeWebSocketServer({ port: 0 });
   const adapter = new SdkUrlAdapter();
+  const storage = new MemoryStorage();
+  const processManager = createProcessManager();
+  const config = { port: 0 };
   const manager = new SessionManager({
-    config: { port: 0 },
-    processManager: createProcessManager(),
-    storage: new MemoryStorage(),
+    config,
+    storage,
     server: wsServer,
     adapter,
+    launcher: new SdkUrlLauncher({ processManager, config, storage }),
   });
   await manager.start();
 
@@ -106,10 +110,12 @@ describe("E2E: Full Session Lifecycle", () => {
     const storage = new FileStorage(tempDir);
 
     try {
+      const processManager1 = createProcessManager();
+      const config1 = { port: 3457 };
       const manager1 = new SessionManager({
-        config: { port: 3457 },
-        processManager: createProcessManager(),
+        config: config1,
         storage,
+        launcher: new SdkUrlLauncher({ processManager: processManager1, config: config1, storage }),
       });
       await manager1.start();
 
@@ -123,10 +129,12 @@ describe("E2E: Full Session Lifecycle", () => {
       await manager1.stop();
 
       // Restart with same storage
+      const processManager2 = createProcessManager();
+      const config2 = { port: 3457 };
       const manager2 = new SessionManager({
-        config: { port: 3457 },
-        processManager: createProcessManager(),
+        config: config2,
         storage,
+        launcher: new SdkUrlLauncher({ processManager: processManager2, config: config2, storage }),
       });
       await manager2.start();
 
