@@ -29,6 +29,7 @@ const version = resolvePackageVersion(import.meta.url, [
 interface CliConfig {
   port: number;
   noTunnel: boolean;
+  noAutoLaunch: boolean;
   tunnelToken?: string;
   dataDir: string;
   model?: string;
@@ -55,6 +56,7 @@ function printHelp(): void {
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
     --adapter <name>       Backend adapter: sdk-url (default), codex, acp
+    --no-auto-launch       Start server without creating an initial session
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 `);
@@ -72,6 +74,7 @@ function parseArgs(argv: string[]): CliConfig {
   const config: CliConfig = {
     port: 3456,
     noTunnel: false,
+    noAutoLaunch: false,
     dataDir: join(process.env.HOME ?? "~", ".beamcode"),
     cwd: process.cwd(),
     claudeBinary: "claude",
@@ -109,6 +112,9 @@ function parseArgs(argv: string[]): CliConfig {
       case "--adapter":
         config.adapter = validateAdapterName(argv[++i], "--adapter");
         break;
+      case "--no-auto-launch":
+        config.noAutoLaunch = true;
+        break;
       case "--verbose":
       case "-v":
         config.verbose = true;
@@ -126,6 +132,10 @@ function parseArgs(argv: string[]): CliConfig {
 
   if (!config.adapter && process.env.BEAMCODE_ADAPTER) {
     config.adapter = validateAdapterName(process.env.BEAMCODE_ADAPTER, "BEAMCODE_ADAPTER");
+  }
+
+  if (!config.noAutoLaunch && process.env.BEAMCODE_NO_AUTO_LAUNCH === "1") {
+    config.noAutoLaunch = true;
   }
 
   return config;
@@ -245,50 +255,62 @@ async function main(): Promise<void> {
   await sessionManager.start();
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
-  let activeSessionId: string;
-  const isInverted = isInvertedConnectionAdapter(adapter);
+  let activeSessionId = "";
 
-  if (isInverted) {
-    // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
-    activeSessionId = sessionManager.launcher.launch({
+  if (!config.noAutoLaunch) {
+    const isInverted = isInvertedConnectionAdapter(adapter);
+
+    if (isInverted) {
+      // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
+      activeSessionId = sessionManager.launcher.launch({
+        cwd: config.cwd,
+        model: config.model,
+      }).sessionId;
+    } else {
+      // Direct-connection flow (Codex, ACP): adapter handles spawning internally
+      activeSessionId = randomUUID();
+      sessionManager.launcher.registerExternalSession({
+        sessionId: activeSessionId,
+        cwd: config.cwd,
+        createdAt: Date.now(),
+        model: config.model,
+        adapterName: adapterResolver.defaultName,
+      });
+    }
+
+    sessionManager.bridge.seedSessionState(activeSessionId, {
       cwd: config.cwd,
       model: config.model,
-    }).sessionId;
-  } else {
-    // Direct-connection flow (Codex, ACP): adapter handles spawning internally
-    activeSessionId = randomUUID();
-  }
+    });
+    sessionManager.bridge.setAdapterName(activeSessionId, adapterResolver.defaultName);
 
-  sessionManager.bridge.seedSessionState(activeSessionId, {
-    cwd: config.cwd,
-    model: config.model,
-  });
-
-  if (!isInverted) {
-    try {
-      await sessionManager.bridge.connectBackend(activeSessionId, {
-        adapterOptions: { cwd: config.cwd },
-      });
-    } catch (err) {
-      console.error(
-        `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
-      );
-      console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
-      process.exit(1);
+    if (!isInverted) {
+      try {
+        await sessionManager.bridge.connectBackend(activeSessionId, {
+          adapterOptions: { cwd: config.cwd },
+        });
+      } catch (err) {
+        console.error(
+          `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
+        );
+        console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
+        process.exit(1);
+      }
     }
   }
+
   httpServer.setActiveSessionId(activeSessionId);
 
   // 8. Print startup banner
   const localUrl = `http://localhost:${config.port}`;
-  const tunnelSessionUrl = tunnelUrl ? `${tunnelUrl}/?session=${activeSessionId}` : null;
+  const tunnelSessionUrl =
+    tunnelUrl && activeSessionId ? `${tunnelUrl}/?session=${activeSessionId}` : null;
   console.log(`
   BeamCode v${version}
 
   Local:   ${localUrl}${tunnelSessionUrl ? `\n  Tunnel:  ${tunnelSessionUrl}` : ""}
-
-  Session: ${activeSessionId}
-  Adapter: ${adapter.name}
+${activeSessionId ? `\n  Session: ${activeSessionId}` : ""}
+  Adapter: ${adapter.name}${config.noAutoLaunch ? " (no auto-launch)" : ""}
   CWD:     ${config.cwd}
   API Key: ${apiKey}
 
