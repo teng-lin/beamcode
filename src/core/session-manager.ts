@@ -400,8 +400,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       const info = this.launcher.getSession(sessionId);
       if (!info || info.archived) return;
 
-      // SdkUrl sessions with a PID — relaunch via launcher (existing path)
-      if (info.pid && info.state !== "starting") {
+      // SdkUrl sessions with a PID use the inverted connection model:
+      // the spawned CLI connects back to us via WebSocket.
+      if (info.pid) {
+        if (info.state === "starting") {
+          // Process just launched — waiting for CLI to connect back. Don't relaunch.
+          return;
+        }
         this.relaunchingSet.add(sessionId);
         this.logger.info(`Auto-relaunching SdkUrl backend for session ${sessionId}`);
         try {
