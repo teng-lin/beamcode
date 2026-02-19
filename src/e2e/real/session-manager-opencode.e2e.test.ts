@@ -81,14 +81,9 @@ describe("E2E Real Opencode SessionManager", () => {
       requireCliConnected: false,
     });
     try {
-      consumer.send(
-        JSON.stringify({
-          type: "user_message",
-          content: "Reply with EXACTLY OPENCODE_E2E_OK and nothing else.",
-        }),
-      );
-
-      const assistant = await waitForMessage(
+      // Attach both listeners BEFORE sending so neither message is missed
+      // in the gap between one listener resolving and the next being attached.
+      const assistantPromise = waitForMessage(
         consumer,
         (msg) => {
           if (typeof msg !== "object" || msg === null || !("type" in msg)) return false;
@@ -96,11 +91,37 @@ describe("E2E Real Opencode SessionManager", () => {
         },
         90_000,
       );
+      const resultPromise = waitForMessage(
+        consumer,
+        (msg) => {
+          if (typeof msg !== "object" || msg === null || !("type" in msg)) return false;
+          return (msg as { type?: string }).type === "result";
+        },
+        90_000,
+      );
+
+      consumer.send(
+        JSON.stringify({
+          type: "user_message",
+          content: "Reply with EXACTLY OPENCODE_E2E_OK and nothing else.",
+        }),
+      );
+
+      const assistant = await assistantPromise;
       expect((assistant as { type: string }).type).toBe("assistant");
+
+      // Wait for the turn to fully complete so the session is idle
+      // for subsequent tests.
+      await resultPromise;
     } finally {
       await closeWebSockets(consumer);
     }
   });
+
+  // NOTE: Multi-turn and multi-consumer broadcast tests are deferred until
+  // the opencode adapter's SSE reconnection is fixed. The SSE /event stream
+  // closes after the first prompt's events and reconnects receive empty
+  // responses (1ms duration), causing all subsequent prompt events to be lost.
 
   it.runIf(runFullOnly)("interrupting mid-turn does not crash the backend", async () => {
     expect(shared).toBeDefined();
