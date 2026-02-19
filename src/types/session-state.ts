@@ -32,6 +32,8 @@ export interface SessionState extends DevToolSessionState {
   mcp_servers: { name: string; status: string }[];
   agents: string[]; // Deprecated — populated from team.members by the state reducer
   team?: TeamState;
+  /** Backend adapter name (e.g. "sdk-url", "codex", "acp"). */
+  adapterName?: string;
   slash_commands: string[];
   skills: string[];
   last_model_usage?: Record<
@@ -95,6 +97,7 @@ export interface SdkSessionInfo {
   branch?: string;
   actualBranch?: string;
   name?: string;
+  adapterName?: string;
 }
 
 export interface LaunchOptions {
@@ -114,5 +117,6 @@ export interface PersistedSession {
   pendingMessages: string[];
   pendingPermissions: [string, PermissionRequest][];
   archived?: boolean;
+  adapterName?: string;
   schemaVersion?: number;
 }
