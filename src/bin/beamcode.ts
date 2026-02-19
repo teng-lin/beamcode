@@ -55,7 +55,8 @@ function printHelp(): void {
     --model <name>         Model to pass to Claude CLI
     --cwd <path>           Working directory for CLI (default: cwd)
     --claude-binary <path> Path to claude binary (default: "claude")
-    --adapter <name>       Backend adapter: sdk-url (default), codex, acp
+    --default-adapter <name>  Default backend: sdk-url (default), codex, acp
+    --adapter <name>          Alias for --default-adapter
     --no-auto-launch       Start server without creating an initial session
     --verbose, -v          Verbose logging
     --help, -h             Show this help
@@ -110,7 +111,8 @@ function parseArgs(argv: string[]): CliConfig {
         config.claudeBinary = argv[++i];
         break;
       case "--adapter":
-        config.adapter = validateAdapterName(argv[++i], "--adapter");
+      case "--default-adapter":
+        config.adapter = validateAdapterName(argv[++i], arg);
         break;
       case "--no-auto-launch":
         config.noAutoLaunch = true;
