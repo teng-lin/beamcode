@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 
-import type { AdapterResolver } from "../adapters/adapter-resolver.js";
-import type { CliAdapterName } from "../adapters/create-adapter.js";
-import { MemoryStorage } from "../adapters/memory-storage.js";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
-import type { BackendAdapter } from "../core/interfaces/backend-adapter.js";
-import { SessionManager } from "../core/session-manager.js";
-import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
-import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
+import type { AdapterResolver } from "./adapters/adapter-resolver.js";
+import type { CliAdapterName } from "./adapters/create-adapter.js";
+import { MemoryStorage } from "./adapters/memory-storage.js";
+import { SdkUrlLauncher } from "./adapters/sdk-url/sdk-url-launcher.js";
+import type { BackendAdapter } from "./core/interfaces/backend-adapter.js";
+import { SessionManager } from "./core/session-manager.js";
+import type { ProcessHandle, ProcessManager, SpawnOptions } from "./interfaces/process-manager.js";
+import { MockBackendAdapter } from "./testing/adapter-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Test ProcessManager

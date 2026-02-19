@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAdapterResolver } from "../adapter-resolver.js";
+import { createAdapterResolver } from "./adapter-resolver.js";
 
 describe("createAdapterResolver", () => {
   const mockDeps = {

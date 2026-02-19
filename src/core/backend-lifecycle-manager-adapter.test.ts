@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AdapterResolver } from "../../adapters/adapter-resolver.js";
-import { BackendLifecycleManager } from "../backend-lifecycle-manager.js";
-import type { BackendAdapter, BackendSession } from "../interfaces/backend-adapter.js";
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
+import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
 
 function mockAdapter(name: string): BackendAdapter {
   return {
