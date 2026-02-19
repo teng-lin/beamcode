@@ -5,8 +5,8 @@
  * Does NOT orchestrate acceptConsumer (that stays on the bridge).
  */
 
-import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
+import type { RateLimiter } from "../interfaces/rate-limiter.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import { createAnonymousIdentity } from "../types/auth.js";
 import type { ResolvedConfig } from "../types/config.js";
@@ -28,16 +28,25 @@ export const PARTICIPANT_ONLY_TYPES = new Set([
   "cancel_queued_message",
 ]);
 
+/** Factory function type for creating rate limiters. */
+export type RateLimiterFactory = (burstSize: number, refillIntervalMs: number, tokensPerInterval: number) => RateLimiter;
+
 // ─── ConsumerGatekeeper ──────────────────────────────────────────────────────
 
 export class ConsumerGatekeeper {
   private authenticator: Authenticator | null;
   private config: ResolvedConfig;
   private pendingAuth = new WeakSet<WebSocketLike>();
+  private createRateLimiter: RateLimiterFactory | null;
 
-  constructor(authenticator: Authenticator | null, config: ResolvedConfig) {
+  constructor(
+    authenticator: Authenticator | null,
+    config: ResolvedConfig,
+    createRateLimiter?: RateLimiterFactory,
+  ) {
     this.authenticator = authenticator;
     this.config = config;
+    this.createRateLimiter = createRateLimiter ?? null;
   }
 
   /** Whether an authenticator is configured. */
@@ -113,11 +122,15 @@ export class ConsumerGatekeeper {
   checkRateLimit(ws: WebSocketLike, session: Session): boolean {
     let limiter = session.consumerRateLimiters.get(ws);
     if (!limiter) {
+      if (!this.createRateLimiter) {
+        // No rate limiter factory — allow all messages
+        return true;
+      }
       const rateConfig = this.config.consumerMessageRateLimit ?? {
         burstSize: 20,
         tokensPerSecond: 50,
       };
-      limiter = new TokenBucketLimiter(rateConfig.burstSize, 1000, rateConfig.tokensPerSecond);
+      limiter = this.createRateLimiter(rateConfig.burstSize, 1000, rateConfig.tokensPerSecond);
       session.consumerRateLimiters.set(ws, limiter);
     }
     return limiter.tryConsume();

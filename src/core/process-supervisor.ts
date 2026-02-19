@@ -1,5 +1,3 @@
-import { SlidingWindowBreaker } from "../adapters/sliding-window-breaker.js";
-import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -27,18 +25,21 @@ export interface SupervisorEventMap {
   error: { source: string; error: Error; sessionId?: string };
 }
 
+/** Noop circuit breaker used when no breaker is injected. */
+const NOOP_BREAKER: CircuitBreaker = {
+  canExecute: () => true,
+  recordSuccess: () => {},
+  recordFailure: () => {},
+  getState: () => "closed",
+};
+
 export interface ProcessSupervisorOptions {
   processManager: ProcessManager;
   logger?: Logger;
   /** Grace period (ms) before escalating SIGTERM to SIGKILL. */
   killGracePeriodMs?: number;
-  /** Circuit breaker config for restart resilience. */
-  circuitBreaker?: {
-    failureThreshold: number;
-    windowMs: number;
-    recoveryTimeMs: number;
-    successThreshold: number;
-  };
+  /** Pre-constructed circuit breaker instance for restart resilience. */
+  circuitBreaker?: CircuitBreaker;
   /** Threshold (ms): if a process exits faster than this, it counts as a crash. */
   crashThresholdMs?: number;
 }
@@ -67,24 +68,10 @@ export abstract class ProcessSupervisor<
   constructor(options: ProcessSupervisorOptions) {
     super();
     this.processManager = options.processManager;
-    this.logger =
-      options.logger ??
-      new StructuredLogger({ component: "process-supervisor", level: LogLevel.WARN });
+    this.logger = options.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
     this.killGracePeriodMs = options.killGracePeriodMs ?? 5000;
     this.crashThresholdMs = options.crashThresholdMs ?? 5000;
-
-    const cb = options.circuitBreaker ?? {
-      failureThreshold: 5,
-      windowMs: 60000,
-      recoveryTimeMs: 30000,
-      successThreshold: 2,
-    };
-    this.restartCircuitBreaker = new SlidingWindowBreaker({
-      failureThreshold: cb.failureThreshold,
-      windowMs: cb.windowMs,
-      recoveryTimeMs: cb.recoveryTimeMs,
-      successThreshold: cb.successThreshold,
-    });
+    this.restartCircuitBreaker = options.circuitBreaker ?? NOOP_BREAKER;
   }
 
   /** Build the spawn command, args, cwd, and env for a session. */
@@ -261,7 +248,7 @@ export abstract class ProcessSupervisor<
       // Include circuit breaker snapshot when breaker is not CLOSED
       const breakerState = this.restartCircuitBreaker.getState();
       const circuitBreaker =
-        breakerState !== "closed" && this.restartCircuitBreaker instanceof SlidingWindowBreaker
+        breakerState !== "closed" && this.restartCircuitBreaker.getSnapshot
           ? this.restartCircuitBreaker.getSnapshot()
           : undefined;
 

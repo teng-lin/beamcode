@@ -28,4 +28,9 @@ export interface CircuitBreaker {
    * Get the current state of the circuit breaker.
    */
   getState(): "closed" | "open" | "half_open";
+
+  /**
+   * Optional snapshot for reporting circuit breaker state to consumers.
+   */
+  getSnapshot?(): { state: string; failureCount: number; recoveryTimeRemainingMs: number };
 }

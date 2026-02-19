@@ -9,6 +9,7 @@ import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
+import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
@@ -223,6 +224,8 @@ async function main(): Promise<void> {
     adapter,
     adapterResolver,
     launcher,
+    rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
+      new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server

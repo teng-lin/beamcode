@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type { Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import {
   authContext,
@@ -7,14 +8,17 @@ import {
   createTestSocket,
 } from "../testing/cli-message-factories.js";
 import { resolveConfig } from "../types/config.js";
-import { ConsumerGatekeeper, PARTICIPANT_ONLY_TYPES } from "./consumer-gatekeeper.js";
+import { ConsumerGatekeeper, PARTICIPANT_ONLY_TYPES, type RateLimiterFactory } from "./consumer-gatekeeper.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const defaultConfig = resolveConfig({ port: 3456 });
 
+const defaultRateLimiterFactory: RateLimiterFactory = (burstSize, refillIntervalMs, tokensPerInterval) =>
+  new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval);
+
 function createGatekeeper(authenticator?: Authenticator | null) {
-  return new ConsumerGatekeeper(authenticator ?? null, defaultConfig);
+  return new ConsumerGatekeeper(authenticator ?? null, defaultConfig, defaultRateLimiterFactory);
 }
 
 function makeIdentity(role: "participant" | "observer" = "participant"): ConsumerIdentity {

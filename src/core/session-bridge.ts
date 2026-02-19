@@ -20,7 +20,7 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
-import { ConsumerGatekeeper } from "./consumer-gatekeeper.js";
+import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeeper.js";
 import {
   mapAssistantMessage,
   mapAuthStatus,
@@ -74,6 +74,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     adapter?: BackendAdapter;
     /** Per-session adapter resolver (resolves adapter by name). */
     adapterResolver?: AdapterResolver;
+    /** Factory for creating rate limiters (injected from outside core). */
+    rateLimiterFactory?: RateLimiterFactory;
   }) {
     super();
     this.store = new SessionStore(options?.storage ?? null, {
@@ -85,7 +87,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.broadcaster = new ConsumerBroadcaster(this.logger, (sessionId, msg) =>
       this.emit("message:outbound", { sessionId, message: msg }),
     );
-    this.gatekeeper = new ConsumerGatekeeper(options?.authenticator ?? null, this.config);
+    this.gatekeeper = new ConsumerGatekeeper(
+      options?.authenticator ?? null,
+      this.config,
+      options?.rateLimiterFactory,
+    );
     this.gitResolver = options?.gitResolver ?? null;
     this.gitTracker = new GitInfoTracker(this.gitResolver);
     this.metrics = options?.metrics ?? null;

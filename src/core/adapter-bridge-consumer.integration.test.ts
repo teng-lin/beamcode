@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import {
   createBridgeWithAdapter,
@@ -57,6 +58,8 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
           burstSize: 5,
         },
       },
+      rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
+        new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
     });
     bridge = created.bridge;
     adapter = created.adapter;

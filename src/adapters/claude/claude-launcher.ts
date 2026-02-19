@@ -5,6 +5,7 @@ import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js"
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager, SpawnOptions } from "../../interfaces/process-manager.js";
+import { SlidingWindowBreaker } from "../sliding-window-breaker.js";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
 import type { ProviderConfig, ResolvedConfig } from "../../types/config.js";
 import { resolveConfig } from "../../types/config.js";
@@ -69,12 +70,12 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
       logger: options.logger,
       killGracePeriodMs: config.killGracePeriodMs,
       crashThresholdMs: config.resumeFailureThresholdMs,
-      circuitBreaker: {
+      circuitBreaker: new SlidingWindowBreaker({
         failureThreshold: cbConfig.failureThreshold,
         windowMs: cbConfig.windowMs,
         recoveryTimeMs: cbConfig.recoveryTimeMs,
         successThreshold: cbConfig.successThreshold,
-      },
+      }),
     };
 
     super(supervisorOptions);

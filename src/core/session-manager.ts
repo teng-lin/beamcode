@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import type { CliAdapterName } from "../adapters/create-adapter.js";
-import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -18,6 +17,7 @@ import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
+import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type { SessionLauncher } from "./interfaces/session-launcher.js";
@@ -61,13 +61,12 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     adapter?: BackendAdapter;
     adapterResolver?: AdapterResolver;
     launcher: SessionLauncher;
+    rateLimiterFactory?: RateLimiterFactory;
   }) {
     super();
 
     this.config = resolveConfig(options.config);
-    this.logger =
-      options.logger ??
-      new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
+    this.logger = options.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
     this.server = options.server ?? null;
     this.adapter = options.adapter ?? null;
     this.adapterResolver = options.adapterResolver ?? null;
@@ -81,6 +80,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       metrics: options.metrics,
       adapter: options.adapter,
       adapterResolver: options.adapterResolver,
+      rateLimiterFactory: options.rateLimiterFactory,
     });
 
     this.launcher = options.launcher;

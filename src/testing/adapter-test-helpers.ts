@@ -12,6 +12,7 @@
 
 import { translate } from "../adapters/claude/message-translator.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
+import type { RateLimiterFactory } from "../core/consumer-gatekeeper.js";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -159,6 +160,7 @@ export function createBridgeWithAdapter(options?: {
   storage?: MemoryStorage;
   adapter?: BackendAdapter;
   config?: Record<string, unknown>;
+  rateLimiterFactory?: RateLimiterFactory;
 }) {
   const storage = options?.storage ?? new MemoryStorage();
   const adapter = options?.adapter ?? new MockBackendAdapter();
@@ -167,6 +169,7 @@ export function createBridgeWithAdapter(options?: {
     config: { port: 3456, ...options?.config },
     logger: noopLogger,
     adapter,
+    rateLimiterFactory: options?.rateLimiterFactory,
   });
   return { bridge, storage, adapter: adapter as MockBackendAdapter };
 }

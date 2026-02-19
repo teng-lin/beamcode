@@ -9,6 +9,7 @@ import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js"
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
+import { SlidingWindowBreaker } from "../sliding-window-breaker.js";
 
 export interface OpencodeLauncherOptions {
   processManager: ProcessManager;
@@ -38,6 +39,12 @@ export class OpencodeLauncher extends ProcessSupervisor {
       processManager: options.processManager,
       logger: options.logger,
       killGracePeriodMs: options.killGracePeriodMs ?? 5000,
+      circuitBreaker: new SlidingWindowBreaker({
+        failureThreshold: 5,
+        windowMs: 60000,
+        recoveryTimeMs: 30000,
+        successThreshold: 2,
+      }),
     };
     super(supervisorOptions);
   }

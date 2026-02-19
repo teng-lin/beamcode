@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { SlidingWindowBreaker } from "../adapters/sliding-window-breaker.js";
 import type { ProcessHandle, SpawnOptions } from "../interfaces/process-manager.js";
 import { flushPromises, noopLogger } from "../testing/cli-message-factories.js";
 import { MockProcessManager } from "../testing/mock-process-manager.js";
@@ -52,6 +53,12 @@ beforeEach(() => {
     logger: noopLogger,
     killGracePeriodMs: 50,
     crashThresholdMs: 100,
+    circuitBreaker: new SlidingWindowBreaker({
+      failureThreshold: 5,
+      windowMs: 60_000,
+      recoveryTimeMs: 30_000,
+      successThreshold: 2,
+    }),
   });
 });
 
@@ -186,6 +193,12 @@ describe("circuit breaker", () => {
       logger: noopLogger,
       killGracePeriodMs: 50,
       crashThresholdMs: 10, // Very short for testing
+      circuitBreaker: new SlidingWindowBreaker({
+        failureThreshold: 5,
+        windowMs: 60_000,
+        recoveryTimeMs: 30_000,
+        successThreshold: 2,
+      }),
     });
 
     longSupervisor.testSpawn("sess-1", { command: "test", args: [], cwd: "/" });
