@@ -723,7 +723,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     });
   }
 
-  // ── Slash command handling (delegated to SlashCommandHandler) ────────────
+  // ── Slash command handling (delegated to SlashCommandChain) ─────────────────
 
   /** Execute a slash command programmatically (no WebSocket needed). */
   async executeSlashCommand(

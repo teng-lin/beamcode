@@ -130,7 +130,7 @@ describe("SessionBridge — slash commands", () => {
       expect(backendReceivedUserMessage(backendSession, "/compact")).toBe(true);
     });
 
-    it("forwards /model command to CLI with pendingPassthrough", async () => {
+    it("forwards /model command to CLI with pendingPassthroughs", async () => {
       const ws = createMockSocket();
 
       await bridge.connectBackend("sess-1");
@@ -438,7 +438,7 @@ describe("SessionBridge — slash commands", () => {
   // ── passthrough command forwarding ──────────────────────────────────
   //
   // Passthrough commands (/context) are forwarded to the backend
-  // as user messages. The bridge sets pendingPassthrough state so that
+  // as user messages. The bridge sets pendingPassthroughs state so that
   // the CLI user-echo can be intercepted and converted to a
   // slash_command_result. In the adapter path, we verify the forwarding
   // behavior; the echo-interception is tested via the CLI message path
