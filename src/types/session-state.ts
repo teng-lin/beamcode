@@ -114,7 +114,8 @@ export interface PersistedSession {
   id: string;
   state: SessionState;
   messageHistory: ConsumerMessage[];
-  pendingMessages: string[];
+  /** UnifiedMessage[] after schema v2; string[] (NDJSON) in legacy v1 data. */
+  pendingMessages: unknown[];
   pendingPermissions: [string, PermissionRequest][];
   archived?: boolean;
   adapterName?: string;

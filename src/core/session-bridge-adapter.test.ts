@@ -1123,14 +1123,15 @@ describe("SessionBridge (BackendAdapter path)", () => {
   // ── 14. Pending message flush ──────────────────────────────────────────
 
   describe("pending message flush on connect", () => {
-    it("flushes pending messages via backendSession.sendRaw when adapter active", async () => {
+    it("flushes pending messages via backendSession.send when adapter active", async () => {
       bridge.getOrCreateSession("sess-1");
       bridge.sendUserMessage("sess-1", "hello");
 
       await bridge.connectBackend("sess-1");
-      // connectBackend flushes pendingMessages via backendSession.sendRaw
+      // connectBackend flushes pendingMessages via backendSession.send()
       const session = adapter.getSession("sess-1")!;
-      expect(session.sentRawMessages.length).toBeGreaterThan(0);
+      expect(session.sentMessages.length).toBeGreaterThan(0);
+      expect(session.sentMessages[0].type).toBe("user_message");
     });
   });
 

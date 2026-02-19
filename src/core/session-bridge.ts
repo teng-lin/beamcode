@@ -1,7 +1,4 @@
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
-import { normalizeInbound, toNDJSON } from "../adapters/claude/inbound-translator.js";
-import { reduce as reduceState } from "../adapters/claude/state-reducer.js";
-import { ConsoleLogger } from "../adapters/console-logger.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -34,12 +31,14 @@ import {
   mapToolUseSummary,
 } from "./consumer-message-mapper.js";
 import { applyGitInfo, GitInfoTracker } from "./git-info-tracker.js";
+import { normalizeInbound } from "./inbound-normalizer.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
 import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
+import { reduce as reduceState } from "./session-state-reducer.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { diffTeamState } from "./team-event-differ.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
@@ -81,7 +80,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       createCorrelationBuffer: () => new TeamToolCorrelationBuffer(),
       createRegistry: () => new SlashCommandRegistry(),
     });
-    this.logger = options?.logger ?? new ConsoleLogger("session-bridge");
+    this.logger = options?.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
     this.config = resolveConfig(options?.config ?? { port: 3456 });
     this.broadcaster = new ConsumerBroadcaster(this.logger, (sessionId, msg) =>
       this.emit("message:outbound", { sessionId, message: msg }),
@@ -512,31 +511,20 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, userMsg);
 
-    // Route through BackendSession
+    // Normalize consumer input into a UnifiedMessage
+    const unified = normalizeInbound({
+      type: "user_message",
+      content,
+      session_id: options?.sessionIdOverride || session.state.session_id || "",
+      images: options?.images,
+    });
+    if (!unified) return;
+
+    // Route through BackendSession or queue for later
     if (session.backendSession) {
-      const unified = normalizeInbound({
-        type: "user_message",
-        content,
-        session_id: options?.sessionIdOverride || session.state.session_id || "",
-        images: options?.images,
-      });
-      if (unified) {
-        session.backendSession.send(unified);
-      }
+      session.backendSession.send(unified);
     } else {
-      // Queue for flush when backend connects
-      const unified = normalizeInbound({
-        type: "user_message",
-        content,
-        session_id: options?.sessionIdOverride || session.state.session_id || "",
-        images: options?.images,
-      });
-      if (unified) {
-        const ndjson = toNDJSON(unified);
-        if (ndjson) {
-          session.pendingMessages.push(ndjson);
-        }
-      }
+      session.pendingMessages.push(unified);
     }
     this.persistSession(session);
   }

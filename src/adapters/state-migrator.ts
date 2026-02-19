@@ -1,11 +1,14 @@
 import type { PersistedSession } from "../types/session-state.js";
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 type MigrationFn = (session: Record<string, unknown>) => Record<string, unknown>;
 
 /** Map from source version to the function that migrates to source+1. */
-const migrations: Map<number, MigrationFn> = new Map([[0, migrateV0ToV1]]);
+const migrations: Map<number, MigrationFn> = new Map([
+  [0, migrateV0ToV1],
+  [1, migrateV1ToV2],
+]);
 
 function migrateV0ToV1(session: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -14,6 +17,23 @@ function migrateV0ToV1(session: Record<string, unknown>): Record<string, unknown
     pendingMessages: Array.isArray(session.pendingMessages) ? session.pendingMessages : [],
     pendingPermissions: Array.isArray(session.pendingPermissions) ? session.pendingPermissions : [],
     schemaVersion: 1,
+  };
+}
+
+/**
+ * V1→V2: pendingMessages changed from string[] (NDJSON) to UnifiedMessage[].
+ * Drop any old string entries — they can't be replayed through the new send() path.
+ */
+function migrateV1ToV2(session: Record<string, unknown>): Record<string, unknown> {
+  const pending = Array.isArray(session.pendingMessages) ? session.pendingMessages : [];
+  // Keep only object entries (UnifiedMessage); drop string entries (old NDJSON)
+  const migrated = pending.filter(
+    (item: unknown) => item !== null && typeof item === "object" && !Array.isArray(item),
+  );
+  return {
+    ...session,
+    pendingMessages: migrated,
+    schemaVersion: 2,
   };
 }
 

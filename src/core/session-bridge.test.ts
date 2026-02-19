@@ -159,9 +159,9 @@ describe("SessionBridge", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed via sendRaw
-      expect(backendSession.sentRawMessages.length).toBeGreaterThanOrEqual(1);
-      const flushed = backendSession.sentRawMessages.some((m) => m.includes('"type":"user"'));
+      // The queued user message should have been flushed via send()
+      expect(backendSession.sentMessages.length).toBeGreaterThanOrEqual(1);
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 
@@ -741,10 +741,8 @@ describe("SessionBridge", () => {
       await bridge.connectBackend("sess-1");
       const backendSession = adapter.getSession("sess-1")!;
 
-      // The queued user message should have been flushed via sendRaw
-      const flushed = backendSession.sentRawMessages.some((m: string) =>
-        m.includes('"type":"user"'),
-      );
+      // The queued user message should have been flushed via send()
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 
@@ -1122,10 +1120,8 @@ describe("SessionBridge", () => {
       backendSession.pushMessage(makeSessionInitMsg());
       await tick();
 
-      // After backend connects, queued messages should have been flushed via sendRaw
-      const flushed = backendSession.sentRawMessages.some((m: string) =>
-        m.includes('"type":"user"'),
-      );
+      // After backend connects, queued messages should have been flushed via send()
+      const flushed = backendSession.sentMessages.some((m) => m.type === "user_message");
       expect(flushed).toBe(true);
     });
 
