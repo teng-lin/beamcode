@@ -9,6 +9,7 @@ import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type {
   OpencodeEvent,
+  OpencodeMessageError,
   OpencodePart,
   OpencodePartInput,
   OpencodeToolPart,
@@ -271,10 +272,7 @@ function translateSessionStatus(
   }
 }
 
-function translateSessionError(
-  sessionID: string,
-  error: { name: string; data: { message: string } },
-): UnifiedMessage {
+function translateSessionError(sessionID: string, error: OpencodeMessageError): UnifiedMessage {
   return createUnifiedMessage({
     type: "result",
     role: "system",
@@ -283,6 +281,9 @@ function translateSessionError(
       is_error: true,
       error_name: error.name,
       error_message: error.data.message,
+      ...(error.name === "api_error" &&
+        "status" in error.data &&
+        typeof error.data.status === "number" && { error_status: error.data.status }),
     },
   });
 }

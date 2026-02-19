@@ -39,18 +39,21 @@ export class OpencodeHttpClient {
   }
 
   async promptAsync(sessionId: string, request: OpencodePromptRequest): Promise<void> {
-    await this.fetch(`/session/${sessionId}/prompt_async`, {
+    const id = encodeURIComponent(sessionId);
+    await this.fetch(`/session/${id}/prompt_async`, {
       method: "POST",
       body: JSON.stringify(request),
     });
   }
 
   async abort(sessionId: string): Promise<void> {
-    await this.fetch(`/session/${sessionId}/abort`, { method: "POST" });
+    const id = encodeURIComponent(sessionId);
+    await this.fetch(`/session/${id}/abort`, { method: "POST" });
   }
 
   async replyPermission(requestId: string, reply: OpencodePermissionReply): Promise<void> {
-    await this.fetch(`/permission/${requestId}/reply`, {
+    const sanitizedId = encodeURIComponent(requestId);
+    await this.fetch(`/permission/${sanitizedId}/reply`, {
       method: "POST",
       body: JSON.stringify(reply),
     });
