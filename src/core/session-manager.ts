@@ -20,9 +20,15 @@ import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
-import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
+import type {
+  IdleSessionReaper as IIdleSessionReaper,
+  ReconnectController as IReconnectController,
+} from "./interfaces/session-manager-coordination.js";
+import { IdleSessionReaper } from "./idle-session-reaper.js";
 import type { SessionLauncher } from "./interfaces/session-launcher.js";
+import { ReconnectController } from "./reconnect-controller.js";
 import { SessionBridge } from "./session-bridge.js";
+import { SessionTransportHub } from "./session-transport-hub.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
 /**
@@ -40,15 +46,14 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
   readonly launcher: SessionLauncher;
 
-  private adapter: BackendAdapter | null;
   private adapterResolver: AdapterResolver | null;
   private config: ResolvedConfig;
   private logger: Logger;
-  private server: WebSocketServerLike | null;
+  private transportHub: SessionTransportHub;
+  private reconnectController: IReconnectController;
+  private idleSessionReaper: IIdleSessionReaper;
   private relaunchingSet = new Set<string>();
   private relaunchDedupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private idleReaperTimer: ReturnType<typeof setTimeout> | null = null;
   private eventCleanups: (() => void)[] = [];
   private started = false;
 
@@ -69,8 +74,6 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
     this.config = resolveConfig(options.config);
     this.logger = options.logger ?? noopLogger;
-    this.server = options.server ?? null;
-    this.adapter = options.adapter ?? null;
     this.adapterResolver = options.adapterResolver ?? null;
 
     this.bridge = new SessionBridge({
@@ -86,6 +89,27 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     });
 
     this.launcher = options.launcher;
+    this.transportHub = new SessionTransportHub({
+      bridge: this.bridge,
+      launcher: this.launcher,
+      adapter: options.adapter ?? null,
+      adapterResolver: options.adapterResolver ?? null,
+      logger: this.logger,
+      server: options.server ?? null,
+      port: this.config.port,
+      toAdapterSocket: (socket) => socket as unknown as WebSocket,
+    });
+    this.reconnectController = new ReconnectController({
+      launcher: this.launcher,
+      bridge: this.bridge,
+      logger: this.logger,
+      reconnectGracePeriodMs: this.config.reconnectGracePeriodMs,
+    });
+    this.idleSessionReaper = new IdleSessionReaper({
+      bridge: this.bridge,
+      logger: this.logger,
+      idleSessionTimeoutMs: this.config.idleSessionTimeoutMs,
+    });
   }
 
   get defaultAdapterName(): CliAdapterName {
@@ -154,7 +178,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
   setServer(server: WebSocketServerLike): void {
-    this.server = server;
+    this.transportHub.setServer(server);
   }
 
   /**
@@ -172,106 +196,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.restoreFromStorage();
     this.startReconnectWatchdog();
     this.startIdleReaper();
-
-    if (this.server) {
-      await this.server.listen(
-        (socket, sessionId) => {
-          // Use the resolver's eagerly-created ClaudeAdapter for inverted connections.
-          // This ensures Claude sessions work even when the default adapter is non-inverted (e.g., Codex).
-          const invertedAdapter =
-            this.adapterResolver?.claudeAdapter ??
-            (this.adapter && isInvertedConnectionAdapter(this.adapter) ? this.adapter : null);
-          if (invertedAdapter && isInvertedConnectionAdapter(invertedAdapter)) {
-            // Validate: only accept connections for sessions we actually launched.
-            // Prevents resource exhaustion from arbitrary sessionIds.
-            const info = this.launcher.getSession(sessionId);
-            if (!info || info.state !== "starting") {
-              this.logger.warn(
-                `Rejecting unexpected CLI connection for session ${sessionId} (state=${info?.state ?? "unknown"})`,
-              );
-              socket.close();
-              return;
-            }
-            const adapter = invertedAdapter;
-            // Buffer messages that arrive before the adapter socket is wired.
-            // connectBackend() is async — without buffering, messages the CLI
-            // sends immediately on connect (system.init, hooks) would be lost.
-            const buffered: unknown[] = [];
-            let buffering = true;
-            let replayed = false;
-            socket.on("message", (data: unknown) => {
-              if (buffering) buffered.push(data);
-            });
-
-            const socketForAdapter = {
-              send: (data: string) => socket.send(data),
-              close: (code?: number, reason?: string) => socket.close(code, reason),
-              get bufferedAmount() {
-                return socket.bufferedAmount;
-              },
-              on: ((event: string, handler: (...args: unknown[]) => void) => {
-                if (event === "message") {
-                  socket.on("message", handler as (data: string | Buffer) => void);
-                } else if (event === "close") {
-                  socket.on("close", handler as () => void);
-                } else if (event === "error") {
-                  socket.on("error", handler as (err: Error) => void);
-                } else {
-                  return;
-                }
-                if (event === "message" && !replayed) {
-                  replayed = true;
-                  for (const msg of buffered) {
-                    handler(msg);
-                  }
-                  buffered.length = 0;
-                  buffering = false;
-                }
-              }) as typeof socket.on,
-            };
-
-            // Tag the session as claude since it arrived via the inverted connection path.
-            // This ensures resolveAdapter() finds the correct adapter via the resolver.
-            this.bridge.setAdapterName(sessionId, "claude");
-            this.bridge
-              .connectBackend(sessionId)
-              .then(() => {
-                const ok = adapter.deliverSocket(
-                  sessionId,
-                  socketForAdapter as unknown as WebSocket,
-                );
-                if (!ok) {
-                  adapter.cancelPending(sessionId);
-                  this.logger.warn(`Failed to deliver socket for session ${sessionId}, closing`);
-                  socket.close();
-                }
-              })
-              .catch((err) => {
-                adapter.cancelPending(sessionId);
-                this.logger.warn(`Failed to connect backend for session ${sessionId}: ${err}`);
-                socket.close();
-              });
-          } else {
-            this.logger.warn(
-              `No adapter configured, cannot handle CLI connection for session ${sessionId}`,
-            );
-            socket.close();
-          }
-        },
-        (socket, context) => {
-          this.bridge.handleConsumerOpen(socket, context);
-          socket.on("message", (data) => {
-            this.bridge.handleConsumerMessage(
-              socket,
-              context.sessionId,
-              typeof data === "string" ? data : data.toString("utf-8"),
-            );
-          });
-          socket.on("close", () => this.bridge.handleConsumerClose(socket, context.sessionId));
-        },
-      );
-      this.logger.info(`WebSocket server listening on port ${this.config.port}`);
-    }
+    await this.transportHub.start();
   }
 
   /**
@@ -285,15 +210,8 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     for (const cleanup of this.eventCleanups) cleanup();
     this.eventCleanups = [];
 
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    if (this.idleReaperTimer) {
-      clearTimeout(this.idleReaperTimer);
-      this.idleReaperTimer = null;
-    }
+    this.reconnectController.stop();
+    this.idleSessionReaper.stop();
 
     // Clear dedup timers and state to prevent stale callbacks after shutdown
     for (const timer of this.relaunchDedupTimers.values()) {
@@ -302,9 +220,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.relaunchDedupTimers.clear();
     this.relaunchingSet.clear();
 
-    if (this.server) {
-      await this.server.close();
-    }
+    await this.transportHub.stop();
 
     await this.launcher.killAll();
     await this.bridge.close();
@@ -578,78 +494,19 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   }
 
   /**
-   * Reconnection watchdog (I4):
-   * After restore, check if any CLI processes are in "starting" state
-   * (alive but no WebSocket connection). Give them a grace period,
-   * then kill + relaunch any that are still not connected.
+   * Backward-compatible shim retained for tests and legacy internal callers.
+   * Delegates to ReconnectController after extraction.
    */
   private startReconnectWatchdog(): void {
-    const starting = this.launcher.getStartingSessions();
-    if (starting.length === 0) return;
-
-    const gracePeriodMs = this.config.reconnectGracePeriodMs;
-    this.logger.info(
-      `Waiting ${gracePeriodMs / 1000}s for ${starting.length} CLI process(es) to reconnect...`,
-    );
-
-    // Broadcast watchdog:active to all sessions
-    for (const info of starting) {
-      this.bridge.broadcastWatchdogState(info.sessionId, { gracePeriodMs, startedAt: Date.now() });
-    }
-
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null;
-      const stale = this.launcher.getStartingSessions();
-      for (const info of stale) {
-        // Clear watchdog state
-        this.bridge.broadcastWatchdogState(info.sessionId, null);
-        if (info.archived) continue;
-        this.logger.info(`CLI for session ${info.sessionId} did not reconnect, relaunching...`);
-        await this.launcher.relaunch(info.sessionId);
-      }
-    }, gracePeriodMs);
+    this.reconnectController.start();
   }
 
-  /** Periodically reap idle sessions (no CLI or consumer connections). */
+  /**
+   * Backward-compatible shim retained for tests and legacy internal callers.
+   * Delegates to IdleSessionReaper after extraction.
+   */
   private startIdleReaper(): void {
-    // Skip if idle timeout is disabled
-    if (!this.config.idleSessionTimeoutMs || this.config.idleSessionTimeoutMs <= 0) {
-      return;
-    }
-
-    const checkInterval = Math.max(1000, this.config.idleSessionTimeoutMs / 10);
-
-    const check = () => {
-      const now = Date.now();
-      const allSessions = this.bridge.getAllSessions();
-
-      for (const sessionState of allSessions) {
-        const sessionId = sessionState.session_id;
-        const snapshot = this.bridge.getSession(sessionId);
-
-        if (!snapshot) continue;
-
-        // Skip sessions with active CLI or consumer connections
-        if (snapshot.cliConnected || snapshot.consumerCount > 0) {
-          continue;
-        }
-
-        // Check if session is idle (no activity for longer than timeout)
-        const lastActivity = snapshot.lastActivity ?? 0;
-        const idleMs = now - lastActivity;
-
-        if (idleMs >= this.config.idleSessionTimeoutMs) {
-          this.logger.info(
-            `Closing idle session ${sessionId} (idle for ${(idleMs / 1000).toFixed(1)}s)`,
-          );
-          void this.bridge.closeSession(sessionId);
-        }
-      }
-
-      // Schedule next check
-      this.idleReaperTimer = setTimeout(check, checkInterval);
-    };
-
-    this.idleReaperTimer = setTimeout(check, checkInterval);
+    this.idleSessionReaper.start();
   }
+
 }

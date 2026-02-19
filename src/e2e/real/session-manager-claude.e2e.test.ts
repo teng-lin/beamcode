@@ -491,6 +491,13 @@ describe("E2E Real SDK-URL SessionManager", () => {
     const { manager, sessionId, port } = await setupRealCliSession();
     activeManagers.push(manager);
     await waitForBackendConnectedOrExit(manager, sessionId, 20_000);
+    await waitForManagerEvent(
+      manager,
+      "backend:session_id",
+      sessionId,
+      () => Boolean(manager.launcher.getSession(sessionId)?.backendSessionId),
+      20_000,
+    );
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId);
     try {
@@ -674,6 +681,15 @@ describe("E2E Real SDK-URL SessionManager", () => {
       expect(relaunched).toBe(true);
       await waitForBackendConnectedOrExit(manager, sessionId, 30_000);
       await reconnected;
+      await waitForMessage(
+        consumer,
+        (msg) =>
+          typeof msg === "object" &&
+          msg !== null &&
+          "type" in msg &&
+          ["session_init", "capabilities_ready"].includes((msg as { type?: string }).type ?? ""),
+        30_000,
+      );
 
       consumer.send(
         JSON.stringify({
