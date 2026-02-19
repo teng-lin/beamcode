@@ -88,4 +88,34 @@ describe("AssistantMessage", () => {
     expect(toolBlocks[0]).toHaveTextContent("Bash");
     expect(toolBlocks[1]).toHaveTextContent("Read");
   });
+
+  it("renders a code block", () => {
+    const message = makeAssistantContent([{ type: "code", language: "ts", code: "const x = 1;" }]);
+    render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
+    expect(screen.getByText("const x = 1;")).toBeDefined();
+    expect(screen.getByText("ts")).toBeDefined();
+  });
+
+  it("renders an image block", () => {
+    const message = makeAssistantContent([{ type: "image", media_type: "image/png", data: "abc" }]);
+    render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
+    const img = screen.getByRole("img");
+    expect(img.getAttribute("src")).toBe("data:image/png;base64,abc");
+  });
+
+  it("renders a refusal block", () => {
+    const message = makeAssistantContent([
+      { type: "refusal", refusal: "I cannot help with that." },
+    ]);
+    render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
+    expect(screen.getByText(/I cannot help with that/)).toBeDefined();
+  });
+
+  it("truncates refusal text exceeding 500 characters", () => {
+    const longRefusal = "x".repeat(600);
+    const message = makeAssistantContent([{ type: "refusal", refusal: longRefusal }]);
+    render(<AssistantMessage message={message} sessionId={SESSION_ID} />);
+    const el = screen.getByText(/x+…/);
+    expect(el.textContent?.length).toBe(501); // 500 chars + ellipsis
+  });
 });

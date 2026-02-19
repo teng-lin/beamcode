@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { AssistantContent, ConsumerContentBlock } from "../../../shared/consumer-types";
 import { AgentRosterBlock } from "./AgentRosterBlock";
+import { CodeBlock } from "./CodeBlock";
+import { ImageBlock } from "./ImageBlock";
 import { MarkdownContent } from "./MarkdownContent";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolBlock } from "./ToolBlock";
@@ -13,7 +15,7 @@ interface AssistantMessageProps {
 }
 
 interface ContentGroup {
-  type: "text" | "thinking" | "tool_use" | "tool_group" | "tool_result";
+  type: ConsumerContentBlock["type"] | "tool_group";
   blocks: ConsumerContentBlock[];
   key: string;
 }
@@ -60,15 +62,13 @@ function groupContentBlocks(blocks: ConsumerContentBlock[]): ContentGroup[] {
       currentToolGroup.push(block);
     } else {
       flushToolGroup();
-      if (block.type === "text" || block.type === "thinking" || block.type === "tool_result") {
-        const bk = blockKey(block);
-        groups.push({
-          type: block.type,
-          blocks: [block],
-          key: `${block.type}-${bk || groupIndex}`,
-        });
-        groupIndex++;
-      }
+      const bk = blockKey(block);
+      groups.push({
+        type: block.type,
+        blocks: [block],
+        key: `${block.type}-${bk || groupIndex}`,
+      });
+      groupIndex++;
     }
   }
   flushToolGroup();
@@ -138,6 +138,30 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
                 content={block.content}
                 isError={block.is_error}
               />
+            );
+          }
+
+          case "code": {
+            const block = group.blocks[0];
+            if (block.type !== "code") return null;
+            return <CodeBlock key={group.key} language={block.language} code={block.code} />;
+          }
+
+          case "image": {
+            const block = group.blocks[0];
+            if (block.type !== "image") return null;
+            return <ImageBlock key={group.key} mediaType={block.media_type} data={block.data} />;
+          }
+
+          case "refusal": {
+            const block = group.blocks[0];
+            if (block.type !== "refusal") return null;
+            const text =
+              block.refusal.length > 500 ? `${block.refusal.slice(0, 500)}…` : block.refusal;
+            return (
+              <div key={group.key} className="text-xs text-bc-text-muted italic opacity-70 px-1">
+                {text}
+              </div>
             );
           }
 

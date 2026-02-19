@@ -354,6 +354,35 @@ function handleMessage(sessionId: string, data: string): void {
     case "process_output":
       store.appendProcessLog(sessionId, stripAnsi(msg.data));
       break;
+
+    case "configuration_change": {
+      const prev = store.sessionData[sessionId]?.state;
+      if (!prev) break;
+      const { metadata } = msg;
+      const VALID_PERMISSION_MODES = new Set([
+        "default",
+        "acceptEdits",
+        "bypassPermissions",
+        "dontAsk",
+        "plan",
+      ]);
+      const patch: Partial<ConsumerSessionState> = {};
+      if (typeof metadata.model === "string") patch.model = metadata.model;
+      if (
+        typeof metadata.permissionMode === "string" &&
+        VALID_PERMISSION_MODES.has(metadata.permissionMode)
+      ) {
+        patch.permissionMode = metadata.permissionMode;
+      }
+      if (Object.keys(patch).length > 0) {
+        store.setSessionState(sessionId, { ...prev, ...patch });
+      }
+      break;
+    }
+
+    case "session_lifecycle":
+      // Informational only — no store action needed
+      break;
   }
 }
 
