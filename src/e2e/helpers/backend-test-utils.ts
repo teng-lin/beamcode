@@ -525,7 +525,11 @@ export function createMockOpencodeHttpClient() {
   };
 }
 
-export function createMockOpencodeSubscribe() {
+export function createMockOpencodeSubscribe(): {
+  subscribe: (h: (event: OpencodeEvent) => void) => () => void;
+  push: (event: OpencodeEvent) => void;
+  unsubscribe: ReturnType<typeof vi.fn>;
+} {
   let handler: ((event: OpencodeEvent) => void) | null = null;
   const unsubscribe = vi.fn();
 
