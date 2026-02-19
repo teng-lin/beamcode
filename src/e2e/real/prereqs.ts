@@ -67,13 +67,24 @@ export function getCodexPrereqState(): BackendPrereqState {
 // ---------------------------------------------------------------------------
 
 export function getGeminiPrereqState(): BackendPrereqState {
-  const hasApiKey = Boolean(process.env.GOOGLE_API_KEY);
-  const binaryOk = isBinaryAvailable("gemini-cli-a2a-server", ["--help"]);
+  const hasApiKey = Boolean(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
+  const binaryOk = isBinaryAvailable("gemini", ["--version"]);
 
   if (!binaryOk) {
     return {
       ok: false,
-      reason: "gemini-cli-a2a-server binary is not available",
+      reason: "gemini binary is not available",
+      hasApiKey,
+      canRunPromptTests: false,
+    };
+  }
+
+  // Gemini CLI's --experimental-acp mode requires authentication even for
+  // the initial handshake, so all tests (including smoke) need credentials.
+  if (!hasApiKey) {
+    return {
+      ok: false,
+      reason: "gemini binary available but GOOGLE_API_KEY/GEMINI_API_KEY not set",
       hasApiKey,
       canRunPromptTests: false,
     };
