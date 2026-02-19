@@ -12,6 +12,7 @@ import type {
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
 import type { InvertedConnectionAdapter } from "../../core/interfaces/inverted-connection-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import { ClaudeSession } from "./claude-session.js";
 import { SocketRegistry } from "./socket-registry.js";
 
@@ -32,7 +33,8 @@ export class ClaudeAdapter implements InvertedConnectionAdapter {
     const timeoutMs = (options.adapterOptions?.socketTimeoutMs as number | undefined) ?? 30_000;
 
     const socketPromise = this.registry.register(options.sessionId, timeoutMs);
-    return new ClaudeSession({ sessionId: options.sessionId, socketPromise });
+    const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
+    return new ClaudeSession({ sessionId: options.sessionId, socketPromise, tracer });
   }
 
   deliverSocket(sessionId: string, ws: WebSocket): boolean {

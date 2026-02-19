@@ -9,6 +9,7 @@ import type { Logger } from "../interfaces/logger.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { SessionState } from "../types/session-state.js";
+import type { MessageTracer } from "./message-tracer.js";
 import type { Session } from "./session-store.js";
 import { toPresenceEntry } from "./session-store.js";
 
@@ -26,14 +27,17 @@ export type BroadcastCallback = (sessionId: string, msg: ConsumerMessage) => voi
 export class ConsumerBroadcaster {
   private logger: Logger;
   private onBroadcast?: BroadcastCallback;
+  private tracer?: MessageTracer;
 
-  constructor(logger: Logger, onBroadcast?: BroadcastCallback) {
+  constructor(logger: Logger, onBroadcast?: BroadcastCallback, tracer?: MessageTracer) {
     this.logger = logger;
     this.onBroadcast = onBroadcast;
+    this.tracer = tracer;
   }
 
   /** Broadcast a message to all consumers in a session (with backpressure protection). */
   broadcast(session: Session, msg: ConsumerMessage): void {
+    this.tracer?.send("bridge", msg.type, msg, { sessionId: session.id });
     const json = JSON.stringify(msg);
     const failed: WebSocketLike[] = [];
     for (const ws of session.consumerSockets.keys()) {

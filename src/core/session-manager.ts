@@ -26,6 +26,7 @@ import type {
   IdleSessionReaper as IIdleSessionReaper,
   ReconnectController as IReconnectController,
 } from "./interfaces/session-manager-coordination.js";
+import type { MessageTracer } from "./message-tracer.js";
 import { ReconnectController } from "./reconnect-controller.js";
 import { SessionBridge } from "./session-bridge.js";
 import { SessionTransportHub } from "./session-transport-hub.js";
@@ -69,6 +70,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     adapterResolver?: AdapterResolver;
     launcher: SessionLauncher;
     rateLimiterFactory?: RateLimiterFactory;
+    tracer?: MessageTracer;
   }) {
     super();
 
@@ -86,6 +88,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       adapter: options.adapter,
       adapterResolver: options.adapterResolver,
       rateLimiterFactory: options.rateLimiterFactory,
+      tracer: options.tracer,
     });
 
     this.launcher = options.launcher;

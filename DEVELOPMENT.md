@@ -10,6 +10,7 @@ Architecture reference, adapter guide, configuration, testing, and build.
 - [Configuration](#configuration)
 - [Events](#events)
 - [Authentication](#authentication)
+- [Message Tracing](#message-tracing)
 - [Building](#building)
 - [Testing](#testing)
 
@@ -342,6 +343,82 @@ const authenticator: Authenticator = {
 ```
 
 Without an authenticator, consumers get anonymous participant identities.
+
+---
+
+## Message Tracing
+
+BeamCode includes a debug tracing system that logs every message crossing a translation boundary as NDJSON to stderr. Useful for diagnosing message drops, field transformations, and timing issues across the frontend → bridge → backend pipeline.
+
+### Enabling
+
+```bash
+# Smart mode (default): bodies included, large fields truncated, sensitive keys redacted
+beamcode --trace
+
+# Headers only: traceId, type, direction, timing, size — no body
+beamcode --trace --trace-level headers
+
+# Full payloads: every message logged as-is (requires explicit opt-in)
+beamcode --trace --trace-level full --trace-allow-sensitive
+```
+
+### Translation Boundaries
+
+There are 4 translation boundaries where bugs hide:
+
+| # | Boundary | Translator | Location |
+|---|----------|-----------|----------|
+| T1 | `InboundMessage` → `UnifiedMessage` | `normalizeInbound()` | `session-bridge.ts` |
+| T2 | `UnifiedMessage` → Native CLI format | Adapter outbound translator | Each adapter's `send()` method |
+| T3 | Native CLI response → `UnifiedMessage` | Adapter inbound translator | Each adapter's message loop |
+| T4 | `UnifiedMessage` → `ConsumerMessage` | `map*()` functions | `unified-message-router.ts` |
+
+Each boundary emits a `translate` trace event with before/after objects and an auto-generated diff showing exactly which fields changed.
+
+### Trace Event Schema
+
+```json
+{
+  "trace": true,
+  "traceId": "t_a1b2c3d4",
+  "layer": "bridge",
+  "direction": "translate",
+  "messageType": "user_message",
+  "sessionId": "sess-abc",
+  "seq": 17,
+  "ts": "2026-02-19T10:30:00.123Z",
+  "elapsed_ms": 3,
+  "translator": "normalizeInbound",
+  "boundary": "T1",
+  "from": { "format": "InboundMessage", "body": {} },
+  "to": { "format": "UnifiedMessage", "body": {} },
+  "diff": ["session_id → metadata.session_id", "+role: user"]
+}
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/core/message-tracer.ts` | `MessageTracer` interface, `MessageTracerImpl`, `noopTracer` |
+| `src/core/trace-differ.ts` | Auto-diff utility for translation events |
+
+### Programmatic Usage
+
+```ts
+import { MessageTracerImpl, noopTracer } from "beamcode";
+
+// Inject into SessionManager
+const tracer = new MessageTracerImpl({
+  level: "smart",
+  allowSensitive: false,
+});
+
+const mgr = new SessionManager({ config, launcher, tracer });
+```
+
+When `--trace` is not set, `noopTracer` is used — all methods are empty functions with zero overhead.
 
 ---
 

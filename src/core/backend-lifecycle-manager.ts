@@ -14,6 +14,7 @@ import type { CLIMessage } from "../types/cli-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
+import type { MessageTracer } from "./message-tracer.js";
 import type { Session } from "./session-store.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
@@ -32,6 +33,7 @@ export interface BackendLifecycleDeps {
   broadcaster: ConsumerBroadcaster;
   routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   emitEvent: EmitEvent;
+  tracer: MessageTracer;
 }
 
 // -- BackendLifecycleManager -------------------------------------------------
@@ -44,6 +46,7 @@ export class BackendLifecycleManager {
   private broadcaster: ConsumerBroadcaster;
   private routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   private emitEvent: EmitEvent;
+  private tracer: MessageTracer;
   private passthroughTextBuffers = new Map<string, string>();
 
   constructor(deps: BackendLifecycleDeps) {
@@ -54,6 +57,7 @@ export class BackendLifecycleManager {
     this.broadcaster = deps.broadcaster;
     this.routeUnifiedMessage = deps.routeUnifiedMessage;
     this.emitEvent = deps.emitEvent;
+    this.tracer = deps.tracer;
   }
 
   private supportsPassthroughHandler(session: BackendSession): session is BackendSession & {
@@ -218,7 +222,7 @@ export class BackendLifecycleManager {
     const backendSession = await adapter.connect({
       sessionId: session.id,
       resume: options?.resume,
-      adapterOptions: options?.adapterOptions,
+      adapterOptions: { ...options?.adapterOptions, tracer: this.tracer },
     });
 
     session.backendSession = backendSession;

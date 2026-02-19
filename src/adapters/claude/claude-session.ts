@@ -12,6 +12,7 @@ import type WebSocket from "ws";
 import type { RawData } from "ws";
 import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { CLIMessage } from "../../types/cli-messages.js";
@@ -34,10 +35,17 @@ export class ClaudeSession implements BackendSession {
   private readonly lineBuffer = new NDJSONLineBuffer();
   private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
   private readonly logger: Logger;
+  private readonly tracer?: MessageTracer;
 
-  constructor(opts: { sessionId: string; socketPromise: Promise<WebSocket>; logger?: Logger }) {
+  constructor(opts: {
+    sessionId: string;
+    socketPromise: Promise<WebSocket>;
+    logger?: Logger;
+    tracer?: MessageTracer;
+  }) {
     this.sessionId = opts.sessionId;
     this.logger = opts.logger ?? noopLogger;
+    this.tracer = opts.tracer;
     opts.socketPromise.then(
       (ws) => this.attachSocket(ws),
       () => this.queue.finish(), // socket delivery failed (timeout/cancel)
@@ -64,6 +72,14 @@ export class ClaudeSession implements BackendSession {
       this.logger.warn("toNDJSON returned null, message not sent", { messageType: message.type });
       return;
     }
+    this.tracer?.translate(
+      "toNDJSON",
+      "T2",
+      { format: "UnifiedMessage", body: message },
+      { format: "Claude NDJSON", body: ndjson },
+      { sessionId: this.sessionId },
+    );
+    this.tracer?.send("backend", message.type, ndjson, { sessionId: this.sessionId });
     this.sendToSocket(ndjson);
   }
 
@@ -192,7 +208,24 @@ export class ClaudeSession implements BackendSession {
     }
     const unified = translate(cliMsg);
     if (unified) {
+      this.tracer?.translate(
+        "translate",
+        "T3",
+        { format: "Claude CLIMessage", body: cliMsg },
+        { format: "UnifiedMessage", body: unified },
+        { sessionId: this.sessionId },
+      );
       this.queue.enqueue(unified);
+    } else {
+      this.tracer?.error(
+        "backend",
+        cliMsg.type ?? "unknown",
+        "T3 translate returned null (unmapped CLI message type)",
+        {
+          sessionId: this.sessionId,
+          action: "dropped",
+        },
+      );
     }
   }
 }
