@@ -59,10 +59,21 @@ function mockSessionManager(
     launch: (opts: unknown) => unknown;
     kill: (id: string) => Promise<boolean>;
     deleteSession: (id: string) => Promise<boolean>;
+    createSession: (opts: unknown) => Promise<unknown>;
   }> = {},
 ): SessionManager {
   return {
     deleteSession: vi.fn(overrides.deleteSession ?? (async () => true)),
+    createSession: vi.fn(
+      overrides.createSession ??
+        (async () => ({
+          sessionId: "new-id",
+          cwd: process.cwd(),
+          adapterName: "sdk-url",
+          state: "starting",
+          createdAt: Date.now(),
+        })),
+    ),
     launcher: {
       listSessions: vi.fn(overrides.listSessions ?? (() => [])),
       getSession: vi.fn(overrides.getSession ?? (() => undefined)),
@@ -157,29 +168,33 @@ describe("handleApiSessions", () => {
   // ---- POST /api/sessions ----
 
   it("POST /api/sessions with valid JSON creates a session", async () => {
-    const launched = { sessionId: "new-1", status: "running", cwd: "/tmp" };
-    const sm = mockSessionManager({ launch: () => launched });
+    const created = {
+      sessionId: "new-1",
+      cwd: "/tmp",
+      adapterName: "sdk-url",
+      state: "starting",
+      createdAt: 1000,
+    };
+    const sm = mockSessionManager({ createSession: async () => created });
     const req = mockReq("POST");
     const res = mockRes();
 
     handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
     emitBody(req, JSON.stringify({ cwd: "/tmp", model: "opus" }));
 
-    // Wait for async resolution
     await vi.waitFor(() => {
       expect(res._status).toBe(201);
     });
-    expect(parseBody(res)).toEqual(launched);
-    expect(sm.launcher.launch).toHaveBeenCalledWith({ cwd: "/tmp", model: "opus" });
-    expect(sm.bridge.seedSessionState).toHaveBeenCalledWith("new-1", {
+    expect(parseBody(res)).toEqual(created);
+    expect(sm.createSession).toHaveBeenCalledWith({
       cwd: "/tmp",
       model: "opus",
+      adapterName: undefined,
     });
   });
 
   it("POST /api/sessions with empty body creates a session with defaults", async () => {
-    const launched = { sessionId: "new-2", status: "running" };
-    const sm = mockSessionManager({ launch: () => launched });
+    const sm = mockSessionManager();
     const req = mockReq("POST");
     const res = mockRes();
 
@@ -189,9 +204,10 @@ describe("handleApiSessions", () => {
     await vi.waitFor(() => {
       expect(res._status).toBe(201);
     });
-    expect(sm.launcher.launch).toHaveBeenCalledWith({
+    expect(sm.createSession).toHaveBeenCalledWith({
       cwd: undefined,
       model: undefined,
+      adapterName: undefined,
     });
   });
 

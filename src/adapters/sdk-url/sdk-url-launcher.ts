@@ -544,7 +544,7 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> implemen
       createdAt: info.createdAt,
       model: info.model,
       adapterName: info.adapterName,
-      state: "connected",
+      state: "starting",
     };
     this.sessions.set(info.sessionId, entry);
     this.persistState();

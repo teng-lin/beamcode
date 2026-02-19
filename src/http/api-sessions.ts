@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
+import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { SessionManager } from "../core/session-manager.js";
 import type { SdkSessionInfo } from "../types/session-state.js";
 
@@ -92,7 +93,7 @@ export function handleApiSessions(
   // POST /api/sessions — create new session
   if (segments.length === 2 && method === "POST") {
     readBody(req)
-      .then((body) => {
+      .then(async (body) => {
         let opts: Record<string, unknown> = {};
         if (body) {
           try {
@@ -102,10 +103,7 @@ export function handleApiSessions(
             return;
           }
         }
-        // Validate cwd: must resolve to an existing directory.
-        // Note: path.resolve() normalizes ".." segments, so checking the
-        // resolved string for ".." would be ineffective. Instead we verify
-        // the path exists and is a real directory on the filesystem.
+
         const cwd = opts.cwd as string | undefined;
         if (cwd) {
           const resolved = resolvePath(cwd);
@@ -114,16 +112,27 @@ export function handleApiSessions(
             return;
           }
         }
-        const session = sessionManager.launcher.launch({
-          cwd,
-          model: opts.model as string | undefined,
-        });
-        // Seed bridge session so consumers see state before CLI's system.init
-        sessionManager.bridge.seedSessionState(session.sessionId, {
-          cwd: session.cwd,
-          model: opts.model as string | undefined,
-        });
-        json(res, 201, session);
+
+        const adapterName = opts.adapter as string | undefined;
+        if (adapterName && !CLI_ADAPTER_NAMES.includes(adapterName as CliAdapterName)) {
+          json(res, 400, {
+            error: `Invalid adapter "${adapterName}". Valid: ${CLI_ADAPTER_NAMES.join(", ")}`,
+          });
+          return;
+        }
+
+        try {
+          const result = await sessionManager.createSession({
+            cwd,
+            model: opts.model as string | undefined,
+            adapterName: adapterName as CliAdapterName | undefined,
+          });
+          json(res, 201, result);
+        } catch (err) {
+          json(res, 500, {
+            error: `Failed to create session: ${err instanceof Error ? err.message : err}`,
+          });
+        }
       })
       .catch((err) => {
         const status = err instanceof Error && err.message === "Request body too large" ? 413 : 400;

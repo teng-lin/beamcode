@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import type { CliAdapterName } from "../adapters/create-adapter.js";
@@ -87,6 +88,66 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   get defaultAdapterName(): CliAdapterName {
     return this.adapterResolver?.defaultName ?? "sdk-url";
+  }
+
+  /** Create a new session, routing to the correct adapter. */
+  async createSession(options: {
+    cwd?: string;
+    model?: string;
+    adapterName?: CliAdapterName;
+  }): Promise<{
+    sessionId: string;
+    cwd: string;
+    adapterName: CliAdapterName;
+    state: string;
+    createdAt: number;
+  }> {
+    const adapterName = options.adapterName ?? this.defaultAdapterName;
+    const cwd = options.cwd ?? process.cwd();
+
+    if (adapterName === "sdk-url") {
+      const launchResult = this.launcher.launch({ cwd, model: options.model });
+      this.bridge.seedSessionState(launchResult.sessionId, {
+        cwd: launchResult.cwd,
+        model: options.model,
+      });
+      this.bridge.setAdapterName(launchResult.sessionId, adapterName);
+      return {
+        sessionId: launchResult.sessionId,
+        cwd: launchResult.cwd,
+        adapterName,
+        state: launchResult.state,
+        createdAt: launchResult.createdAt,
+      };
+    }
+
+    // Direct-connection path (Codex, ACP)
+    const sessionId = randomUUID();
+    const createdAt = Date.now();
+
+    this.launcher.registerExternalSession({
+      sessionId,
+      cwd,
+      createdAt,
+      model: options.model,
+      adapterName,
+    });
+
+    this.bridge.seedSessionState(sessionId, { cwd, model: options.model });
+    this.bridge.setAdapterName(sessionId, adapterName);
+
+    try {
+      await this.bridge.connectBackend(sessionId, {
+        adapterOptions: { cwd },
+      });
+      this.launcher.markConnected(sessionId);
+    } catch (err) {
+      this.launcher.removeSession(sessionId);
+      this.bridge.closeSession(sessionId);
+      throw err;
+    }
+
+    return { sessionId, cwd, adapterName, state: "connected", createdAt };
   }
 
   /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
@@ -239,10 +300,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
    * close WS connections + remove persisted JSON, remove from launcher map.
    */
   async deleteSession(sessionId: string): Promise<boolean> {
-    if (!this.launcher.getSession(sessionId)) return false;
+    const info = this.launcher.getSession(sessionId);
+    if (!info) return false;
 
-    // Best-effort kill — process may already be exited
-    await this.launcher.kill(sessionId);
+    // Kill process if one exists (SdkUrl sessions have PIDs, external sessions don't)
+    if (info.pid) {
+      await this.launcher.kill(sessionId);
+    }
 
     // Clear relaunch dedup state
     const dedupTimer = this.relaunchDedupTimers.get(sessionId);
