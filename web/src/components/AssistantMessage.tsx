@@ -15,15 +15,7 @@ interface AssistantMessageProps {
 }
 
 interface ContentGroup {
-  type:
-    | "text"
-    | "thinking"
-    | "tool_use"
-    | "tool_group"
-    | "tool_result"
-    | "code"
-    | "image"
-    | "refusal";
+  type: ConsumerContentBlock["type"] | "tool_group";
   blocks: ConsumerContentBlock[];
   key: string;
 }
