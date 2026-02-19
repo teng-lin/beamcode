@@ -107,10 +107,10 @@ describe("E2E Real CLI process smoke matrix", () => {
   });
 
   it.runIf(prereqs.ok)("createProcessManager under real profile can execute claude", async () => {
-    process.env.E2E_PROFILE = "realcli-smoke";
+    process.env.E2E_PROFILE = "real-smoke";
     process.env.USE_REAL_CLI = "true";
     const profile = getE2EProfile();
-    expect(profile).toBe("realcli-smoke");
+    expect(profile).toBe("real-smoke");
 
     const pm = createProcessManager();
     const proc = pm.spawn({

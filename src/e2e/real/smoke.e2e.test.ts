@@ -17,14 +17,14 @@ afterEach(() => {
 });
 
 describe("E2E Real CLI smoke foundation", () => {
-  it("uses realcli profile under smoke mode", () => {
-    process.env.E2E_PROFILE = "realcli-smoke";
-    expect(getE2EProfile()).toBe("realcli-smoke");
+  it("uses real profile under smoke mode", () => {
+    process.env.E2E_PROFILE = "real-smoke";
+    expect(getE2EProfile()).toBe("real-smoke");
     expect(isRealCliProfile()).toBe(true);
   });
 
-  it("createProcessManager resolves to NodeProcessManager in realcli profile", () => {
-    process.env.E2E_PROFILE = "realcli-smoke";
+  it("createProcessManager resolves to NodeProcessManager in real profile", () => {
+    process.env.E2E_PROFILE = "real-smoke";
     process.env.USE_REAL_CLI = "true";
     delete process.env.USE_MOCK_CLI;
 

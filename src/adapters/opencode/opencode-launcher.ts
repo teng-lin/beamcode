@@ -67,7 +67,10 @@ export class OpencodeLauncher extends ProcessSupervisor {
 
     const args = ["serve", "--port", String(port), "--hostname", hostname];
 
-    const env: Record<string, string | undefined> = {};
+    // Inherit parent environment so the child has PATH, HOME, etc.
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+    };
     if (options.password) {
       env.OPENCODE_SERVER_PASSWORD = options.password;
     }
