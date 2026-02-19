@@ -1,42 +1,45 @@
 /**
- * GeminiAdapter e2e tests — exercises GeminiSession directly with mock fetchFn
- * + mock GeminiLauncher, bypassing the launch+connect flow.
+ * GeminiAdapter e2e tests — exercises GeminiAdapter through full conversation
+ * flows using ACP mock subprocess infrastructure.
+ *
+ * Since GeminiAdapter delegates to AcpAdapter, these tests verify Gemini-specific
+ * behavior (binary name, --experimental-acp flag) while reusing ACP mock patterns.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { GeminiLauncher } from "../adapters/gemini/gemini-launcher.js";
-import { GeminiSession } from "../adapters/gemini/gemini-session.js";
+import { afterEach, describe, expect, it } from "vitest";
+import type { SpawnFn } from "../adapters/acp/acp-adapter.js";
+import { GeminiAdapter } from "../adapters/gemini/gemini-adapter.js";
 import type { BackendSession } from "../core/interfaces/backend-adapter.js";
 import {
-  buildA2ACompletedEvent,
-  buildA2AInputRequiredEvent,
-  buildA2ATaskEvent,
-  buildA2ATextEvent,
-  buildA2AToolConfirmationEvent,
-  collectUnifiedMessages,
+  createAcpAutoResponder,
   createInterruptMessage,
-  createMockProcessManager,
+  createMockChild,
   createPermissionResponse,
   createUserMessage,
-  makeSSE,
-  sseResponse,
-  waitForUnifiedMessageType,
+  MessageReader,
+  type MockStream,
+  respondToRequest,
+  sendJsonRpcRequest,
+  sendNotification,
 } from "./helpers/backend-test-utils.js";
 
 describe("E2E: GeminiAdapter", () => {
   let session: BackendSession | undefined;
-  let mockFetch: ReturnType<typeof vi.fn>;
-  let launcher: GeminiLauncher;
+  let spawnCalls: Array<{ command: string; args: string[] }>;
 
-  function createSession(): GeminiSession {
-    launcher = new GeminiLauncher({ processManager: createMockProcessManager() });
-    mockFetch = vi.fn();
-    return new GeminiSession({
-      sessionId: "e2e-gemini",
-      baseUrl: "http://localhost:9999",
-      launcher,
-      fetchFn: mockFetch as typeof fetch,
-    });
+  function createAdapter(
+    setupStdin: (stdin: MockStream, stdout: MockStream) => void,
+    options?: { geminiBinary?: string },
+  ): GeminiAdapter {
+    spawnCalls = [];
+    const spawnFn: SpawnFn = ((command: string, args: string[]) => {
+      spawnCalls.push({ command, args });
+      const { child, stdin, stdout } = createMockChild();
+      setupStdin(stdin, stdout);
+      return child;
+    }) as unknown as SpawnFn;
+
+    return new GeminiAdapter({ spawnFn, geminiBinary: options?.geminiBinary });
   }
 
   afterEach(async () => {
@@ -46,219 +49,192 @@ describe("E2E: GeminiAdapter", () => {
     }
   });
 
-  it("full streaming turn: task → text deltas → completed", async () => {
-    session = createSession();
+  it("spawns gemini --experimental-acp and completes full streaming turn", async () => {
+    const adapter = createAdapter((stdin, stdout) => {
+      createAcpAutoResponder(stdin, stdout, {
+        onPrompt: (parsed) => {
+          sendNotification(stdout, "session/update", {
+            sessionId: "e2e-gemini",
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Hello " },
+          });
+          sendNotification(stdout, "session/update", {
+            sessionId: "e2e-gemini",
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "world!" },
+          });
+          respondToRequest(stdout, parsed.id, {
+            sessionId: "e2e-gemini",
+            stopReason: "end_turn",
+          });
+        },
+      });
+    });
 
-    const sse = makeSSE(
-      buildA2ATaskEvent(),
-      buildA2ATextEvent("Hello "),
-      buildA2ATextEvent("world!"),
-      buildA2ACompletedEvent(),
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse(sse));
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
+
+    // Verify gemini binary and --experimental-acp flag
+    expect(spawnCalls[0].command).toBe("gemini");
+    expect(spawnCalls[0].args).toContain("--experimental-acp");
+
+    const reader = new MessageReader(session);
+
+    const { target: initMsg } = await reader.waitFor("session_init");
+    expect(initMsg.metadata.agentName).toBe("e2e-agent");
 
     session.send(createUserMessage("Hello Gemini"));
 
-    // session_init (task submitted)
-    const { target: initMsg } = await waitForUnifiedMessageType(session, "session_init");
-    expect(initMsg.metadata.task_id).toBe("task-1");
-
-    // 2 stream_event deltas + 1 result
-    const messages = await collectUnifiedMessages(session, 3);
-
+    const messages = await reader.collect(3);
     expect(messages[0].type).toBe("stream_event");
-    expect(messages[0].metadata.delta).toBe("Hello ");
-
+    expect(messages[0].content[0]).toEqual({ type: "text", text: "Hello " });
     expect(messages[1].type).toBe("stream_event");
-    expect(messages[1].metadata.delta).toBe("world!");
-
+    expect(messages[1].content[0]).toEqual({ type: "text", text: "world!" });
     expect(messages[2].type).toBe("result");
-    expect(messages[2].metadata.status).toBe("completed");
+    expect(messages[2].metadata.stopReason).toBe("end_turn");
   });
 
-  it("multi-turn: first turn completes, second starts", async () => {
-    session = createSession();
+  it("uses custom geminiBinary", async () => {
+    const adapter = createAdapter(
+      (stdin, stdout) => {
+        createAcpAutoResponder(stdin, stdout);
+      },
+      { geminiBinary: "/custom/gemini-dev" },
+    );
+
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
+    expect(spawnCalls[0].command).toBe("/custom/gemini-dev");
+    expect(spawnCalls[0].args).toContain("--experimental-acp");
+  });
+
+  it("multi-turn conversation", async () => {
+    let promptCount = 0;
+
+    const adapter = createAdapter((stdin, stdout) => {
+      createAcpAutoResponder(stdin, stdout, {
+        onPrompt: (parsed) => {
+          promptCount++;
+          sendNotification(stdout, "session/update", {
+            sessionId: "e2e-gemini",
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Response ${promptCount}` },
+          });
+          respondToRequest(stdout, parsed.id, {
+            sessionId: "e2e-gemini",
+            stopReason: "end_turn",
+          });
+        },
+      });
+    });
+
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
+    const reader = new MessageReader(session);
+    await reader.waitFor("session_init");
 
     // Turn 1
-    const sse1 = makeSSE(
-      buildA2ATaskEvent(),
-      buildA2ATextEvent("Response 1"),
-      buildA2ACompletedEvent(),
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse(sse1));
-
     session.send(createUserMessage("Turn 1"));
-
-    await waitForUnifiedMessageType(session, "session_init");
-    const turn1 = await collectUnifiedMessages(session, 2);
+    const turn1 = await reader.collect(2);
     expect(turn1[0].type).toBe("stream_event");
+    expect(turn1[0].content[0]).toEqual({ type: "text", text: "Response 1" });
     expect(turn1[1].type).toBe("result");
 
     // Turn 2
-    const sse2 = makeSSE(
-      buildA2ATaskEvent("task-2"),
-      buildA2ATextEvent("Response 2", "task-2"),
-      buildA2ACompletedEvent("task-2"),
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse(sse2));
-
     session.send(createUserMessage("Turn 2"));
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-
-    await waitForUnifiedMessageType(session, "session_init");
-    const turn2 = await collectUnifiedMessages(session, 2);
+    const turn2 = await reader.collect(2);
     expect(turn2[0].type).toBe("stream_event");
-    expect(turn2[0].metadata.delta).toBe("Response 2");
+    expect(turn2[0].content[0]).toEqual({ type: "text", text: "Response 2" });
     expect(turn2[1].type).toBe("result");
+
+    expect(promptCount).toBe(2);
   });
 
-  it("permission: tool-call-confirmation → approve → continues", async () => {
-    session = createSession();
+  it("permission: tool-call → approve", async () => {
+    const adapter = createAdapter((stdin, stdout) => {
+      createAcpAutoResponder(stdin, stdout, {
+        onPrompt: () => {
+          sendJsonRpcRequest(stdout, 100, "session/request_permission", {
+            sessionId: "e2e-gemini",
+            toolCall: { toolCallId: "tc-1", name: "bash", command: "ls" },
+            options: [
+              { optionId: "allow-once", name: "Allow Once", kind: "allow" },
+              { optionId: "reject-once", name: "Reject Once", kind: "deny" },
+            ],
+          });
+        },
+      });
+    });
 
-    // First call: task + tool confirmation + input-required
-    const sse1 = makeSSE(
-      buildA2ATaskEvent(),
-      buildA2AToolConfirmationEvent("tc-1", "bash"),
-      buildA2AInputRequiredEvent(),
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse(sse1));
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
+    const reader = new MessageReader(session);
+    await reader.waitFor("session_init");
 
     session.send(createUserMessage("Run a command"));
 
-    await waitForUnifiedMessageType(session, "session_init");
+    const { target: permReq } = await reader.waitFor("permission_request");
+    expect(permReq.metadata.toolCall).toBeDefined();
 
-    const { target: permReq } = await waitForUnifiedMessageType(session, "permission_request");
-    expect(permReq.metadata.tool_name).toBe("bash");
-    expect(permReq.metadata.tool_call_id).toBe("tc-1");
-
-    // Wait for result (input-required)
-    await waitForUnifiedMessageType(session, "result");
-
-    // Second call: approve → continued response
-    const sse2 = makeSSE(buildA2ATextEvent("Approved result"), buildA2ACompletedEvent());
-    mockFetch.mockResolvedValueOnce(sseResponse(sse2));
-
-    session.send(
-      createPermissionResponse("allow", permReq.id, {
-        tool_call_id: "tc-1",
-        task_id: "task-1",
-      }),
-    );
-
-    const messages = await collectUnifiedMessages(session, 2);
-    expect(messages[0].type).toBe("stream_event");
-    expect(messages[0].metadata.delta).toBe("Approved result");
-    expect(messages[1].type).toBe("result");
-
-    // Verify second fetch included taskId
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body);
-    expect(body2.params.id).toBe("task-1");
+    session.send(createPermissionResponse("allow", permReq.id, { optionId: "allow-once" }));
   });
 
-  it("permission: tool-call-confirmation → deny", async () => {
-    session = createSession();
+  it("cancel sends session/cancel notification", async () => {
+    let cancelReceived = false;
 
-    const sse1 = makeSSE(
-      buildA2ATaskEvent(),
-      buildA2AToolConfirmationEvent("tc-2", "rm"),
-      buildA2AInputRequiredEvent(),
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse(sse1));
+    const adapter = createAdapter((stdin, stdout) => {
+      createAcpAutoResponder(stdin, stdout, {
+        onPrompt: (parsed) => {
+          sendNotification(stdout, "session/update", {
+            sessionId: "e2e-gemini",
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "working..." },
+          });
+          respondToRequest(stdout, parsed.id, {
+            sessionId: "e2e-gemini",
+            stopReason: "end_turn",
+          });
+        },
+      });
 
-    session.send(createUserMessage("Do something dangerous"));
+      // Watch for cancel notification
+      const origWrite = stdin.write.bind(stdin);
+      const wrappedWrite = stdin.write;
+      stdin.write = (data: string): boolean => {
+        const result = wrappedWrite.call(stdin, data);
+        try {
+          const parsed = JSON.parse(data.trim());
+          if (parsed.method === "session/cancel") cancelReceived = true;
+        } catch {
+          // ignore
+        }
+        return result;
+      };
+    });
 
-    await waitForUnifiedMessageType(session, "session_init");
-    const { target: permReq } = await waitForUnifiedMessageType(session, "permission_request");
-
-    await waitForUnifiedMessageType(session, "result");
-
-    // Deny
-    const sse2 = makeSSE(buildA2ATextEvent("Denied, adjusting"), buildA2ACompletedEvent());
-    mockFetch.mockResolvedValueOnce(sseResponse(sse2));
-
-    session.send(
-      createPermissionResponse("deny", permReq.id, {
-        tool_call_id: "tc-2",
-        task_id: "task-1",
-      }),
-    );
-
-    const messages = await collectUnifiedMessages(session, 2);
-    expect(messages[0].type).toBe("stream_event");
-    expect(messages[1].type).toBe("result");
-  });
-
-  it("cancel (interrupt) sends tasks/cancel and aborts SSE stream", async () => {
-    session = createSession();
-
-    const sse1 = makeSSE(buildA2ATaskEvent(), buildA2AInputRequiredEvent());
-    mockFetch.mockResolvedValueOnce(sseResponse(sse1));
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
+    const reader = new MessageReader(session);
+    await reader.waitFor("session_init");
 
     session.send(createUserMessage("Start something"));
+    await reader.collect(2); // stream + result
 
-    await waitForUnifiedMessageType(session, "session_init");
-    await waitForUnifiedMessageType(session, "result");
-
-    // Cancel
-    mockFetch.mockResolvedValueOnce(new Response("", { status: 200 }));
     session.send(createInterruptMessage());
+    // Allow async processing
+    await new Promise((r) => setTimeout(r, 50));
+    expect(cancelReceived).toBe(true);
+  });
 
-    await vi.waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+  it("subprocess crash during handshake rejects connect()", async () => {
+    const adapter = createAdapter((_stdin, stdout) => {
+      setTimeout(() => stdout.emit("close"), 5);
     });
 
-    const cancelBody = JSON.parse(mockFetch.mock.calls[1][1].body);
-    expect(cancelBody.method).toBe("tasks/cancel");
-    expect(cancelBody.params.id).toBe("task-1");
-  });
-
-  it("HTTP error surfaces as error result", async () => {
-    session = createSession();
-
-    mockFetch.mockResolvedValueOnce(
-      new Response("Internal Server Error", { status: 500, statusText: "Internal Server Error" }),
-    );
-
-    session.send(createUserMessage("trigger error"));
-
-    const { target: result } = await waitForUnifiedMessageType(session, "result");
-    expect(result.metadata.is_error).toBe(true);
-    expect(result.metadata.error).toContain("500");
-  });
-
-  it("network error surfaces as error result", async () => {
-    session = createSession();
-
-    mockFetch.mockRejectedValueOnce(new Error("Network error"));
-
-    session.send(createUserMessage("trigger network error"));
-
-    const { target: result } = await waitForUnifiedMessageType(session, "result");
-    expect(result.metadata.is_error).toBe(true);
-    expect(result.metadata.error).toBe("Network error");
-  });
-
-  it("process exit enqueues error and terminates stream", async () => {
-    session = createSession();
-
-    launcher.emit("process:exited", {
-      sessionId: "e2e-gemini",
-      exitCode: 1,
-      uptimeMs: 5000,
-    });
-
-    const { target: result } = await waitForUnifiedMessageType(session, "result");
-    expect(result.metadata.is_error).toBe(true);
-    expect(result.metadata.error).toContain("exited unexpectedly");
-
-    const iter = session.messages[Symbol.asyncIterator]();
-    const end = await iter.next();
-    expect(end.done).toBe(true);
+    await expect(adapter.connect({ sessionId: "e2e-gemini" })).rejects.toThrow();
   });
 
   it("send after close throws", async () => {
-    session = createSession();
+    const adapter = createAdapter((stdin, stdout) => {
+      createAcpAutoResponder(stdin, stdout);
+    });
+
+    session = await adapter.connect({ sessionId: "e2e-gemini" });
     await session.close();
 
     expect(() => session!.send(createUserMessage("after close"))).toThrow("Session is closed");
