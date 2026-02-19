@@ -1,3 +1,4 @@
+import { noopLogger } from "../adapters/noop-logger.js";
 import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -68,7 +69,7 @@ export abstract class ProcessSupervisor<
   constructor(options: ProcessSupervisorOptions) {
     super();
     this.processManager = options.processManager;
-    this.logger = options.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
+    this.logger = options.logger ?? noopLogger;
     this.killGracePeriodMs = options.killGracePeriodMs ?? 5000;
     this.crashThresholdMs = options.crashThresholdMs ?? 5000;
     this.restartCircuitBreaker = options.circuitBreaker ?? NOOP_BREAKER;
@@ -108,9 +109,11 @@ export abstract class ProcessSupervisor<
       return null;
     }
 
-    this.logger.info(
-      `Spawning session ${sessionId}: ${spawnArgs.command} ${spawnArgs.args.join(" ")}`,
-    );
+    this.logger.info("Spawning session process", {
+      sessionId,
+      command: spawnArgs.command,
+      args: spawnArgs.args.join(" "),
+    });
 
     let proc: ProcessHandle;
     try {
@@ -147,13 +150,17 @@ export abstract class ProcessSupervisor<
 
     proc.kill("SIGTERM");
 
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const exited = await Promise.race([
       proc.exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), this.killGracePeriodMs)),
+      new Promise<false>((resolve) => {
+        killTimer = setTimeout(() => resolve(false), this.killGracePeriodMs);
+      }),
     ]);
+    if (killTimer !== undefined) clearTimeout(killTimer);
 
     if (!exited) {
-      this.logger.info(`Force-killing session ${sessionId}`);
+      this.logger.info("Force-killing session", { sessionId });
       proc.kill("SIGKILL");
     }
 
@@ -231,13 +238,15 @@ export abstract class ProcessSupervisor<
     const spawnedAt = Date.now();
     proc.exited.then((exitCode) => {
       const uptimeMs = Date.now() - spawnedAt;
-      this.logger.info(`Session ${sessionId} exited (code=${exitCode}, uptime=${uptimeMs}ms)`);
+      this.logger.info("Session exited", { sessionId, exitCode, uptimeMs });
 
       if (uptimeMs < this.crashThresholdMs) {
         this.restartCircuitBreaker.recordFailure();
-        this.logger.warn(
-          `Process failed quickly (${uptimeMs}ms). Circuit breaker state: ${this.restartCircuitBreaker.getState()}`,
-        );
+        this.logger.warn("Process failed quickly", {
+          sessionId,
+          uptimeMs,
+          circuitBreakerState: this.restartCircuitBreaker.getState(),
+        });
       } else {
         this.restartCircuitBreaker.recordSuccess();
       }

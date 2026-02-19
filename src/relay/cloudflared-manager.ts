@@ -32,6 +32,7 @@ export class CloudflaredManager {
   private restartAttempts = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private processCleanups: (() => void)[] = [];
 
   /** Resolve for the initial URL promise. */
   private urlResolve: ((url: string) => void) | null = null;
@@ -72,6 +73,10 @@ export class CloudflaredManager {
       this.restartTimer = null;
     }
 
+    // Clean up process event listeners
+    for (const cleanup of this.processCleanups) cleanup();
+    this.processCleanups = [];
+
     if (this.process) {
       this.process.kill("SIGTERM");
       await new Promise<void>((resolve) => {
@@ -102,6 +107,11 @@ export class CloudflaredManager {
 
   private spawnProcess(): void {
     if (!this.config) throw new Error("start() must be called before spawnProcess()");
+
+    // Clean up old process listeners from previous spawn
+    for (const cleanup of this.processCleanups) cleanup();
+    this.processCleanups = [];
+
     const config = this.config;
     const { args, env } = this.buildArgs(config);
 
@@ -132,17 +142,21 @@ export class CloudflaredManager {
 
     proc.stdout?.on("data", handleData);
     proc.stderr?.on("data", handleData);
+    this.processCleanups.push(() => {
+      proc.stdout?.off("data", handleData);
+      proc.stderr?.off("data", handleData);
+    });
 
-    proc.on("error", (err) => {
+    const onError = (err: Error) => {
       this._running = false;
       if (!urlFound) {
         this.urlReject?.(err);
         this.urlResolve = null;
         this.urlReject = null;
       }
-    });
+    };
 
-    proc.on("exit", (code) => {
+    const onExit = (code: number | null) => {
       this._running = false;
       this.process = null;
 
@@ -156,6 +170,13 @@ export class CloudflaredManager {
       if (!this.stopped) {
         this.scheduleRestart();
       }
+    };
+
+    proc.on("error", onError);
+    proc.on("exit", onExit);
+    this.processCleanups.push(() => {
+      proc.off("error", onError);
+      proc.off("exit", onExit);
     });
   }
 

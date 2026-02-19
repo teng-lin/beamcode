@@ -1,12 +1,14 @@
 import type { WebSocket } from "ws";
 import { WebSocketServer as WSServer } from "ws";
 import type { AuthContext } from "../interfaces/auth.js";
+import type { Logger } from "../interfaces/logger.js";
 import type {
   OnCLIConnection,
   OnConsumerConnection,
   WebSocketServerLike,
 } from "../interfaces/ws-server.js";
 import type { OriginValidator } from "../server/origin-validator.js";
+import { noopLogger } from "./noop-logger.js";
 
 const CLI_PATH_RE = /^\/ws\/cli\/([^/]+)$/;
 const CONSUMER_PATH_RE = /^\/ws\/consumer\/([^/]+)$/;
@@ -37,6 +39,8 @@ export interface NodeWebSocketServerOptions {
   maxPayload?: number;
   /** Optional external HTTP server to attach to. When provided, WS piggybacks on this server instead of creating its own. */
   server?: import("http").Server;
+  /** Optional logger instance. Defaults to noop. */
+  logger?: Logger;
 }
 
 /**
@@ -46,9 +50,11 @@ export interface NodeWebSocketServerOptions {
 export class NodeWebSocketServer implements WebSocketServerLike {
   private wss: WSServer | null = null;
   private options: NodeWebSocketServerOptions;
+  private logger: Logger;
 
   constructor(options: NodeWebSocketServerOptions) {
     this.options = options;
+    this.logger = options.logger ?? noopLogger;
   }
 
   /** Actual port after listen (useful when constructed with port: 0). */
@@ -72,9 +78,9 @@ export class NodeWebSocketServer implements WebSocketServerLike {
       ? (info: { origin: string; req: import("http").IncomingMessage }) => {
           const origin = info.origin || undefined;
           if (!originValidator.isAllowed(origin)) {
-            console.warn(
-              `[beamcode] Rejected WebSocket connection from origin: ${origin ?? "(none)"}`,
-            );
+            this.logger.warn("Rejected WebSocket connection from untrusted origin", {
+              origin: origin ?? "(none)",
+            });
             return false;
           }
           return true;

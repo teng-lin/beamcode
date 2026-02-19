@@ -11,7 +11,7 @@ export { MemoryStorage } from "./adapters/memory-storage.js";
 export { NodeProcessManager } from "./adapters/node-process-manager.js";
 export type { NodeWebSocketServerOptions } from "./adapters/node-ws-server.js";
 export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
-export { NoopLogger } from "./adapters/noop-logger.js";
+export { NoopLogger, noopLogger } from "./adapters/noop-logger.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";

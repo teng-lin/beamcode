@@ -45,7 +45,10 @@ describe("ConsoleMetricsCollector", () => {
 
       collector.recordEvent(event);
 
-      expect(logger.info).toHaveBeenCalledWith("[METRICS] Session created: sess-1");
+      expect(logger.info).toHaveBeenCalledWith("Session created", {
+        component: "metrics",
+        sessionId: "sess-1",
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect(stats.connections).toEqual({ backend: 0, consumers: 0 });
@@ -62,7 +65,11 @@ describe("ConsoleMetricsCollector", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
       collector.recordEvent({ type: "session:closed", sessionId: "sess-1", timestamp: ts });
 
-      expect(logger.info).toHaveBeenCalledWith("[METRICS] Session closed: sess-1");
+      expect(logger.info).toHaveBeenCalledWith("Session closed", {
+        component: "metrics",
+        sessionId: "sess-1",
+        reason: undefined,
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect(stats.eventCount).toBe(0);
@@ -77,7 +84,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.info).toHaveBeenCalledWith("[METRICS] Session closed: sess-1 (timeout)");
+      expect(logger.info).toHaveBeenCalledWith("Session closed", {
+        component: "metrics",
+        sessionId: "sess-1",
+        reason: "timeout",
+      });
     });
   });
 
@@ -95,9 +106,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Consumer connected: session=sess-1, userId=user-a, total=1",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Consumer connected", {
+        component: "metrics",
+        sessionId: "sess-1",
+        userId: "user-a",
+        total: 1,
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect((stats.connections as { consumers: number }).consumers).toBe(1);
@@ -136,9 +150,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Consumer disconnected: session=sess-1, userId=user-a",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Consumer disconnected", {
+        component: "metrics",
+        sessionId: "sess-1",
+        userId: "user-a",
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect((stats.connections as { consumers: number }).consumers).toBe(0);
@@ -152,9 +168,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Consumer disconnected: session=sess-unknown, userId=user-a",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Consumer disconnected", {
+        component: "metrics",
+        sessionId: "sess-unknown",
+        userId: "user-a",
+      });
     });
   });
 
@@ -167,7 +185,10 @@ describe("ConsoleMetricsCollector", () => {
       collector.recordEvent({ type: "session:created", sessionId: "sess-1", timestamp: ts });
       collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
 
-      expect(logger.debug).toHaveBeenCalledWith("[METRICS] Backend connected: session=sess-1");
+      expect(logger.debug).toHaveBeenCalledWith("Backend connected", {
+        component: "metrics",
+        sessionId: "sess-1",
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect((stats.connections as { backend: number }).backend).toBe(1);
@@ -191,7 +212,10 @@ describe("ConsoleMetricsCollector", () => {
       collector.recordEvent({ type: "backend:connected", sessionId: "sess-1", timestamp: ts });
       collector.recordEvent({ type: "backend:disconnected", sessionId: "sess-1", timestamp: ts });
 
-      expect(logger.debug).toHaveBeenCalledWith("[METRICS] Backend disconnected: session=sess-1");
+      expect(logger.debug).toHaveBeenCalledWith("Backend disconnected", {
+        component: "metrics",
+        sessionId: "sess-1",
+      });
 
       const stats = collector.getStats({ sessionId: "sess-1" });
       expect((stats.connections as { backend: number }).backend).toBe(0);
@@ -204,9 +228,10 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Backend disconnected: session=sess-unknown",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Backend disconnected", {
+        component: "metrics",
+        sessionId: "sess-unknown",
+      });
     });
   });
 
@@ -224,9 +249,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Message received: session=sess-1, source=cli, type=assistant",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Message received", {
+        component: "metrics",
+        sessionId: "sess-1",
+        source: "cli",
+        messageType: "assistant",
+      });
     });
 
     it("logs 'unknown' when messageType is missing", () => {
@@ -237,9 +265,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Message received: session=sess-1, source=consumer, type=unknown",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Message received", {
+        component: "metrics",
+        sessionId: "sess-1",
+        source: "consumer",
+        messageType: undefined,
+      });
     });
   });
 
@@ -257,9 +288,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Message sent: session=sess-1, target=broadcast, recipients=3",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Message sent", {
+        component: "metrics",
+        sessionId: "sess-1",
+        target: "broadcast",
+        recipientCount: 3,
+      });
     });
 
     it("defaults recipientCount to 1 when not provided", () => {
@@ -270,9 +304,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Message sent: session=sess-1, target=cli, recipients=1",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Message sent", {
+        component: "metrics",
+        sessionId: "sess-1",
+        target: "cli",
+        recipientCount: 1,
+      });
     });
   });
 
@@ -289,9 +326,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Message dropped: session=sess-1, reason=queue full",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Message dropped", {
+        component: "metrics",
+        sessionId: "sess-1",
+        reason: "queue full",
+      });
     });
   });
 
@@ -308,9 +347,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Authentication failed: session=sess-1, reason=invalid token",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Authentication failed", {
+        component: "metrics",
+        sessionId: "sess-1",
+        reason: "invalid token",
+      });
     });
   });
 
@@ -328,9 +369,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Send failed: session=sess-1, target=consumer, reason=socket closed",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Send failed", {
+        component: "metrics",
+        sessionId: "sess-1",
+        target: "consumer",
+        reason: "socket closed",
+      });
     });
   });
 
@@ -349,9 +393,13 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Error in ws-bridge (session=sess-1): connection reset [error]",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Error recorded", {
+        component: "metrics",
+        source: "ws-bridge",
+        sessionId: "sess-1",
+        error: "connection reset",
+        severity: "error",
+      });
     });
 
     it("omits sessionId from log when not provided", () => {
@@ -363,9 +411,13 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Error in server: startup failure [critical]",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Error recorded", {
+        component: "metrics",
+        source: "server",
+        sessionId: undefined,
+        error: "startup failure",
+        severity: "critical",
+      });
     });
   });
 
@@ -382,9 +434,11 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Rate limit exceeded: session=sess-1, source=consumer",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Rate limit exceeded", {
+        component: "metrics",
+        sessionId: "sess-1",
+        source: "consumer",
+      });
     });
   });
 
@@ -402,9 +456,12 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.debug).toHaveBeenCalledWith(
-        "[METRICS] Latency: session=sess-1, operation=auth, durationMs=42",
-      );
+      expect(logger.debug).toHaveBeenCalledWith("Latency recorded", {
+        component: "metrics",
+        sessionId: "sess-1",
+        operation: "auth",
+        durationMs: 42,
+      });
     });
   });
 
@@ -423,9 +480,13 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Queue depth warning: session=sess-1, type=pending_messages, depth=45/50",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Queue depth warning", {
+        component: "metrics",
+        sessionId: "sess-1",
+        queueType: "pending_messages",
+        depth: 45,
+        maxCapacity: 50,
+      });
     });
 
     it("does not warn when depth is within safe threshold", () => {
@@ -451,9 +512,13 @@ describe("ConsoleMetricsCollector", () => {
         timestamp: ts,
       });
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        "[METRICS] Queue depth warning: session=sess-1, type=pending_permissions, depth=41/undefined",
-      );
+      expect(logger.warn).toHaveBeenCalledWith("Queue depth warning", {
+        component: "metrics",
+        sessionId: "sess-1",
+        queueType: "pending_permissions",
+        depth: 41,
+        maxCapacity: undefined,
+      });
     });
   });
 

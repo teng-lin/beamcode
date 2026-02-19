@@ -108,12 +108,6 @@ function recognizeBlock(block: ToolUseContent): RecognizedTeamToolUse | undefine
 
   // Check unambiguous team tools
   if (!UNAMBIGUOUS_TEAM_TOOLS.has(name)) {
-    // Log warning for unknown Team*/Task* prefixed tools
-    if (/^(Team|Task)/.test(name)) {
-      console.debug(
-        `[team-tool-recognizer] Unknown team/task tool "${name}" — may indicate protocol change`,
-      );
-    }
     return undefined;
   }
 

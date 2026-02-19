@@ -123,7 +123,9 @@ export class BackendLifecycleManager {
     // Close any existing backend session
     if (session.backendSession) {
       session.backendAbort?.abort();
-      await session.backendSession.close().catch(() => {});
+      await session.backendSession.close().catch((err) => {
+        this.logger.warn("Failed to close backend session", { sessionId: session.id, error: err });
+      });
     }
 
     const backendSession = await adapter.connect({
@@ -205,7 +207,9 @@ export class BackendLifecycleManager {
     if (!session.backendSession) return;
 
     session.backendAbort?.abort();
-    await session.backendSession.close().catch(() => {});
+    await session.backendSession.close().catch((err) => {
+      this.logger.warn("Failed to close backend session", { sessionId: session.id, error: err });
+    });
     session.backendSession = null;
     session.backendAbort = null;
 
@@ -264,7 +268,7 @@ export class BackendLifecycleManager {
     const sessionId = session.id;
 
     // Consume in the background -- don't await
-    (async () => {
+    void (async () => {
       try {
         if (!session.backendSession) return;
         for await (const msg of session.backendSession.messages) {

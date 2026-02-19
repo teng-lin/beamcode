@@ -23,14 +23,16 @@ export class ConsoleMetricsCollector implements MetricsCollector {
     // Log specific important events
     switch (event.type) {
       case "session:created":
-        this.logger.info(`[METRICS] Session created: ${event.sessionId}`);
+        this.logger.info("Session created", { component: "metrics", sessionId: event.sessionId });
         this.sessionConnections.set(event.sessionId, { backend: 0, consumers: 0 });
         break;
 
       case "session:closed":
-        this.logger.info(
-          `[METRICS] Session closed: ${event.sessionId}${event.reason ? ` (${event.reason})` : ""}`,
-        );
+        this.logger.info("Session closed", {
+          component: "metrics",
+          sessionId: event.sessionId,
+          reason: event.reason,
+        });
         this.sessionConnections.delete(event.sessionId);
         this.sessionEventCounts.delete(event.sessionId);
         break;
@@ -40,9 +42,12 @@ export class ConsoleMetricsCollector implements MetricsCollector {
           const conn = this.sessionConnections.get(sessionId) || { backend: 0, consumers: 0 };
           conn.consumers++;
           this.sessionConnections.set(sessionId, conn);
-          this.logger.debug?.(
-            `[METRICS] Consumer connected: session=${sessionId}, userId=${event.userId}, total=${conn.consumers}`,
-          );
+          this.logger.debug?.("Consumer connected", {
+            component: "metrics",
+            sessionId,
+            userId: event.userId,
+            total: conn.consumers,
+          });
         }
         break;
 
@@ -50,9 +55,11 @@ export class ConsoleMetricsCollector implements MetricsCollector {
         {
           const conn = this.sessionConnections.get(sessionId);
           if (conn) conn.consumers--;
-          this.logger.debug?.(
-            `[METRICS] Consumer disconnected: session=${sessionId}, userId=${event.userId}`,
-          );
+          this.logger.debug?.("Consumer disconnected", {
+            component: "metrics",
+            sessionId,
+            userId: event.userId,
+          });
         }
         break;
 
@@ -61,7 +68,7 @@ export class ConsoleMetricsCollector implements MetricsCollector {
           const conn = this.sessionConnections.get(sessionId) || { backend: 0, consumers: 0 };
           conn.backend = 1;
           this.sessionConnections.set(sessionId, conn);
-          this.logger.debug?.(`[METRICS] Backend connected: session=${sessionId}`);
+          this.logger.debug?.("Backend connected", { component: "metrics", sessionId });
         }
         break;
 
@@ -69,61 +76,89 @@ export class ConsoleMetricsCollector implements MetricsCollector {
         {
           const conn = this.sessionConnections.get(sessionId);
           if (conn) conn.backend = 0;
-          this.logger.debug?.(`[METRICS] Backend disconnected: session=${sessionId}`);
+          this.logger.debug?.("Backend disconnected", { component: "metrics", sessionId });
         }
         break;
 
       case "message:received":
-        this.logger.debug?.(
-          `[METRICS] Message received: session=${sessionId}, source=${event.source}, type=${event.messageType || "unknown"}`,
-        );
+        this.logger.debug?.("Message received", {
+          component: "metrics",
+          sessionId,
+          source: event.source,
+          messageType: event.messageType,
+        });
         break;
 
       case "message:sent":
-        this.logger.debug?.(
-          `[METRICS] Message sent: session=${sessionId}, target=${event.target}, recipients=${event.recipientCount || 1}`,
-        );
+        this.logger.debug?.("Message sent", {
+          component: "metrics",
+          sessionId,
+          target: event.target,
+          recipientCount: event.recipientCount ?? 1,
+        });
         break;
 
       case "message:dropped":
-        this.logger.warn(`[METRICS] Message dropped: session=${sessionId}, reason=${event.reason}`);
+        this.logger.warn("Message dropped", {
+          component: "metrics",
+          sessionId,
+          reason: event.reason,
+        });
         break;
 
       case "auth:failed":
-        this.logger.warn(
-          `[METRICS] Authentication failed: session=${sessionId}, reason=${event.reason}`,
-        );
+        this.logger.warn("Authentication failed", {
+          component: "metrics",
+          sessionId,
+          reason: event.reason,
+        });
         break;
 
       case "send:failed":
-        this.logger.warn(
-          `[METRICS] Send failed: session=${sessionId}, target=${event.target}, reason=${event.reason}`,
-        );
+        this.logger.warn("Send failed", {
+          component: "metrics",
+          sessionId,
+          target: event.target,
+          reason: event.reason,
+        });
         break;
 
       case "error":
-        this.logger.warn(
-          `[METRICS] Error in ${event.source}${event.sessionId ? ` (session=${event.sessionId})` : ""}: ${event.error} [${event.severity}]`,
-        );
+        this.logger.warn("Error recorded", {
+          component: "metrics",
+          source: event.source,
+          sessionId: event.sessionId,
+          error: event.error,
+          severity: event.severity,
+        });
         break;
 
       case "ratelimit:exceeded":
-        this.logger.warn(
-          `[METRICS] Rate limit exceeded: session=${sessionId}, source=${event.source}`,
-        );
+        this.logger.warn("Rate limit exceeded", {
+          component: "metrics",
+          sessionId,
+          source: event.source,
+        });
         break;
 
       case "latency":
-        this.logger.debug?.(
-          `[METRICS] Latency: session=${sessionId}, operation=${event.operation}, durationMs=${event.durationMs}`,
-        );
+        this.logger.debug?.("Latency recorded", {
+          component: "metrics",
+          sessionId,
+          operation: event.operation,
+          durationMs: event.durationMs,
+        });
         break;
 
       case "queue:depth":
         if (event.depth > (event.maxCapacity ?? 50) * 0.8) {
-          this.logger.warn(
-            `[METRICS] Queue depth warning: session=${sessionId}, type=${event.queueType}, depth=${event.depth}/${event.maxCapacity}`,
-          );
+          this.logger.warn("Queue depth warning", {
+            component: "metrics",
+            sessionId,
+            queueType: event.queueType,
+            depth: event.depth,
+            maxCapacity: event.maxCapacity,
+          });
         }
         break;
     }

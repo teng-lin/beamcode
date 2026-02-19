@@ -44,6 +44,9 @@ export class NodeProcessManager implements ProcessManager {
       });
     });
 
+    // Real error handlers are now attached; remove the early no-op listener.
+    child.off("error", earlyErrorListener);
+
     return {
       pid,
       exited,

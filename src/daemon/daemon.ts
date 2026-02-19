@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { noopLogger } from "../adapters/noop-logger.js";
+import type { Logger } from "../interfaces/logger.js";
 import { startHealthCheck } from "./health-check.js";
 import { acquireLock, releaseLock } from "./lock-file.js";
 import { registerSignalHandlers } from "./signal-handler.js";
@@ -29,6 +31,8 @@ export class Daemon {
   private healthTimer: NodeJS.Timeout | null = null;
   private running = false;
   private supervisor: Stoppable | null = null;
+
+  constructor(private logger: Logger = noopLogger) {}
 
   /** Register a supervisor whose processes should be stopped on shutdown. */
   setSupervisor(supervisor: Stoppable): void {
@@ -59,10 +63,10 @@ export class Daemon {
 
       await writeState(this.statePath, state);
 
-      this.healthTimer = startHealthCheck(this.statePath);
+      this.healthTimer = startHealthCheck(this.statePath, this.logger);
       this.running = true;
 
-      registerSignalHandlers(() => this.stop());
+      registerSignalHandlers(() => this.stop(), this.logger);
 
       return { port, controlApiToken };
     } catch (err) {
@@ -85,7 +89,7 @@ export class Daemon {
         await this.supervisor.stopAll();
       } catch (err) {
         // Log but continue to ensure lock is released.
-        console.error("[daemon] Error stopping child processes:", err);
+        this.logger.error("Error stopping child processes", { error: err });
       }
     }
 

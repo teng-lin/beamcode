@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { noopLogger } from "../adapters/noop-logger.js";
 import { registerSignalHandlers } from "./signal-handler.js";
 
 describe("registerSignalHandlers", () => {
@@ -24,7 +25,7 @@ describe("registerSignalHandlers", () => {
 
   it("registers SIGTERM and SIGINT handlers", () => {
     const cleanup = vi.fn().mockResolvedValue(undefined);
-    registerSignalHandlers(cleanup);
+    registerSignalHandlers(cleanup, noopLogger);
 
     expect(registeredHandlers.has("SIGTERM")).toBe(true);
     expect(registeredHandlers.has("SIGINT")).toBe(true);
@@ -32,7 +33,7 @@ describe("registerSignalHandlers", () => {
 
   it("calls the cleanup function when a signal is received", async () => {
     const cleanup = vi.fn().mockResolvedValue(undefined);
-    registerSignalHandlers(cleanup);
+    registerSignalHandlers(cleanup, noopLogger);
 
     const handler = registeredHandlers.get("SIGTERM")!;
     handler();
@@ -45,7 +46,7 @@ describe("registerSignalHandlers", () => {
 
   it("calls process.exit(0) after successful cleanup", async () => {
     const cleanup = vi.fn().mockResolvedValue(undefined);
-    registerSignalHandlers(cleanup);
+    registerSignalHandlers(cleanup, noopLogger);
 
     const handler = registeredHandlers.get("SIGTERM")!;
     handler();
@@ -57,7 +58,7 @@ describe("registerSignalHandlers", () => {
 
   it("calls process.exit(0) even when cleanup throws", async () => {
     const cleanup = vi.fn().mockRejectedValue(new Error("cleanup failed"));
-    registerSignalHandlers(cleanup);
+    registerSignalHandlers(cleanup, noopLogger);
 
     const handler = registeredHandlers.get("SIGINT")!;
     handler();
@@ -71,7 +72,7 @@ describe("registerSignalHandlers", () => {
     // Cleanup that never resolves, simulating a stall
     const cleanup = vi.fn().mockReturnValue(new Promise(() => {}));
     const timeoutMs = 5_000;
-    registerSignalHandlers(cleanup, timeoutMs);
+    registerSignalHandlers(cleanup, noopLogger, timeoutMs);
 
     const handler = registeredHandlers.get("SIGTERM")!;
     handler();
@@ -84,7 +85,7 @@ describe("registerSignalHandlers", () => {
 
   it("is idempotent — second signal call is a no-op", async () => {
     const cleanup = vi.fn().mockReturnValue(new Promise(() => {}));
-    registerSignalHandlers(cleanup);
+    registerSignalHandlers(cleanup, noopLogger);
 
     const handler = registeredHandlers.get("SIGTERM")!;
     handler();

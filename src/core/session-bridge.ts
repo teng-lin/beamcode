@@ -1,4 +1,5 @@
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import { noopLogger } from "../adapters/noop-logger.js";
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -32,8 +33,8 @@ import { SlashCommandHandler } from "./slash-command-handler.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
-import { UnifiedMessageRouter } from "./unified-message-router.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
+import { UnifiedMessageRouter } from "./unified-message-router.js";
 
 // ─── SessionBridge ───────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       createCorrelationBuffer: () => new TeamToolCorrelationBuffer(),
       createRegistry: () => new SlashCommandRegistry(),
     });
-    this.logger = options?.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
+    this.logger = options?.logger ?? noopLogger;
     this.config = resolveConfig(options?.config ?? { port: 3456 });
     this.broadcaster = new ConsumerBroadcaster(this.logger, (sessionId, msg) =>
       this.emit("message:outbound", { sessionId, message: msg }),
@@ -218,7 +219,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     // Close backend session
     if (session.backendSession) {
       session.backendAbort?.abort();
-      session.backendSession.close().catch(() => {});
+      session.backendSession.close().catch((err) => {
+        this.logger.warn("Failed to close backend session", { sessionId: session.id, error: err });
+      });
       session.backendSession = null;
       session.backendAbort = null;
     }
@@ -861,5 +864,4 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     }
     this.backendLifecycle.sendToBackend(session, message);
   }
-
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { RecognizedTeamToolUse } from "./team-tool-recognizer.js";
 import { recognizeTeamToolUses } from "./team-tool-recognizer.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
@@ -443,45 +443,35 @@ describe("recognizeTeamToolUses", () => {
   // Warning for unknown Team*/Task* tools
   // ---------------------------------------------------------------------------
 
-  describe("unknown team/task tool warnings", () => {
-    it("logs warning for unknown Team-prefixed tools", () => {
-      const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+  describe("unknown team/task tool handling", () => {
+    it("ignores unknown Team-prefixed tools", () => {
       const msg = assistantWithToolUses([
         { id: "tu-80", name: "TeamFoo", input: { something: true } },
       ]);
       const results = recognizeTeamToolUses(msg);
       expect(results).toHaveLength(0);
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("TeamFoo"));
-      consoleSpy.mockRestore();
     });
 
-    it("logs warning for unknown Task-prefixed tools (not in recognized set)", () => {
-      const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    it("ignores unknown Task-prefixed tools (not in recognized set)", () => {
       const msg = assistantWithToolUses([{ id: "tu-81", name: "TaskDelete", input: {} }]);
       const results = recognizeTeamToolUses(msg);
       expect(results).toHaveLength(0);
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("TaskDelete"));
-      consoleSpy.mockRestore();
     });
 
-    it("does not log warning for known tools", () => {
-      const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    it("recognizes known tools without warnings", () => {
       const msg = assistantWithToolUses([
         { id: "tu-82", name: "TaskCreate", input: { subject: "Valid" } },
       ]);
-      recognizeTeamToolUses(msg);
-      expect(consoleSpy).not.toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      const results = recognizeTeamToolUses(msg);
+      expect(results).toHaveLength(1);
     });
 
-    it("does not log warning for non-Team/Task prefixed tools", () => {
-      const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    it("ignores non-Team/Task prefixed tools", () => {
       const msg = assistantWithToolUses([
         { id: "tu-83", name: "Read", input: { file_path: "/foo" } },
       ]);
-      recognizeTeamToolUses(msg);
-      expect(consoleSpy).not.toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      const results = recognizeTeamToolUses(msg);
+      expect(results).toHaveLength(0);
     });
   });
 

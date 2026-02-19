@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import type { CliAdapterName } from "../adapters/create-adapter.js";
+import { noopLogger } from "../adapters/noop-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -48,6 +49,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private relaunchDedupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private idleReaperTimer: ReturnType<typeof setTimeout> | null = null;
+  private eventCleanups: (() => void)[] = [];
   private started = false;
 
   constructor(options: {
@@ -66,7 +68,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     super();
 
     this.config = resolveConfig(options.config);
-    this.logger = options.logger ?? { info() {}, warn() {}, error() {}, debug() {} };
+    this.logger = options.logger ?? noopLogger;
     this.server = options.server ?? null;
     this.adapter = options.adapter ?? null;
     this.adapterResolver = options.adapterResolver ?? null;
@@ -279,6 +281,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
    * 3. Clear timers
    */
   async stop(): Promise<void> {
+    // Remove all wired event listeners to prevent leaks on restart
+    for (const cleanup of this.eventCleanups) cleanup();
+    this.eventCleanups = [];
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -339,25 +345,41 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private processLogBuffers = new Map<string, string[]>();
   private static readonly MAX_LOG_LINES = 500;
 
+  /**
+   * Register an event listener and record a cleanup function so it can be
+   * removed later (e.g. on stop()).  This prevents listener leaks when the
+   * manager is restarted.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: must accept any TypedEventEmitter variant
+  private trackListener<E extends TypedEventEmitter<any>>(
+    emitter: E,
+    event: string,
+    // biome-ignore lint/suspicious/noExplicitAny: generic event handler signature
+    handler: (...args: any[]) => void,
+  ): void {
+    emitter.on(event, handler);
+    this.eventCleanups.push(() => emitter.off(event, handler));
+  }
+
   private wireEvents(): void {
     // When the backend reports its session_id, store it for --resume on relaunch
-    this.bridge.on("backend:session_id", ({ sessionId, backendSessionId }) => {
+    this.trackListener(this.bridge, "backend:session_id", ({ sessionId, backendSessionId }) => {
       this.launcher.setBackendSessionId(sessionId, backendSessionId);
     });
 
     // When backend connects, mark it in the launcher
-    this.bridge.on("backend:connected", ({ sessionId }) => {
+    this.trackListener(this.bridge, "backend:connected", ({ sessionId }) => {
       this.launcher.markConnected(sessionId);
     });
 
     // ── Resume failure → broadcast to consumers (Step 3) ──
-    this.launcher.on("process:resume_failed", ({ sessionId }) => {
+    this.trackListener(this.launcher, "process:resume_failed", ({ sessionId }) => {
       this.bridge.broadcastResumeFailedToConsumers(sessionId);
     });
 
     // ── Process output forwarding with redaction (Step 11) ──
     for (const stream of ["process:stdout", "process:stderr"] as const) {
-      this.launcher.on(stream, ({ sessionId, data }) => {
+      this.trackListener(this.launcher, stream, ({ sessionId, data }) => {
         const redacted = redactSecrets(data);
         // Ring buffer
         const buffer = this.processLogBuffers.get(sessionId) ?? [];
@@ -377,34 +399,38 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     }
 
     // ── Circuit breaker state from process:exited (Step 9) ──
-    this.launcher.on("process:exited", ({ sessionId, circuitBreaker }) => {
+    this.trackListener(this.launcher, "process:exited", ({ sessionId, circuitBreaker }) => {
       if (circuitBreaker) {
         this.bridge.broadcastCircuitBreakerState(sessionId, circuitBreaker);
       }
     });
 
     // ── Session auto-naming on first turn (Step 4) ──
-    this.bridge.on("session:first_turn_completed", ({ sessionId, firstUserMessage }) => {
-      const session = this.launcher.getSession(sessionId);
-      if (session?.name) return; // Already named
+    this.trackListener(
+      this.bridge,
+      "session:first_turn_completed",
+      ({ sessionId, firstUserMessage }) => {
+        const session = this.launcher.getSession(sessionId);
+        if (session?.name) return; // Already named
 
-      // Derive name: first line, truncated, redacted
-      let name = firstUserMessage.split("\n")[0].trim();
-      name = redactSecrets(name);
-      if (name.length > 50) name = `${name.slice(0, 47)}...`;
-      if (!name) return;
+        // Derive name: first line, truncated, redacted
+        let name = firstUserMessage.split("\n")[0].trim();
+        name = redactSecrets(name);
+        if (name.length > 50) name = `${name.slice(0, 47)}...`;
+        if (!name) return;
 
-      this.bridge.broadcastNameUpdate(sessionId, name);
-      this.launcher.setSessionName(sessionId, name);
-    });
+        this.bridge.broadcastNameUpdate(sessionId, name);
+        this.launcher.setSessionName(sessionId, name);
+      },
+    );
 
     // Clean up process log buffer when a session is closed
-    this.bridge.on("session:closed", ({ sessionId }) => {
+    this.trackListener(this.bridge, "session:closed", ({ sessionId }) => {
       this.processLogBuffers.delete(sessionId);
     });
 
     // Auto-relaunch when a consumer connects but backend is dead (with dedup — A5)
-    this.bridge.on("backend:relaunch_needed", async ({ sessionId }) => {
+    this.trackListener(this.bridge, "backend:relaunch_needed", async ({ sessionId }) => {
       if (this.relaunchingSet.has(sessionId)) return;
 
       const info = this.launcher.getSession(sessionId);
@@ -423,6 +449,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           await this.launcher.relaunch(sessionId);
         } finally {
           const timer = setTimeout(() => {
+            if (!this.started) return;
             this.relaunchingSet.delete(sessionId);
             this.relaunchDedupTimers.delete(sessionId);
           }, this.config.relaunchDedupMs);
@@ -446,6 +473,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           this.logger.error(`Failed to reconnect backend for session ${sessionId}: ${err}`);
         } finally {
           const timer = setTimeout(() => {
+            if (!this.started) return;
             this.relaunchingSet.delete(sessionId);
             this.relaunchDedupTimers.delete(sessionId);
           }, this.config.relaunchDedupMs);
@@ -479,9 +507,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       "error",
     ] as const) {
       // biome-ignore lint/suspicious/noExplicitAny: event forwarding — TypeScript cannot narrow dynamic event names
-      this.bridge.on(event, (payload: any) => {
+      const handler = (payload: any) => {
         this.emit(event, payload);
-      });
+      };
+      this.trackListener(this.bridge, event, handler);
     }
 
     // Forward all launcher events
@@ -495,9 +524,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       "error",
     ] as const) {
       // biome-ignore lint/suspicious/noExplicitAny: event forwarding — TypeScript cannot narrow dynamic event names
-      this.launcher.on(event, (payload: any) => {
+      const handler = (payload: any) => {
         this.emit(event, payload);
-      });
+      };
+      this.trackListener(this.launcher, event, handler);
     }
   }
 

@@ -1,3 +1,5 @@
+import type { Logger } from "../interfaces/logger.js";
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
@@ -6,6 +8,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  */
 export function registerSignalHandlers(
   cleanup: () => Promise<void>,
+  logger: Logger,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): void {
   let shuttingDown = false;
@@ -20,8 +23,8 @@ export function registerSignalHandlers(
     forceTimer.unref();
 
     cleanup()
-      .catch(() => {
-        // Best-effort cleanup — exit regardless.
+      .catch((err) => {
+        logger.error("Shutdown cleanup failed", { component: "daemon", error: err });
       })
       .finally(() => {
         clearTimeout(forceTimer);
