@@ -1086,7 +1086,7 @@ describe("E2E: CodexAdapter", () => {
       });
 
       const { target: msg } = await waitForUnifiedMessageType(session, "assistant");
-      expect(msg.content).toEqual([{ type: "text", text: "[Refusal] I cannot help with that." }]);
+      expect(msg.content).toEqual([{ type: "refusal", refusal: "I cannot help with that." }]);
       expect(msg.metadata.done).toBe(true);
     });
 
@@ -1113,8 +1113,8 @@ describe("E2E: CodexAdapter", () => {
       expect(msg.content).toHaveLength(2);
       expect(msg.content[0]).toEqual({ type: "text", text: "Here is some context. " });
       expect(msg.content[1]).toEqual({
-        type: "text",
-        text: "[Refusal] But I cannot do that part.",
+        type: "refusal",
+        refusal: "But I cannot do that part.",
       });
     });
   });
@@ -1542,9 +1542,11 @@ describe("E2E: CodexAdapter", () => {
         ],
       });
 
-      const messages = await collectUnifiedMessages(session, 1);
-      expect(messages[0].type).toBe("result");
-      expect(messages[0].metadata.output_items).toBe(2);
+      const messages = await collectUnifiedMessages(session, 3);
+      expect(messages[0].type).toBe("tool_progress");
+      expect(messages[1].type).toBe("tool_use_summary");
+      expect(messages[2].type).toBe("result");
+      expect(messages[2].metadata.output_items).toBe(2);
     });
 
     it("response with empty output array emits result", async () => {

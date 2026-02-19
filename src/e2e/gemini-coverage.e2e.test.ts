@@ -337,8 +337,8 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     expect(msgs[0].type).toBe("stream_event");
     expect(msgs[0].metadata.thought).toBe(true);
     expect(msgs[0].content[0]).toEqual({
-      type: "text",
-      text: "Thinking about this...",
+      type: "thinking",
+      thinking: "Thinking about this...",
     });
     // Second: regular message chunk
     expect(msgs[1].type).toBe("stream_event");
@@ -911,7 +911,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     session.send(createUserMessage("commands"));
 
     const msgs = await reader.collect(2);
-    expect(msgs[0].type).toBe("unknown");
+    expect(msgs[0].type).toBe("configuration_change");
     expect(msgs[0].metadata.availableCommands).toEqual([
       { name: "/help", description: "Show help" },
       { name: "/clear", description: "Clear screen" },
