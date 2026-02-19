@@ -69,9 +69,10 @@ export class CodexSlashExecutor {
         }
         case "/rename": {
           this.requireThread(threadId);
-          if (!args) throw new Error("Usage: /rename <name>");
-          await this.session.requestRpc("thread/name/set", { threadId, name: args });
-          content = `Thread renamed to: ${args}`;
+          const newName = args.trim();
+          if (!newName) throw new Error("Usage: /rename <name>");
+          await this.session.requestRpc("thread/name/set", { threadId, name: newName });
+          content = `Thread renamed to: ${newName}`;
           break;
         }
         default:

@@ -13,9 +13,11 @@ import type { WebSocketLike } from "../interfaces/transport.js";
 import type { PermissionRequest } from "../types/cli-messages.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
-import type { BackendSession } from "./interfaces/backend-adapter.js";
+import type { AdapterSlashExecutor, BackendSession } from "./interfaces/backend-adapter.js";
 import type { SlashCommandRegistry } from "./slash-command-registry.js";
 import type { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
+
+export type { AdapterSlashExecutor };
 
 // ─── Session type (internal to the bridge + store) ───────────────────────────
 
@@ -25,13 +27,6 @@ export interface QueuedMessage {
   content: string;
   images?: { media_type: string; data: string }[];
   queuedAt: number;
-}
-
-/** Duck-typed interface for adapter-specific slash command executors. */
-export interface AdapterSlashExecutor {
-  handles(command: string): boolean;
-  execute(command: string): Promise<{ content: string; source: "emulated"; durationMs: number }>;
-  supportedCommands(): string[];
 }
 
 export interface Session {
