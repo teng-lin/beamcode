@@ -924,6 +924,46 @@ describe("E2E: CodexAdapter", () => {
       expect(result.metadata.is_error).toBe(true);
       expect(result.metadata.error).toBe("Server overloaded");
     });
+
+    it("codex/event/error (legacy wrapped) emits error result with error_code", async () => {
+      session = createSession();
+      await waitForUnifiedMessageType(session, "session_init");
+
+      sendCodexNotification(ws, "codex/event/error", {
+        id: "turn-1",
+        msg: {
+          type: "error",
+          message: "You've hit your usage limit.",
+          codex_error_info: "usage_limit_exceeded",
+        },
+        conversationId: "conv-1",
+      });
+
+      const { target: result } = await waitForUnifiedMessageType(session, "result");
+      expect(result.metadata.status).toBe("failed");
+      expect(result.metadata.is_error).toBe(true);
+      expect(result.metadata.error).toBe("You've hit your usage limit.");
+      expect(result.metadata.error_code).toBe("usage_limit_exceeded");
+    });
+
+    it("v2 error notification includes error_code from codexErrorInfo", async () => {
+      session = createSession();
+      await waitForUnifiedMessageType(session, "session_init");
+
+      sendCodexNotification(ws, "error", {
+        error: {
+          message: "Rate limited",
+          codexErrorInfo: "usageLimitExceeded",
+        },
+        willRetry: false,
+      });
+
+      const { target: result } = await waitForUnifiedMessageType(session, "result");
+      expect(result.metadata.status).toBe("failed");
+      expect(result.metadata.is_error).toBe(true);
+      expect(result.metadata.error).toBe("Rate limited");
+      expect(result.metadata.error_code).toBe("usageLimitExceeded");
+    });
   });
 
   // -------------------------------------------------------------------------
