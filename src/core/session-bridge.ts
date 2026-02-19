@@ -21,16 +21,7 @@ import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeeper.js";
-import {
-  mapAssistantMessage,
-  mapAuthStatus,
-  mapPermissionRequest,
-  mapResultMessage,
-  mapStreamEvent,
-  mapToolProgress,
-  mapToolUseSummary,
-} from "./consumer-message-mapper.js";
-import { applyGitInfo, GitInfoTracker } from "./git-info-tracker.js";
+import { GitInfoTracker } from "./git-info-tracker.js";
 import { normalizeInbound } from "./inbound-normalizer.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
@@ -38,12 +29,10 @@ import type { Session } from "./session-store.js";
 import { SessionStore } from "./session-store.js";
 import { SlashCommandExecutor } from "./slash-command-executor.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
-import { reduce as reduceState } from "./session-state-reducer.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
-import { diffTeamState } from "./team-event-differ.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
-import type { TeamState } from "./types/team-types.js";
+import { UnifiedMessageRouter } from "./unified-message-router.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
 // ─── SessionBridge ───────────────────────────────────────────────────────────
@@ -62,6 +51,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private capabilitiesProtocol: CapabilitiesProtocol;
   private backendLifecycle: BackendLifecycleManager;
   private slashCommandHandler: SlashCommandHandler;
+  private messageRouter: UnifiedMessageRouter;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -107,13 +97,23 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.sendUserMessage(sessionId, content, opts),
     );
     this.slashCommandExecutor = new SlashCommandExecutor();
+    this.messageRouter = new UnifiedMessageRouter({
+      broadcaster: this.broadcaster,
+      capabilitiesProtocol: this.capabilitiesProtocol,
+      queueHandler: this.queueHandler,
+      gitTracker: this.gitTracker,
+      gitResolver: this.gitResolver,
+      emitEvent,
+      persistSession: (session) => this.persistSession(session),
+      maxMessageHistoryLength: this.config.maxMessageHistoryLength,
+    });
     this.backendLifecycle = new BackendLifecycleManager({
       adapter: options?.adapter ?? null,
       adapterResolver: options?.adapterResolver ?? null,
       logger: this.logger,
       metrics: this.metrics,
       broadcaster: this.broadcaster,
-      routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
+      routeUnifiedMessage: (session, msg) => this.messageRouter.route(session, msg),
       emitEvent,
     });
     this.slashCommandHandler = new SlashCommandHandler({
@@ -863,255 +863,4 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.backendLifecycle.sendToBackend(session, message);
   }
 
-  // ── Unified message routing ────────────────────────────────────────────
-
-  private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
-    // Capture previous team state for event diffing
-    const prevTeam = session.state.team;
-
-    // Apply state reduction (pure function — no side effects, includes team state)
-    session.state = reduceState(session.state, msg, session.teamCorrelationBuffer);
-
-    // Emit team events by diffing previous and new team state (Phase 5.7)
-    this.emitTeamEvents(session, prevTeam);
-
-    switch (msg.type) {
-      case "session_init":
-        this.handleUnifiedSessionInit(session, msg);
-        break;
-      case "status_change":
-        this.handleUnifiedStatusChange(session, msg);
-        break;
-      case "assistant":
-        this.handleUnifiedAssistant(session, msg);
-        break;
-      case "result":
-        this.handleUnifiedResult(session, msg);
-        break;
-      case "stream_event":
-        this.handleUnifiedStreamEvent(session, msg);
-        break;
-      case "permission_request":
-        this.handleUnifiedPermissionRequest(session, msg);
-        break;
-      case "control_response":
-        this.capabilitiesProtocol.handleControlResponse(session, msg);
-        break;
-      case "tool_progress":
-        this.handleUnifiedToolProgress(session, msg);
-        break;
-      case "tool_use_summary":
-        this.handleUnifiedToolUseSummary(session, msg);
-        break;
-      case "auth_status":
-        this.handleUnifiedAuthStatus(session, msg);
-        break;
-    }
-  }
-
-  // ── Team event emission (Phase 5.7) ──────────────────────────────────
-
-  /**
-   * Compare previous and current team state, broadcast to consumers, and emit events.
-   */
-  private emitTeamEvents(session: Session, prevTeam: TeamState | undefined): void {
-    const currentTeam = session.state.team;
-
-    // No change
-    if (prevTeam === currentTeam) return;
-
-    // Broadcast team state to consumers (works for create, update, and delete).
-    // Use null (not undefined) for deletion so JSON.stringify preserves the key.
-    this.broadcaster.broadcast(session, {
-      type: "session_update",
-      session: { team: currentTeam ?? null } as Partial<SessionState>,
-    });
-
-    // Diff and emit events
-    const events = diffTeamState(session.id, prevTeam, currentTeam);
-    for (const event of events) {
-      this.emit(event.type, event.payload as BridgeEventMap[typeof event.type]);
-    }
-  }
-
-  private handleUnifiedSessionInit(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-
-    // Store backend session ID for resume
-    if (m.session_id) {
-      session.cliSessionId = m.session_id as string;
-      this.emit("backend:session_id", {
-        sessionId: session.id,
-        backendSessionId: m.session_id as string,
-      });
-      this.emit("cli:session_id", {
-        sessionId: session.id,
-        cliSessionId: m.session_id as string,
-      });
-    }
-
-    // Resolve git info (unconditional: CLI is authoritative, cwd may differ from seed)
-    this.gitTracker.resetAttempt(session.id);
-    if (session.state.cwd && this.gitResolver) {
-      const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) applyGitInfo(session, gitInfo);
-    }
-
-    // Populate registry from init data (per-session)
-    session.registry.clearDynamic();
-    if (session.state.slash_commands.length > 0) {
-      session.registry.registerFromCLI(
-        session.state.slash_commands.map((name: string) => ({ name, description: "" })),
-      );
-    }
-    if (session.state.skills.length > 0) {
-      session.registry.registerSkills(session.state.skills);
-    }
-
-    this.broadcaster.broadcast(session, {
-      type: "session_init",
-      session: session.state,
-    });
-    this.persistSession(session);
-
-    // If the adapter already provided capabilities in the init message (e.g. Codex),
-    // apply them directly instead of sending a separate control_request (Claude-only).
-    if (m.capabilities && typeof m.capabilities === "object") {
-      const caps = m.capabilities as {
-        commands?: InitializeCommand[];
-        models?: InitializeModel[];
-        account?: InitializeAccount;
-      };
-      this.capabilitiesProtocol.applyCapabilities(
-        session,
-        Array.isArray(caps.commands) ? caps.commands : [],
-        Array.isArray(caps.models) ? caps.models : [],
-        caps.account ?? null,
-      );
-    } else {
-      this.capabilitiesProtocol.sendInitializeRequest(session);
-    }
-  }
-
-  private handleUnifiedStatusChange(session: Session, msg: UnifiedMessage): void {
-    const status = msg.metadata.status as string | null | undefined;
-    session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
-    this.broadcaster.broadcast(session, {
-      type: "status_change",
-      status: session.lastStatus,
-    });
-
-    // Broadcast permissionMode change so frontend can confirm the update
-    if (msg.metadata.permissionMode !== undefined && msg.metadata.permissionMode !== null) {
-      this.broadcaster.broadcast(session, {
-        type: "session_update",
-        session: { permissionMode: session.state.permissionMode } as Partial<SessionState>,
-      });
-    }
-
-    // Auto-send queued message when transitioning to idle
-    if (status === "idle") {
-      this.queueHandler.autoSendQueuedMessage(session);
-    }
-  }
-
-  private handleUnifiedAssistant(session: Session, msg: UnifiedMessage): void {
-    const consumerMsg = mapAssistantMessage(msg);
-    session.messageHistory.push(consumerMsg);
-    this.trimMessageHistory(session);
-    this.broadcaster.broadcast(session, consumerMsg);
-    this.persistSession(session);
-  }
-
-  private handleUnifiedResult(session: Session, msg: UnifiedMessage): void {
-    const consumerMsg = mapResultMessage(msg);
-    session.messageHistory.push(consumerMsg);
-    this.trimMessageHistory(session);
-    this.broadcaster.broadcast(session, consumerMsg);
-    this.persistSession(session);
-
-    // Mark session idle — the CLI only sends status_change for "compacting" | null,
-    // so the bridge must infer "idle" from result messages (mirrors frontend logic).
-    session.lastStatus = "idle";
-    this.queueHandler.autoSendQueuedMessage(session);
-
-    // Trigger auto-naming after first turn
-    const m = msg.metadata;
-    const numTurns = (m.num_turns as number) ?? 0;
-    const isError = (m.is_error as boolean) ?? false;
-    if (numTurns === 1 && !isError) {
-      const firstUserMsg = session.messageHistory.find((msg) => msg.type === "user_message");
-      if (firstUserMsg && firstUserMsg.type === "user_message") {
-        this.emit("session:first_turn_completed", {
-          sessionId: session.id,
-          firstUserMessage: firstUserMsg.content,
-        });
-      }
-    }
-
-    // Re-resolve git info — the CLI may have committed, switched branches, etc.
-    const gitUpdate = this.gitTracker.refreshGitInfo(session);
-    if (gitUpdate) {
-      this.broadcaster.broadcast(session, {
-        type: "session_update",
-        session: gitUpdate,
-      });
-    }
-  }
-
-  private handleUnifiedStreamEvent(session: Session, msg: UnifiedMessage): void {
-    const m = msg.metadata;
-    const event = m.event as { type?: string } | undefined;
-
-    // Derive "running" status from message_start (main session only).
-    // The CLI only sends status_change for "compacting" | null — it never
-    // reports "running", so the bridge must infer it from stream events.
-    if (event?.type === "message_start" && !m.parent_tool_use_id) {
-      session.lastStatus = "running";
-      this.broadcaster.broadcast(session, {
-        type: "status_change",
-        status: session.lastStatus,
-      });
-    }
-
-    this.broadcaster.broadcast(session, mapStreamEvent(msg));
-  }
-
-  private handleUnifiedPermissionRequest(session: Session, msg: UnifiedMessage): void {
-    const mapped = mapPermissionRequest(msg);
-    if (!mapped) return;
-
-    const { consumerPerm, cliPerm } = mapped;
-    session.pendingPermissions.set(consumerPerm.request_id, cliPerm);
-
-    this.broadcaster.broadcastToParticipants(session, {
-      type: "permission_request",
-      request: consumerPerm,
-    });
-    this.emit("permission:requested", {
-      sessionId: session.id,
-      request: cliPerm,
-    });
-    this.persistSession(session);
-  }
-
-  private handleUnifiedToolProgress(session: Session, msg: UnifiedMessage): void {
-    this.broadcaster.broadcast(session, mapToolProgress(msg));
-  }
-
-  private handleUnifiedToolUseSummary(session: Session, msg: UnifiedMessage): void {
-    this.broadcaster.broadcast(session, mapToolUseSummary(msg));
-  }
-
-  private handleUnifiedAuthStatus(session: Session, msg: UnifiedMessage): void {
-    const consumerMsg = mapAuthStatus(msg);
-    this.broadcaster.broadcast(session, consumerMsg);
-    const m = msg.metadata;
-    this.emit("auth_status", {
-      sessionId: session.id,
-      isAuthenticating: m.isAuthenticating as boolean,
-      output: m.output as string[],
-      error: m.error as string | undefined,
-    });
-  }
 }
