@@ -16,6 +16,13 @@ export interface HttpServerOptions {
   apiKey?: string;
 }
 
+/** Timing-safe string comparison using SHA-256 to normalize lengths. */
+function timingSafeCompare(a: string, b: string): boolean {
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
+
 export function createBeamcodeServer(
   options: HttpServerOptions,
 ): Server & { setActiveSessionId(id: string): void } {
@@ -30,13 +37,8 @@ export function createBeamcodeServer(
     // This prevents unauthenticated access both from LAN and through tunnels
     // (cloudflared forwards requests as localhost, making IP-based checks unreliable).
     if (apiKey && url.pathname.startsWith("/api/")) {
-      const auth = req.headers.authorization;
-      const expected = `Bearer ${apiKey}`;
-      const a = createHash("sha256")
-        .update(auth ?? "")
-        .digest();
-      const b = createHash("sha256").update(expected).digest();
-      if (!timingSafeEqual(a, b)) {
+      const auth = req.headers.authorization ?? "";
+      if (!timingSafeCompare(auth, `Bearer ${apiKey}`)) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Unauthorized" }));
         return;

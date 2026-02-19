@@ -174,7 +174,7 @@ export class CloudflaredManager {
     if (config.metricsPort) {
       args.push("--metrics", `127.0.0.1:${config.metricsPort}`);
     }
-    return { args, env: { ...process.env } };
+    return { args, env: process.env };
   }
 
   private scheduleRestart(): void {

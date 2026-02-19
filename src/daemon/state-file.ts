@@ -17,6 +17,7 @@ export async function writeState(statePath: string, state: DaemonState): Promise
   try {
     await writeFile(tmpPath, JSON.stringify(state), { encoding: "utf-8", mode: 0o600 });
     await rename(tmpPath, statePath);
+    // Ensure owner-only permissions survive regardless of umask at creation time.
     await chmod(statePath, 0o600);
   } catch (err) {
     try {
