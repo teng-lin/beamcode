@@ -180,6 +180,16 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
             this.adapterResolver?.sdkUrlAdapter ??
             (this.adapter && isInvertedConnectionAdapter(this.adapter) ? this.adapter : null);
           if (invertedAdapter && isInvertedConnectionAdapter(invertedAdapter)) {
+            // Validate: only accept connections for sessions we actually launched.
+            // Prevents resource exhaustion from arbitrary sessionIds.
+            const info = this.launcher.getSession(sessionId);
+            if (!info || info.state !== "starting") {
+              this.logger.warn(
+                `Rejecting unexpected CLI connection for session ${sessionId} (state=${info?.state ?? "unknown"})`,
+              );
+              socket.close();
+              return;
+            }
             const adapter = invertedAdapter;
             // Buffer messages that arrive before the adapter socket is wired.
             // connectBackend() is async — without buffering, messages the CLI

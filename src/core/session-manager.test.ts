@@ -737,6 +737,7 @@ describe("SessionManager", () => {
     it("with InvertedConnectionAdapter, CLI WS connection calls connectBackend then deliverSocket", async () => {
       const adapter = new MockInvertedAdapter();
       const { server, getCapturedOnCLI } = createMockServer();
+      const launcher = createLauncher(pm, { storage, logger: noopLogger });
 
       const adapterMgr = new SessionManager({
         config: { port: 3456 },
@@ -744,21 +745,25 @@ describe("SessionManager", () => {
         logger: noopLogger,
         server,
         adapter,
-        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+        launcher,
       });
 
       await adapterMgr.start();
       const onCLI = getCapturedOnCLI();
       expect(onCLI).not.toBeNull();
 
+      // Pre-register the session in "starting" state so the CLI handler's validation passes
+      const sessionId = "adapter-session-1";
+      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+
       const { socket } = createMockSocket();
-      onCLI!(socket as any, "adapter-session-1");
+      onCLI!(socket as any, sessionId);
 
       // connectBackend + deliverSocket are async — wait for them
       await vi.waitFor(() => {
         expect(adapter.deliverSocketCalls).toHaveLength(1);
       });
-      expect(adapter.deliverSocketCalls[0].sessionId).toBe("adapter-session-1");
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe(sessionId);
       expect(adapter.deliverSocketCalls[0].ws).not.toBeNull();
       const deliveredSocket = adapter.deliverSocketCalls[0].ws as {
         send: (data: string) => void;
@@ -770,7 +775,7 @@ describe("SessionManager", () => {
       expect(socket.close).toHaveBeenCalled();
 
       // Backend session should be connected via adapter
-      expect(adapterMgr.bridge.isCliConnected("adapter-session-1")).toBe(true);
+      expect(adapterMgr.bridge.isCliConnected(sessionId)).toBe(true);
 
       await adapterMgr.stop();
     });
@@ -779,6 +784,7 @@ describe("SessionManager", () => {
       const adapter = new MockInvertedAdapter();
       adapter.deliverSocketResult = false;
       const { server, getCapturedOnCLI } = createMockServer();
+      const launcher = createLauncher(pm, { storage, logger: noopLogger });
 
       const adapterMgr = new SessionManager({
         config: { port: 3456 },
@@ -786,21 +792,25 @@ describe("SessionManager", () => {
         logger: noopLogger,
         server,
         adapter,
-        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+        launcher,
       });
 
       await adapterMgr.start();
       const onCLI = getCapturedOnCLI();
       expect(onCLI).not.toBeNull();
 
+      // Pre-register the session in "starting" state so the CLI handler's validation passes
+      const sessionId = "fallback-session";
+      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+
       const { socket } = createMockSocket();
-      onCLI!(socket as any, "fallback-session");
+      onCLI!(socket as any, sessionId);
 
       // connectBackend + deliverSocket are async — wait for them
       await vi.waitFor(() => {
         expect(adapter.deliverSocketCalls).toHaveLength(1);
       });
-      expect(adapter.deliverSocketCalls[0].sessionId).toBe("fallback-session");
+      expect(adapter.deliverSocketCalls[0].sessionId).toBe(sessionId);
 
       // Socket should have been closed (deliverSocket returned false)
       expect(socket.close).toHaveBeenCalled();
@@ -841,10 +851,11 @@ describe("SessionManager", () => {
         resolve: vi.fn(() => resolverAdapter),
         sdkUrlAdapter: resolverAdapter,
         defaultName: "codex" as const,
-        availableAdapters: ["sdk-url", "codex", "acp"] as const,
+        availableAdapters: ["sdk-url", "codex", "acp", "gemini", "opencode"] as const,
       };
 
       const { server, getCapturedOnCLI } = createMockServer();
+      const launcher = createLauncher(pm, { storage, logger: noopLogger });
 
       const resolverMgr = new SessionManager({
         config: { port: 3456 },
@@ -853,20 +864,24 @@ describe("SessionManager", () => {
         server,
         // No global adapter — but adapterResolver provides sdkUrlAdapter
         adapterResolver: mockResolver as any,
-        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+        launcher,
       });
 
       await resolverMgr.start();
       const onCLI = getCapturedOnCLI();
       expect(onCLI).not.toBeNull();
 
+      // Pre-register the session in "starting" state so the CLI handler's validation passes
+      const sessionId = "resolver-session";
+      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+
       const { socket } = createMockSocket();
-      onCLI!(socket as any, "resolver-session");
+      onCLI!(socket as any, sessionId);
 
       await vi.waitFor(() => {
         expect(resolverAdapter.deliverSocketCalls).toHaveLength(1);
       });
-      expect(resolverAdapter.deliverSocketCalls[0].sessionId).toBe("resolver-session");
+      expect(resolverAdapter.deliverSocketCalls[0].sessionId).toBe(sessionId);
 
       await resolverMgr.stop();
     });

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { createAdapterResolver } from "../adapters/adapter-resolver.js";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
@@ -9,7 +9,7 @@ import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
 import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
-import { isInvertedConnectionAdapter } from "../core/interfaces/inverted-connection-adapter.js";
+
 import { SessionManager } from "../core/session-manager.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectApiKey, loadConsumerHtml } from "../http/consumer-html.js";
@@ -260,44 +260,19 @@ async function main(): Promise<void> {
   let activeSessionId = "";
 
   if (!config.noAutoLaunch) {
-    const isInverted = isInvertedConnectionAdapter(adapter);
-
-    if (isInverted) {
-      // SdkUrl flow: launcher spawns CLI which connects back via WebSocket
-      activeSessionId = sessionManager.launcher.launch({
+    try {
+      const session = await sessionManager.createSession({
         cwd: config.cwd,
-        model: config.model,
-      }).sessionId;
-    } else {
-      // Direct-connection flow (Codex, ACP): adapter handles spawning internally
-      activeSessionId = randomUUID();
-      sessionManager.launcher.registerExternalSession({
-        sessionId: activeSessionId,
-        cwd: config.cwd,
-        createdAt: Date.now(),
         model: config.model,
         adapterName: adapterResolver.defaultName,
       });
-    }
-
-    sessionManager.bridge.seedSessionState(activeSessionId, {
-      cwd: config.cwd,
-      model: config.model,
-    });
-    sessionManager.bridge.setAdapterName(activeSessionId, adapterResolver.defaultName);
-
-    if (!isInverted) {
-      try {
-        await sessionManager.bridge.connectBackend(activeSessionId, {
-          adapterOptions: { cwd: config.cwd },
-        });
-      } catch (err) {
-        console.error(
-          `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
-        );
-        console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
-        process.exit(1);
-      }
+      activeSessionId = session.sessionId;
+    } catch (err) {
+      console.error(
+        `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
+      );
+      console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
+      process.exit(1);
     }
   }
 
