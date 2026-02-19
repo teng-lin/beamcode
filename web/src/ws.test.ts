@@ -1229,4 +1229,91 @@ describe("handleMessage", () => {
       ws.simulateMessage(JSON.stringify({ type: "some_future_type", data: "whatever" })),
     ).not.toThrow();
   });
+
+  // ── configuration_change ────────────────────────────────────────────────
+
+  it("configuration_change: updates model in session state", () => {
+    const ws = openSession();
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "configuration_change",
+        subtype: "model_update",
+        metadata: { model: "claude-opus-4-6" },
+      }),
+    );
+
+    expect(getSessionData()?.state?.model).toBe("claude-opus-4-6");
+  });
+
+  it("configuration_change: no crash when no prior session_init", () => {
+    const ws = openSession();
+    expect(() =>
+      ws.simulateMessage(
+        JSON.stringify({
+          type: "configuration_change",
+          subtype: "model_update",
+          metadata: { model: "claude-opus-4-6" },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("configuration_change: empty metadata is a no-op", () => {
+    const ws = openSession();
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "session_init",
+        session: {
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          cwd: "/tmp",
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "configuration_change",
+        subtype: "some_change",
+        metadata: {},
+      }),
+    );
+
+    // Model should be unchanged
+    expect(getSessionData()?.state?.model).toBe("claude-sonnet-4-6");
+  });
+
+  // ── session_lifecycle ───────────────────────────────────────────────────
+
+  it("session_lifecycle: no crash, no state change", () => {
+    const ws = openSession();
+    expect(() =>
+      ws.simulateMessage(
+        JSON.stringify({
+          type: "session_lifecycle",
+          subtype: "started",
+          metadata: {},
+        }),
+      ),
+    ).not.toThrow();
+  });
 });
