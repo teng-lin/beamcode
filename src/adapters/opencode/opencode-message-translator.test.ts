@@ -774,6 +774,55 @@ describe("translateToOpencode: interrupt", () => {
   });
 });
 
+describe("translateToOpencode: session_init", () => {
+  it("produces noop action", () => {
+    const message = {
+      id: "init-1",
+      timestamp: Date.now(),
+      type: "session_init" as const,
+      role: "system" as const,
+      content: [],
+      metadata: {},
+    };
+    const action = translateToOpencode(message);
+    expect(action).toEqual({ type: "noop" });
+  });
+});
+
+describe("translateToOpencode: unsupported type", () => {
+  it("throws for unknown message types", () => {
+    const message = {
+      id: "unknown-1",
+      timestamp: Date.now(),
+      type: "some_unknown_type" as const,
+      role: "user" as const,
+      content: [],
+      metadata: {},
+    };
+    expect(() => translateToOpencode(message)).toThrow(
+      "Unsupported message type for opencode: some_unknown_type",
+    );
+  });
+});
+
+describe("translateToOpencode: permission_response with always", () => {
+  it("maps behavior=always to reply=always", () => {
+    const message = {
+      id: "perm-always-1",
+      timestamp: Date.now(),
+      type: "permission_response" as const,
+      role: "user" as const,
+      content: [],
+      metadata: { request_id: "perm-004", behavior: "always" },
+    };
+    const action = translateToOpencode(message);
+    expect(action.type).toBe("permission_reply");
+    if (action.type === "permission_reply") {
+      expect(action.reply).toBe("always");
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // extractSessionId
 // ---------------------------------------------------------------------------

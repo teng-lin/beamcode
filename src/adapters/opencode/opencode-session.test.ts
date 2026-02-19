@@ -377,4 +377,48 @@ describe("OpencodeSession", () => {
     const result = await iter.next();
     expect(result.done).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // send() surfaces HTTP errors as error messages in the queue
+  // -------------------------------------------------------------------------
+
+  it("send() surfaces HTTP errors as error messages in the queue", async () => {
+    httpClient.promptAsync.mockRejectedValueOnce(new Error("Network failure"));
+
+    session.send(
+      createUnifiedMessage({
+        type: "user_message",
+        role: "user",
+        content: [{ type: "text", text: "will fail" }],
+      }),
+    );
+
+    // Wait for the rejected promise to be caught
+    await new Promise((r) => setTimeout(r, 10));
+
+    const iter = session.messages[Symbol.asyncIterator]();
+    const result = await iter.next();
+    expect(result.done).toBe(false);
+    expect(result.value.type).toBe("result");
+    expect(result.value.metadata.is_error).toBe(true);
+    expect(result.value.metadata.error_message).toBe("Network failure");
+  });
+
+  // -------------------------------------------------------------------------
+  // send() with session_init is a no-op (no HTTP call)
+  // -------------------------------------------------------------------------
+
+  it("send() with session_init does not call any HTTP method", () => {
+    session.send(
+      createUnifiedMessage({
+        type: "session_init",
+        role: "system",
+        metadata: {},
+      }),
+    );
+
+    expect(httpClient.promptAsync).not.toHaveBeenCalled();
+    expect(httpClient.abort).not.toHaveBeenCalled();
+    expect(httpClient.replyPermission).not.toHaveBeenCalled();
+  });
 });

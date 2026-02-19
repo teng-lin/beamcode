@@ -2,8 +2,7 @@
  * OpencodeAdapter -- BackendAdapter for the opencode serve REST + SSE protocol.
  *
  * Manages one shared opencode server process and a single SSE connection,
- * creating multiple sessions against it. Incoming SSE events are demuxed
- * to the correct session by extracting the opencode session ID from each event.
+ * demuxing incoming SSE events to the correct session.
  */
 
 import type {
@@ -61,9 +60,9 @@ export class OpencodeAdapter implements BackendAdapter {
   private httpClient?: OpencodeHttpClient;
   private serverInfo?: { url: string; pid: number };
   private sseAbortController?: AbortController;
+  private launchPromise?: Promise<void>;
 
   private readonly subscribers = new Map<string, (event: OpencodeEvent) => void>();
-  private readonly broadcastSubscribers = new Set<(event: OpencodeEvent) => void>();
 
   constructor(options: OpencodeAdapterOptions) {
     this.logger = options.logger;
@@ -84,32 +83,16 @@ export class OpencodeAdapter implements BackendAdapter {
   // -------------------------------------------------------------------------
 
   async connect(options: ConnectOptions): Promise<BackendSession> {
-    // 1. Launch server if not already running
-    if (!this.serverInfo) {
-      this.serverInfo = await this.launcher.launch("server", {
-        port: this.port,
-        hostname: this.hostname,
-        opencodeBinary: this.opencodeBinary,
-        password: this.password,
-        cwd: this.directory,
-      });
-
-      this.httpClient = new OpencodeHttpClient({
-        baseUrl: this.serverInfo.url,
-        directory: this.directory,
-        password: this.password,
-      });
-
-      // Start the SSE event loop in the background
-      this.startSseLoop();
+    // 1. Launch server if not already running (race-safe via stored promise)
+    if (!this.launchPromise) {
+      this.launchPromise = this.ensureServer();
     }
+    await this.launchPromise;
 
     // 2. Create a session via the HTTP client
-    const session = await this.httpClient!.createSession({
+    const { id: opcSessionId } = await this.httpClient!.createSession({
       title: options.sessionId,
     });
-
-    const opcSessionId = session.id;
 
     // 3. Create and return the OpencodeSession
     return new OpencodeSession({
@@ -120,18 +103,69 @@ export class OpencodeAdapter implements BackendAdapter {
     });
   }
 
+  private async ensureServer(): Promise<void> {
+    this.serverInfo = await this.launcher.launch("server", {
+      port: this.port,
+      hostname: this.hostname,
+      opencodeBinary: this.opencodeBinary,
+      password: this.password,
+      cwd: this.directory,
+    });
+
+    this.httpClient = new OpencodeHttpClient({
+      baseUrl: this.serverInfo.url,
+      directory: this.directory,
+      password: this.password,
+    });
+
+    this.startSseLoop();
+  }
+
   // -------------------------------------------------------------------------
   // SSE event loop
   // -------------------------------------------------------------------------
+
+  private static readonly SSE_MAX_RETRIES = 3;
+  private static readonly SSE_RETRY_BASE_MS = 1000;
 
   private startSseLoop(): void {
     this.sseAbortController = new AbortController();
     const signal = this.sseAbortController.signal;
 
-    void this.runSseLoop(signal).catch((err) => {
+    void this.runSseLoopWithRetry(signal);
+  }
+
+  private async runSseLoopWithRetry(signal: AbortSignal): Promise<void> {
+    let consecutiveFailures = 0;
+
+    while (!signal.aborted) {
+      try {
+        await this.runSseLoop(signal);
+        // Stream ended normally — reset failure counter
+        consecutiveFailures = 0;
+      } catch (err) {
+        if (signal.aborted) return;
+        this.logger?.error?.("SSE event loop error", { error: err });
+        consecutiveFailures++;
+      }
+
       if (signal.aborted) return;
-      this.logger?.error?.("SSE event loop error", err);
-    });
+
+      if (consecutiveFailures > OpencodeAdapter.SSE_MAX_RETRIES) {
+        this.notifyAllSessions("SSE connection lost after retries exhausted");
+        return;
+      }
+
+      const delay =
+        consecutiveFailures > 0
+          ? OpencodeAdapter.SSE_RETRY_BASE_MS * 2 ** (consecutiveFailures - 1)
+          : 0;
+
+      if (delay > 0) {
+        this.logger?.debug?.("SSE reconnecting", { attempt: consecutiveFailures, delay });
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
 
   private async runSseLoop(signal: AbortSignal): Promise<void> {
@@ -148,19 +182,33 @@ export class OpencodeAdapter implements BackendAdapter {
         continue;
       }
 
-      const sessionId = extractSessionId(event);
+      this.dispatchEvent(event);
+    }
+  }
 
-      if (sessionId) {
-        const handler = this.subscribers.get(sessionId);
-        if (handler) {
-          handler(event);
-        }
-      } else {
-        // Broadcast event (server.connected, server.heartbeat, etc.)
-        for (const handler of this.broadcastSubscribers) {
-          handler(event);
-        }
+  private dispatchEvent(event: OpencodeEvent): void {
+    const sessionId = extractSessionId(event);
+
+    if (sessionId) {
+      const handler = this.subscribers.get(sessionId);
+      if (handler) handler(event);
+    } else {
+      // Broadcast events (server.connected, etc.) reach all sessions
+      for (const handler of this.subscribers.values()) {
+        handler(event);
       }
+    }
+  }
+
+  private notifyAllSessions(message: string): void {
+    for (const handler of this.subscribers.values()) {
+      handler({
+        type: "session.error",
+        properties: {
+          sessionID: "",
+          error: { name: "unknown", data: { message } },
+        },
+      });
     }
   }
 
@@ -170,11 +218,9 @@ export class OpencodeAdapter implements BackendAdapter {
 
   private addSubscriber(opcSessionId: string, handler: (event: OpencodeEvent) => void): () => void {
     this.subscribers.set(opcSessionId, handler);
-    this.broadcastSubscribers.add(handler);
 
     return () => {
       this.subscribers.delete(opcSessionId);
-      this.broadcastSubscribers.delete(handler);
     };
   }
 }

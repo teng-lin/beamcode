@@ -3,16 +3,11 @@
  *
  * Implements BackendSession by translating between UnifiedMessage
  * and opencode's REST + SSE protocol.
- *
- * Incoming events arrive via a shared SSE event stream that the adapter
- * demuxes per-session. The `subscribe` callback registers this session's
- * handler and returns an unsubscribe function.
- *
- * Outgoing messages are dispatched through the OpencodeHttpClient.
  */
 
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
+import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { OpencodeHttpClient } from "./opencode-http-client.js";
 import { translateEvent, translateToOpencode } from "./opencode-message-translator.js";
 import type { OpencodeEvent } from "./opencode-types.js";
@@ -28,7 +23,6 @@ export class OpencodeSession implements BackendSession {
   private readonly unsubscribe: () => void;
   private closed = false;
 
-  /** Queued incoming messages for the async iterable consumer. */
   private readonly messageQueue: UnifiedMessage[] = [];
   private messageResolve: ((value: IteratorResult<UnifiedMessage>) => void) | null = null;
   private done = false;
@@ -43,8 +37,9 @@ export class OpencodeSession implements BackendSession {
     this.opcSessionId = options.opcSessionId;
     this.httpClient = options.httpClient;
 
-    this.unsubscribe = options.subscribe((event: OpencodeEvent) => {
-      this.handleEvent(event);
+    this.unsubscribe = options.subscribe((event) => {
+      const unified = translateEvent(event);
+      if (unified) this.enqueue(unified);
     });
   }
 
@@ -59,20 +54,41 @@ export class OpencodeSession implements BackendSession {
 
     switch (action.type) {
       case "prompt":
-        void this.httpClient.promptAsync(this.opcSessionId, {
-          parts: action.parts,
-          model: action.model,
-        });
+        this.sendAction(
+          this.httpClient.promptAsync(this.opcSessionId, {
+            parts: action.parts,
+            model: action.model,
+          }),
+        );
         break;
       case "permission_reply":
-        void this.httpClient.replyPermission(action.requestId, {
-          reply: action.reply,
-        });
+        this.sendAction(
+          this.httpClient.replyPermission(action.requestId, {
+            reply: action.reply,
+          }),
+        );
         break;
       case "abort":
-        void this.httpClient.abort(this.opcSessionId);
+        this.sendAction(this.httpClient.abort(this.opcSessionId));
+        break;
+      case "noop":
         break;
     }
+  }
+
+  private sendAction(promise: Promise<unknown>): void {
+    promise.catch((err: unknown) => {
+      this.enqueue(
+        createUnifiedMessage({
+          type: "result",
+          role: "system",
+          metadata: {
+            is_error: true,
+            error_message: err instanceof Error ? err.message : String(err),
+          },
+        }),
+      );
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -129,21 +145,11 @@ export class OpencodeSession implements BackendSession {
   }
 
   // ---------------------------------------------------------------------------
-  // SSE event handling
-  // ---------------------------------------------------------------------------
-
-  private handleEvent(event: OpencodeEvent): void {
-    const unified = translateEvent(event);
-    if (unified) {
-      this.enqueue(unified);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Queue management
   // ---------------------------------------------------------------------------
 
   private enqueue(message: UnifiedMessage): void {
+    if (this.done) return;
     if (this.messageResolve) {
       const resolve = this.messageResolve;
       this.messageResolve = null;

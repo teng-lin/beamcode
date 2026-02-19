@@ -1,9 +1,6 @@
 /**
- * OpenCode protocol types — models the REST + SSE wire format
- * from the opencode serve API.
- *
- * Reference: https://github.com/sst/opencode (commit 5d12eb9)
- * No runtime code — type definitions only.
+ * OpenCode protocol types -- models the REST + SSE wire format
+ * from the opencode serve API. Type definitions only, no runtime code.
  */
 
 // ---------------------------------------------------------------------------

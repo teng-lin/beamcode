@@ -123,6 +123,31 @@ describe("OpencodeLauncher", () => {
     });
   });
 
+  describe("process crash before ready", () => {
+    it("rejects when process exits before 'listening on' appears", async () => {
+      const pm = new StreamMockProcessManager();
+      // stdout that stays open and never emits "listening on"
+      pm.stdout = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("starting...\n"));
+          // never close
+        },
+      });
+      const launcher = new OpencodeLauncher({ processManager: pm });
+      launcher.on("error", () => {});
+
+      const launchPromise = launcher.launch("sess-crash");
+
+      // Give the spawn and piping time to set up
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Simulate process crash
+      pm.lastProcess!.resolveExit(1);
+
+      await expect(launchPromise).rejects.toThrow("opencode serve exited before becoming ready");
+    });
+  });
+
   describe("readiness detection", () => {
     it("resolves after 'listening on' appears in stdout", async () => {
       const pm = new StreamMockProcessManager();

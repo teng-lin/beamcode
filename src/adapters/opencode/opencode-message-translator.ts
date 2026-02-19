@@ -2,23 +2,16 @@
  * OpenCode Message Translator
  *
  * Pure functions that translate between opencode SSE events and BeamCode's
- * UnifiedMessage envelope.
- *
- * opencode uses an SSE event stream where each event has a `type` and
- * `properties` payload. Sessions are identified by `sessionID` embedded in
- * the properties of most events.
- *
- * No side effects, no state mutation, no I/O.
+ * UnifiedMessage envelope. No side effects, no state mutation, no I/O.
  */
 
-import type { UnifiedContent, UnifiedMessage } from "../../core/types/unified-message.js";
+import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type {
   OpencodeEvent,
   OpencodePart,
   OpencodePartInput,
   OpencodeToolPart,
-  OpencodeToolState,
 } from "./opencode-types.js";
 
 // ---------------------------------------------------------------------------
@@ -28,16 +21,13 @@ import type {
 export type OpencodeAction =
   | { type: "prompt"; parts: OpencodePartInput[]; model?: { providerID: string; modelID: string } }
   | { type: "permission_reply"; requestId: string; reply: "once" | "always" | "reject" }
-  | { type: "abort" };
+  | { type: "abort" }
+  | { type: "noop" };
 
 // ---------------------------------------------------------------------------
 // SSE event → UnifiedMessage (inbound from opencode)
 // ---------------------------------------------------------------------------
 
-/**
- * Translate an opencode SSE event into a UnifiedMessage.
- * Returns `null` for events that don't produce user-facing messages.
- */
 export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
   switch (event.type) {
     case "message.part.updated":
@@ -52,7 +42,6 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
       return translatePermissionUpdated(event.properties);
     case "server.connected":
       return translateServerConnected();
-    // Non-user-facing events
     case "server.heartbeat":
     case "permission.replied":
     case "session.compacted":
@@ -72,9 +61,6 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
 // UnifiedMessage → opencode action (outbound to opencode)
 // ---------------------------------------------------------------------------
 
-/**
- * Translate a UnifiedMessage into an opencode action for sending over the wire.
- */
 export function translateToOpencode(message: UnifiedMessage): OpencodeAction {
   switch (message.type) {
     case "user_message":
@@ -83,8 +69,10 @@ export function translateToOpencode(message: UnifiedMessage): OpencodeAction {
       return translatePermissionResponse(message);
     case "interrupt":
       return { type: "abort" };
+    case "session_init":
+      return { type: "noop" };
     default:
-      return translateUserMessageToPrompt(message);
+      throw new Error(`Unsupported message type for opencode: ${message.type}`);
   }
 }
 
@@ -92,11 +80,6 @@ export function translateToOpencode(message: UnifiedMessage): OpencodeAction {
 // Session ID extraction
 // ---------------------------------------------------------------------------
 
-/**
- * Extract the session ID from any opencode SSE event for demuxing.
- * Returns `undefined` for events that have no session scope
- * (e.g. server.connected, server.heartbeat).
- */
 export function extractSessionId(event: OpencodeEvent): string | undefined {
   switch (event.type) {
     case "server.connected":
@@ -105,26 +88,18 @@ export function extractSessionId(event: OpencodeEvent): string | undefined {
     case "session.created":
     case "session.updated":
       return event.properties.session.id;
-    case "session.deleted":
-      return event.properties.sessionID;
-    case "session.status":
-      return event.properties.sessionID;
-    case "session.error":
-      return event.properties.sessionID;
-    case "session.compacted":
-      return event.properties.sessionID;
-    case "session.diff":
-      return event.properties.sessionID;
     case "message.updated":
       return event.properties.info.sessionID;
-    case "message.removed":
-      return event.properties.sessionID;
     case "message.part.updated":
       return event.properties.part.sessionID;
+    case "session.deleted":
+    case "session.status":
+    case "session.error":
+    case "session.compacted":
+    case "session.diff":
+    case "message.removed":
     case "message.part.removed":
-      return event.properties.sessionID;
     case "permission.updated":
-      return event.properties.sessionID;
     case "permission.replied":
       return event.properties.sessionID;
     default:
@@ -139,18 +114,6 @@ export function extractSessionId(event: OpencodeEvent): string | undefined {
 function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessage | null {
   switch (part.type) {
     case "text":
-      return createUnifiedMessage({
-        type: "stream_event",
-        role: "assistant",
-        metadata: {
-          delta: delta ?? "",
-          part_id: part.id,
-          message_id: part.messageID,
-          session_id: part.sessionID,
-          text: part.text,
-          reasoning: false,
-        },
-      });
     case "reasoning":
       return createUnifiedMessage({
         type: "stream_event",
@@ -161,14 +124,13 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
           message_id: part.messageID,
           session_id: part.sessionID,
           text: part.text,
-          reasoning: true,
+          reasoning: part.type === "reasoning",
         },
       });
     case "tool":
       return translateToolPart(part);
     case "step-start":
     case "step-finish":
-      // Not directly user-facing as individual messages
       return null;
     default:
       return null;
@@ -176,65 +138,55 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
 }
 
 function translateToolPart(part: OpencodeToolPart): UnifiedMessage | null {
-  const state: OpencodeToolState = part.state;
+  const shared = {
+    part_id: part.id,
+    message_id: part.messageID,
+    session_id: part.sessionID,
+    call_id: part.callID,
+    tool: part.tool,
+  };
 
-  if (state.status === "running") {
-    return createUnifiedMessage({
-      type: "tool_progress",
-      role: "tool",
-      metadata: {
-        part_id: part.id,
-        message_id: part.messageID,
-        session_id: part.sessionID,
-        call_id: part.callID,
-        tool: part.tool,
-        input: state.input,
-        title: state.title,
-        status: "running",
-      },
-    });
+  switch (part.state.status) {
+    case "running":
+      return createUnifiedMessage({
+        type: "tool_progress",
+        role: "tool",
+        metadata: {
+          ...shared,
+          input: part.state.input,
+          title: part.state.title,
+          status: "running",
+        },
+      });
+    case "completed":
+      return createUnifiedMessage({
+        type: "tool_use_summary",
+        role: "tool",
+        metadata: {
+          ...shared,
+          input: part.state.input,
+          output: part.state.output,
+          title: part.state.title,
+          status: "completed",
+          time: part.state.time,
+        },
+      });
+    case "error":
+      return createUnifiedMessage({
+        type: "tool_use_summary",
+        role: "tool",
+        metadata: {
+          ...shared,
+          input: part.state.input,
+          error: part.state.error,
+          status: "error",
+          is_error: true,
+          time: part.state.time,
+        },
+      });
+    case "pending":
+      return null;
   }
-
-  if (state.status === "completed") {
-    return createUnifiedMessage({
-      type: "tool_use_summary",
-      role: "tool",
-      metadata: {
-        part_id: part.id,
-        message_id: part.messageID,
-        session_id: part.sessionID,
-        call_id: part.callID,
-        tool: part.tool,
-        input: state.input,
-        output: state.output,
-        title: state.title,
-        status: "completed",
-        time: state.time,
-      },
-    });
-  }
-
-  if (state.status === "error") {
-    return createUnifiedMessage({
-      type: "tool_use_summary",
-      role: "tool",
-      metadata: {
-        part_id: part.id,
-        message_id: part.messageID,
-        session_id: part.sessionID,
-        call_id: part.callID,
-        tool: part.tool,
-        input: state.input,
-        error: state.error,
-        status: "error",
-        is_error: true,
-        time: state.time,
-      },
-    });
-  }
-
-  // "pending" — not yet actionable for the user
-  return null;
 }
 
 function translateMessageUpdated(
@@ -274,7 +226,6 @@ function translateMessageUpdated(
     });
   }
 
-  // user message echo
   return createUnifiedMessage({
     type: "user_message",
     role: "user",
@@ -292,40 +243,32 @@ function translateSessionStatus(
     | { type: "busy" }
     | { type: "retry"; attempt: number; message: string; next: number },
 ): UnifiedMessage {
-  if (status.type === "idle") {
-    return createUnifiedMessage({
-      type: "result",
-      role: "system",
-      metadata: {
-        session_id: sessionID,
-        status: "completed",
-      },
-    });
+  switch (status.type) {
+    case "idle":
+      return createUnifiedMessage({
+        type: "result",
+        role: "system",
+        metadata: { session_id: sessionID, status: "completed" },
+      });
+    case "busy":
+      return createUnifiedMessage({
+        type: "status_change",
+        role: "system",
+        metadata: { session_id: sessionID, busy: true },
+      });
+    case "retry":
+      return createUnifiedMessage({
+        type: "status_change",
+        role: "system",
+        metadata: {
+          session_id: sessionID,
+          retry: true,
+          attempt: status.attempt,
+          message: status.message,
+          next: status.next,
+        },
+      });
   }
-
-  if (status.type === "busy") {
-    return createUnifiedMessage({
-      type: "status_change",
-      role: "system",
-      metadata: {
-        session_id: sessionID,
-        busy: true,
-      },
-    });
-  }
-
-  // retry
-  return createUnifiedMessage({
-    type: "status_change",
-    role: "system",
-    metadata: {
-      session_id: sessionID,
-      retry: true,
-      attempt: status.attempt,
-      message: status.message,
-      next: status.next,
-    },
-  });
 }
 
 function translateSessionError(
@@ -381,7 +324,6 @@ function translateUserMessageToPrompt(message: UnifiedMessage): OpencodeAction {
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => ({ type: "text" as const, text: c.text }));
 
-  // Fall back to metadata.text if content is empty
   if (parts.length === 0) {
     const text = (message.metadata.text as string) ?? "";
     if (text) {
@@ -398,21 +340,8 @@ function translatePermissionResponse(message: UnifiedMessage): OpencodeAction {
   const requestId = (message.metadata.request_id as string) ?? "";
   const behavior = message.metadata.behavior as string | undefined;
 
-  const reply: "once" | "always" | "reject" = behavior === "allow" ? "once" : "reject";
+  const reply: "once" | "always" | "reject" =
+    behavior === "allow" ? "once" : behavior === "always" ? "always" : "reject";
 
   return { type: "permission_reply", requestId, reply };
 }
-
-// ---------------------------------------------------------------------------
-// Internal: content helpers (kept for potential future use)
-// ---------------------------------------------------------------------------
-
-/** Extract text content blocks from a UnifiedMessage. */
-function _extractTextContent(content: UnifiedContent[]): string {
-  return content
-    .filter((c): c is { type: "text"; text: string } => c.type === "text")
-    .map((c) => c.text)
-    .join("\n");
-}
-
-void _extractTextContent; // suppress "unused" lint — intentional utility

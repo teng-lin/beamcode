@@ -1,12 +1,8 @@
 /**
- * OpencodeLauncher — spawns and manages the `opencode serve` process.
+ * OpencodeLauncher -- spawns and manages the `opencode serve` process.
  *
  * Extends ProcessSupervisor for kill escalation, circuit breaker,
  * PID tracking, and output piping.
- *
- * Detects server readiness via the "process:stdout" event (emitted by
- * ProcessSupervisor.pipeOutput) rather than reading stdout directly,
- * avoiding the ReadableStream single-reader lock conflict.
  */
 
 import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js";
@@ -59,13 +55,6 @@ export class OpencodeLauncher extends ProcessSupervisor {
     };
   }
 
-  /**
-   * Launch an opencode serve process.
-   *
-   * Spawns `opencode serve --port N --hostname H` and waits for the
-   * "listening on" stdout output (detected via process:stdout events)
-   * to confirm readiness.
-   */
   async launch(
     sessionId: string,
     options: OpencodeLaunchOptions = {},
@@ -83,9 +72,7 @@ export class OpencodeLauncher extends ProcessSupervisor {
       env.OPENCODE_SERVER_PASSWORD = options.password;
     }
 
-    // Register a one-shot listener for "process:stdout" BEFORE spawning,
-    // so we don't miss the ready line.
-    const readyPromise = this.waitForReady(sessionId, url);
+    const readyPromise = this.waitForReady(sessionId);
 
     const proc = this.spawnProcess(
       sessionId,
@@ -97,32 +84,42 @@ export class OpencodeLauncher extends ProcessSupervisor {
       throw new Error("Failed to spawn opencode serve process");
     }
 
-    // Wait for the ready signal (with timeout)
     await readyPromise;
 
     return { url, pid: proc.pid };
   }
 
-  private waitForReady(sessionId: string, _expectedUrl: string, timeoutMs = 15_000): Promise<void> {
+  private waitForReady(sessionId: string, timeoutMs = 15_000): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
         reject(new Error(`opencode serve did not become ready within ${timeoutMs}ms`));
       }, timeoutMs);
 
-      const handler = (event: { sessionId: string; data: string }) => {
+      const stdoutHandler = (event: { sessionId: string; data: string }) => {
         if (event.sessionId === sessionId && event.data.includes("listening on")) {
           cleanup();
           resolve();
         }
       };
 
-      const cleanup = () => {
-        clearTimeout(timer);
-        this.off("process:stdout", handler);
+      const exitHandler = (event: { sessionId: string; exitCode: number | null }) => {
+        if (event.sessionId === sessionId) {
+          cleanup();
+          reject(
+            new Error(`opencode serve exited before becoming ready (code: ${event.exitCode})`),
+          );
+        }
       };
 
-      this.on("process:stdout", handler);
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.off("process:stdout", stdoutHandler);
+        this.off("process:exited", exitHandler);
+      };
+
+      this.on("process:stdout", stdoutHandler);
+      this.on("process:exited", exitHandler);
     });
   }
 }

@@ -1,8 +1,5 @@
 /**
- * OpenCode HTTP Client — typed wrapper around fetch for the opencode serve API.
- *
- * Handles Basic Auth, directory scoping via X-Opencode-Directory header,
- * and structured error responses.
+ * OpenCode HTTP Client -- typed wrapper around fetch for the opencode serve API.
  */
 
 import type {
@@ -64,11 +61,6 @@ export class OpencodeHttpClient {
     return (await res.json()) as OpencodeHealthResponse;
   }
 
-  /**
-   * Open an SSE connection to the event stream.
-   * Returns the raw ReadableStream for the SSE parser to consume.
-   * The caller is responsible for parsing via parseSseStream().
-   */
   async connectSse(signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     const res = await this.fetch("/event", {
       method: "GET",
