@@ -832,5 +832,72 @@ describe("SessionManager", () => {
 
       await legacyMgr.stop();
     });
+
+    it("uses adapterResolver.sdkUrlAdapter for CLI WS when no global adapter", async () => {
+      const resolverAdapter = new MockInvertedAdapter();
+      resolverAdapter.deliverSocketResult = true;
+      // Cast to SdkUrlAdapter shape for the resolver mock
+      const mockResolver = {
+        resolve: vi.fn(() => resolverAdapter),
+        sdkUrlAdapter: resolverAdapter,
+        defaultName: "codex" as const,
+        availableAdapters: ["sdk-url", "codex", "acp"] as const,
+      };
+
+      const { server, getCapturedOnCLI } = createMockServer();
+
+      const resolverMgr = new SessionManager({
+        config: { port: 3456 },
+        storage,
+        logger: noopLogger,
+        server,
+        // No global adapter — but adapterResolver provides sdkUrlAdapter
+        adapterResolver: mockResolver as any,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+      });
+
+      await resolverMgr.start();
+      const onCLI = getCapturedOnCLI();
+      expect(onCLI).not.toBeNull();
+
+      const { socket } = createMockSocket();
+      onCLI!(socket as any, "resolver-session");
+
+      await vi.waitFor(() => {
+        expect(resolverAdapter.deliverSocketCalls).toHaveLength(1);
+      });
+      expect(resolverAdapter.deliverSocketCalls[0].sessionId).toBe("resolver-session");
+
+      await resolverMgr.stop();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // AdapterResolver wiring
+  // -----------------------------------------------------------------------
+
+  describe("adapterResolver wiring", () => {
+    it("defaultAdapterName returns resolver default when provided", () => {
+      const mockResolver = {
+        resolve: vi.fn(),
+        sdkUrlAdapter: {} as any,
+        defaultName: "codex" as const,
+        availableAdapters: ["sdk-url", "codex", "acp"] as const,
+      };
+
+      const resolverMgr = new SessionManager({
+        config: { port: 3456 },
+        storage,
+        logger: noopLogger,
+        adapterResolver: mockResolver as any,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+      });
+
+      expect(resolverMgr.defaultAdapterName).toBe("codex");
+    });
+
+    it("defaultAdapterName falls back to sdk-url without resolver", () => {
+      expect(mgr.defaultAdapterName).toBe("sdk-url");
+    });
   });
 });

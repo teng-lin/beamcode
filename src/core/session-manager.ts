@@ -1,4 +1,6 @@
 import type WebSocket from "ws";
+import type { AdapterResolver } from "../adapters/adapter-resolver.js";
+import type { CliAdapterName } from "../adapters/create-adapter.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
@@ -37,6 +39,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly launcher: SessionLauncher;
 
   private adapter: BackendAdapter | null;
+  private adapterResolver: AdapterResolver | null;
   private config: ResolvedConfig;
   private logger: Logger;
   private server: WebSocketServerLike | null;
@@ -55,6 +58,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
     adapter?: BackendAdapter;
+    adapterResolver?: AdapterResolver;
     launcher: SessionLauncher;
   }) {
     super();
@@ -65,6 +69,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       new StructuredLogger({ component: "session-manager", level: LogLevel.WARN });
     this.server = options.server ?? null;
     this.adapter = options.adapter ?? null;
+    this.adapterResolver = options.adapterResolver ?? null;
 
     this.bridge = new SessionBridge({
       storage: options.storage,
@@ -74,9 +79,14 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       config: options.config,
       metrics: options.metrics,
       adapter: options.adapter,
+      adapterResolver: options.adapterResolver,
     });
 
     this.launcher = options.launcher;
+  }
+
+  get defaultAdapterName(): CliAdapterName {
+    return this.adapterResolver?.defaultName ?? "sdk-url";
   }
 
   /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
@@ -103,8 +113,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     if (this.server) {
       await this.server.listen(
         (socket, sessionId) => {
-          if (this.adapter && isInvertedConnectionAdapter(this.adapter)) {
-            const adapter = this.adapter;
+          // Use the resolver's eagerly-created SdkUrlAdapter for inverted connections.
+          // This ensures SdkUrl sessions work even when the default adapter is non-inverted (e.g., Codex).
+          const invertedAdapter =
+            this.adapterResolver?.sdkUrlAdapter ??
+            (this.adapter && isInvertedConnectionAdapter(this.adapter) ? this.adapter : null);
+          if (invertedAdapter && isInvertedConnectionAdapter(invertedAdapter)) {
+            const adapter = invertedAdapter;
             // Buffer messages that arrive before the adapter socket is wired.
             // connectBackend() is async — without buffering, messages the CLI
             // sends immediately on connect (system.init, hooks) would be lost.
@@ -142,6 +157,9 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
               }) as typeof socket.on,
             };
 
+            // Tag the session as sdk-url since it arrived via the inverted connection path.
+            // This ensures resolveAdapter() finds the correct adapter via the resolver.
+            this.bridge.setAdapterName(sessionId, "sdk-url");
             this.bridge
               .connectBackend(sessionId)
               .then(() => {

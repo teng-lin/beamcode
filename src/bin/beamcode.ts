@@ -1,11 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { createAdapterResolver } from "../adapters/adapter-resolver.js";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
-import {
-  CLI_ADAPTER_NAMES,
-  type CliAdapterName,
-  createAdapter,
-} from "../adapters/create-adapter.js";
+import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
@@ -188,7 +185,8 @@ async function main(): Promise<void> {
   const storage = new FileStorage(config.dataDir);
   const metrics = new ConsoleMetricsCollector(logger);
   const processManager = new NodeProcessManager();
-  const adapter = createAdapter(config.adapter, { processManager, logger });
+  const adapterResolver = createAdapterResolver({ processManager, logger }, config.adapter);
+  const adapter = adapterResolver.resolve(config.adapter);
 
   const providerConfig = {
     port: config.port,
@@ -211,6 +209,7 @@ async function main(): Promise<void> {
     metrics,
     gitResolver: new DefaultGitResolver(),
     adapter,
+    adapterResolver,
     launcher,
   });
 
