@@ -9,6 +9,7 @@ import { FileStorage } from "../../adapters/file-storage.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
 import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
+import { SdkUrlLauncher } from "../../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import { getE2EProfile } from "../helpers/e2e-profile.js";
@@ -198,15 +199,15 @@ function waitForBackendConnectedOrExit(
 async function setupRealCliSession() {
   const port = await reservePort();
   const server = new NodeWebSocketServer({ port });
+  const processManager = createProcessManager();
+  const config = { port, initializeTimeoutMs: 20_000 };
+  const storage = new MemoryStorage();
   const manager = new SessionManager({
-    config: {
-      port,
-      initializeTimeoutMs: 20_000,
-    },
-    processManager: createProcessManager(),
-    storage: new MemoryStorage(),
+    config,
+    storage,
     server,
     adapter: new SdkUrlAdapter(),
+    launcher: new SdkUrlLauncher({ processManager, config, storage }),
   });
   attachTrace(manager);
 
@@ -230,17 +231,20 @@ async function setupRealCliSessionWithOptions(options?: {
 }> {
   const port = await reservePort();
   const server = new NodeWebSocketServer({ port });
+  const processManager = createProcessManager();
+  const config = {
+    port,
+    initializeTimeoutMs: options?.config?.initializeTimeoutMs ?? 20_000,
+    reconnectGracePeriodMs: options?.config?.reconnectGracePeriodMs ?? 10_000,
+  };
+  const storage = options?.storage ?? new MemoryStorage();
   const manager = new SessionManager({
-    config: {
-      port,
-      initializeTimeoutMs: options?.config?.initializeTimeoutMs ?? 20_000,
-      reconnectGracePeriodMs: options?.config?.reconnectGracePeriodMs ?? 10_000,
-    },
-    processManager: createProcessManager(),
-    storage: options?.storage ?? new MemoryStorage(),
+    config,
+    storage,
     server,
     adapter: new SdkUrlAdapter(),
     authenticator: options?.authenticator,
+    launcher: new SdkUrlLauncher({ processManager, config, storage }),
   });
   attachTrace(manager);
   await manager.start();
@@ -620,15 +624,15 @@ describe("E2E Real CLI SessionManager integration", () => {
     async () => {
       const port = await reservePort();
       const server = new NodeWebSocketServer({ port });
+      const processManager = createProcessManager();
+      const config = { port, initializeTimeoutMs: 20_000 };
+      const storage = new MemoryStorage();
       const manager = new SessionManager({
-        config: {
-          port,
-          initializeTimeoutMs: 20_000,
-        },
-        processManager: createProcessManager(),
-        storage: new MemoryStorage(),
+        config,
+        storage,
         server,
         adapter: new SdkUrlAdapter(),
+        launcher: new SdkUrlLauncher({ processManager, config, storage }),
       });
       attachTrace(manager);
       activeManagers.push(manager);
@@ -652,15 +656,15 @@ describe("E2E Real CLI SessionManager integration", () => {
     async () => {
       const port = await reservePort();
       const server = new NodeWebSocketServer({ port });
+      const processManager = createProcessManager();
+      const config = { port, defaultClaudeBinary: "__beamcode_nonexistent_claude_binary__" };
+      const storage = new MemoryStorage();
       const manager = new SessionManager({
-        config: {
-          port,
-          defaultClaudeBinary: "__beamcode_nonexistent_claude_binary__",
-        },
-        processManager: createProcessManager(),
-        storage: new MemoryStorage(),
+        config,
+        storage,
         server,
         adapter: new SdkUrlAdapter(),
+        launcher: new SdkUrlLauncher({ processManager, config, storage }),
       });
       attachTrace(manager);
       activeManagers.push(manager);
@@ -1077,12 +1081,14 @@ describe("E2E Real CLI SessionManager integration", () => {
 
         const port2 = await reservePort();
         const server2 = new NodeWebSocketServer({ port: port2 });
+        const pm2 = createProcessManager();
+        const config2 = { port: port2, initializeTimeoutMs: 20_000 };
         manager2 = new SessionManager({
-          config: { port: port2, initializeTimeoutMs: 20_000 },
-          processManager: createProcessManager(),
+          config: config2,
           storage,
           server: server2,
           adapter: new SdkUrlAdapter(),
+          launcher: new SdkUrlLauncher({ processManager: pm2, config: config2, storage }),
         });
         attachTrace(manager2);
         activeManagers.push(manager2);

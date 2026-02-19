@@ -1,12 +1,10 @@
 import type WebSocket from "ws";
-import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
-import type { ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
-import type { LauncherStateStorage, SessionStorage } from "../interfaces/storage.js";
+import type { SessionStorage } from "../interfaces/storage.js";
 import type { WebSocketServerLike } from "../interfaces/ws-server.js";
 import type {
   InitializeAccount,
@@ -19,6 +17,7 @@ import type { SessionManagerEventMap } from "../types/events.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
+import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import { SessionBridge } from "./session-bridge.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
@@ -35,7 +34,7 @@ import { TypedEventEmitter } from "./typed-emitter.js";
  */
 export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
-  readonly launcher: SdkUrlLauncher;
+  readonly launcher: SessionLauncher;
 
   private adapter: BackendAdapter | null;
   private config: ResolvedConfig;
@@ -49,15 +48,14 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   constructor(options: {
     config: ProviderConfig;
-    processManager: ProcessManager;
-    storage?: SessionStorage & LauncherStateStorage;
+    storage?: SessionStorage;
     logger?: Logger;
     gitResolver?: GitInfoResolver;
     authenticator?: Authenticator;
-    beforeSpawn?: (sessionId: string, spawnOptions: SpawnOptions) => void;
     server?: WebSocketServerLike;
     metrics?: MetricsCollector;
     adapter?: BackendAdapter;
+    launcher: SessionLauncher;
   }) {
     super();
 
@@ -78,13 +76,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       adapter: options.adapter,
     });
 
-    this.launcher = new SdkUrlLauncher({
-      processManager: options.processManager,
-      config: options.config,
-      storage: options.storage,
-      logger: options.logger,
-      beforeSpawn: options.beforeSpawn,
-    });
+    this.launcher = options.launcher;
   }
 
   /** Set the WebSocket server (allows deferred wiring after HTTP server is created). */
@@ -258,7 +250,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private wireEvents(): void {
     // When the backend reports its session_id, store it for --resume on relaunch
     this.bridge.on("backend:session_id", ({ sessionId, backendSessionId }) => {
-      this.launcher.setCLISessionId(sessionId, backendSessionId);
+      this.launcher.setBackendSessionId(sessionId, backendSessionId);
     });
 
     // When backend connects, mark it in the launcher

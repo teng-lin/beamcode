@@ -10,6 +10,7 @@ import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { isInvertedConnectionAdapter } from "../core/interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "../core/session-manager.js";
@@ -188,19 +189,29 @@ async function main(): Promise<void> {
   const metrics = new ConsoleMetricsCollector(logger);
   const processManager = new NodeProcessManager();
   const adapter = createAdapter(config.adapter, { processManager, logger });
-  const sessionManager = new SessionManager({
-    config: {
-      port: config.port,
-      defaultClaudeBinary: config.claudeBinary,
-      cliWebSocketUrlTemplate: (sessionId: string) =>
-        `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
-    },
+
+  const providerConfig = {
+    port: config.port,
+    defaultClaudeBinary: config.claudeBinary,
+    cliWebSocketUrlTemplate: (sessionId: string) =>
+      `ws://127.0.0.1:${config.port}/ws/cli/${sessionId}`,
+  };
+
+  const launcher = new SdkUrlLauncher({
     processManager,
+    config: providerConfig,
+    storage,
+    logger,
+  });
+
+  const sessionManager = new SessionManager({
+    config: providerConfig,
     storage,
     logger,
     metrics,
     gitResolver: new DefaultGitResolver(),
     adapter,
+    launcher,
   });
 
   // 4. Generate API key, inject into HTML, and create HTTP server

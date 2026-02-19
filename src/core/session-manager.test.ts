@@ -6,6 +6,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
 import type WebSocket from "ws";
 import { MemoryStorage } from "../adapters/memory-storage.js";
+import { SdkUrlLauncher } from "../adapters/sdk-url/sdk-url-launcher.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import type { OnCLIConnection, WebSocketServerLike } from "../interfaces/ws-server.js";
 import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
@@ -16,6 +17,15 @@ import type {
 } from "./interfaces/backend-adapter.js";
 import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { SessionManager } from "./session-manager.js";
+
+function createLauncher(pm: ProcessManager, opts?: { storage?: MemoryStorage; logger?: any }) {
+  return new SdkUrlLauncher({
+    processManager: pm,
+    config: { port: 3456 },
+    storage: opts?.storage,
+    logger: opts?.logger,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Mock ProcessManager (matches the real ProcessManager interface)
@@ -84,9 +94,9 @@ describe("SessionManager", () => {
     storage = new MemoryStorage();
     mgr = new SessionManager({
       config: { port: 3456 },
-      processManager: pm,
       storage,
       logger: noopLogger,
+      launcher: createLauncher(pm, { storage, logger: noopLogger }),
     });
   });
 
@@ -309,8 +319,8 @@ describe("SessionManager", () => {
 
       const mgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
         server: mockServer,
+        launcher: createLauncher(pm),
       });
 
       await mgr.start();
@@ -323,7 +333,7 @@ describe("SessionManager", () => {
     it("works without WS server (backwards compatible)", async () => {
       const mgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
+        launcher: createLauncher(pm),
       });
 
       // Should not throw when no server provided
@@ -343,8 +353,8 @@ describe("SessionManager", () => {
 
       const mgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
         server: mockServer,
+        launcher: createLauncher(pm),
         // No adapter — socket should be closed
       });
 
@@ -467,9 +477,9 @@ describe("SessionManager", () => {
 
       const watchdogMgr = new SessionManager({
         config: { port: 3456, reconnectGracePeriodMs: 50 },
-        processManager: alivePm,
         storage: testStorage,
         logger: noopLogger,
+        launcher: createLauncher(alivePm, { storage: testStorage, logger: noopLogger }),
       });
       watchdogMgr.start();
 
@@ -510,9 +520,9 @@ describe("SessionManager", () => {
 
       const watchdogMgr = new SessionManager({
         config: { port: 3456, reconnectGracePeriodMs: 500 },
-        processManager: alivePm,
         storage: testStorage,
         logger: noopLogger,
+        launcher: createLauncher(alivePm, { storage: testStorage, logger: noopLogger }),
       });
       watchdogMgr.start();
 
@@ -532,9 +542,9 @@ describe("SessionManager", () => {
     it("does not set a timer when there are no starting sessions", () => {
       const timerMgr = new SessionManager({
         config: { port: 3456, reconnectGracePeriodMs: 500 },
-        processManager: pm,
         storage,
         logger: noopLogger,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
       timerMgr.start();
 
@@ -565,10 +575,10 @@ describe("SessionManager", () => {
       const idleAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
-        processManager: pm,
         storage,
         logger: noopLogger,
         adapter: idleAdapter,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
       idleMgr.start();
 
@@ -599,10 +609,10 @@ describe("SessionManager", () => {
       const activeAdapter = new MockBackendAdapter();
       const idleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 100 },
-        processManager: pm,
         storage,
         logger: noopLogger,
         adapter: activeAdapter,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
       idleMgr.start();
 
@@ -626,9 +636,9 @@ describe("SessionManager", () => {
     it("does not start when idleSessionTimeoutMs is 0", () => {
       const noIdleMgr = new SessionManager({
         config: { port: 3456, idleSessionTimeoutMs: 0 },
-        processManager: pm,
         storage,
         logger: noopLogger,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
       noIdleMgr.start();
 
@@ -643,9 +653,9 @@ describe("SessionManager", () => {
         () =>
           new SessionManager({
             config: { port: 3456, idleSessionTimeoutMs: -1 },
-            processManager: pm,
             storage,
             logger: noopLogger,
+            launcher: createLauncher(pm, { storage, logger: noopLogger }),
           }),
       ).toThrow("Invalid configuration");
     });
@@ -730,11 +740,11 @@ describe("SessionManager", () => {
 
       const adapterMgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
         storage,
         logger: noopLogger,
         server,
         adapter,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
 
       await adapterMgr.start();
@@ -772,11 +782,11 @@ describe("SessionManager", () => {
 
       const adapterMgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
         storage,
         logger: noopLogger,
         server,
         adapter,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
       });
 
       await adapterMgr.start();
@@ -803,10 +813,10 @@ describe("SessionManager", () => {
 
       const legacyMgr = new SessionManager({
         config: { port: 3456 },
-        processManager: pm,
         storage,
         logger: noopLogger,
         server,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
         // No adapter provided
       });
 

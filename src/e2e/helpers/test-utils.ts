@@ -4,6 +4,7 @@ import { MockProcessManager } from "../../adapters/mock-process-manager.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
 import { SdkUrlAdapter } from "../../adapters/sdk-url/sdk-url-adapter.js";
+import { SdkUrlLauncher } from "../../adapters/sdk-url/sdk-url-launcher.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
@@ -82,13 +83,16 @@ export async function setupTestSessionManager(
   options: TestSessionManagerOptions = {},
 ): Promise<TestSessionManager> {
   const server = new NodeWebSocketServer({ port: 0 });
+  const processManager = createProcessManager();
+  const config = { port: 0, ...options.config };
+  const storage = new MemoryStorage();
   const manager = new SessionManager({
-    config: { port: 0, ...options.config },
-    processManager: createProcessManager(),
-    storage: new MemoryStorage(),
+    config,
+    storage,
     server,
     adapter: new SdkUrlAdapter(),
     authenticator: options.authenticator,
+    launcher: new SdkUrlLauncher({ processManager, config, storage }),
   });
 
   await manager.start();

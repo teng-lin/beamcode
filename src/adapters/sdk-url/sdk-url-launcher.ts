@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { SessionLauncher } from "../../core/interfaces/session-launcher.js";
 import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js";
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
@@ -51,7 +52,7 @@ interface InternalSpawnPayload {
  * - Environment variable deny list enforcement
  * - Session state tracking (starting/connected/running/exited)
  */
-export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
+export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> implements SessionLauncher {
   private sessions = new Map<string, SdkSessionInfo>();
   /** Track which sessions were launched with --resume (for resume failure detection). */
   private pendingResumes = new Map<string, string>();
@@ -418,15 +419,20 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
   }
 
   /**
-   * Store the CLI's internal session ID (from system.init message).
+   * Store the backend's internal session ID (from system.init message).
    * This is needed for --resume on relaunch.
    */
-  setCLISessionId(sessionId: string, cliSessionId: string): void {
+  setBackendSessionId(sessionId: string, backendSessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.cliSessionId = cliSessionId;
+      session.cliSessionId = backendSessionId;
       this.persistState();
     }
+  }
+
+  /** @deprecated Use setBackendSessionId */
+  setCLISessionId(sessionId: string, cliSessionId: string): void {
+    this.setBackendSessionId(sessionId, cliSessionId);
   }
 
   // ---------------------------------------------------------------------------
@@ -519,5 +525,29 @@ export class SdkUrlLauncher extends ProcessSupervisor<LauncherEventMap> {
       info.name = name;
       this.persistState();
     }
+  }
+
+  /**
+   * Register a session created by an external adapter (no process to manage).
+   * Transitional: will be removed when per-backend launchers own their session maps.
+   */
+  registerExternalSession(info: {
+    sessionId: string;
+    cwd: string;
+    createdAt: number;
+    model?: string;
+    adapterName?: string;
+  }): SdkSessionInfo {
+    const entry: SdkSessionInfo = {
+      sessionId: info.sessionId,
+      cwd: info.cwd,
+      createdAt: info.createdAt,
+      model: info.model,
+      adapterName: info.adapterName,
+      state: "connected",
+    };
+    this.sessions.set(info.sessionId, entry);
+    this.persistState();
+    return entry;
   }
 }
