@@ -5,6 +5,7 @@
  * demuxing incoming SSE events to the correct session.
  */
 
+import { createServer } from "node:net";
 import type {
   BackendAdapter,
   BackendCapabilities,
@@ -39,6 +40,8 @@ export interface OpencodeAdapterOptions {
 // ---------------------------------------------------------------------------
 
 export class OpencodeAdapter implements BackendAdapter {
+  private static readonly DEFAULT_PORT = 4096;
+
   readonly name = "opencode" as const;
 
   readonly capabilities: BackendCapabilities = {
@@ -66,7 +69,7 @@ export class OpencodeAdapter implements BackendAdapter {
 
   constructor(options: OpencodeAdapterOptions) {
     this.logger = options.logger;
-    this.port = options.port ?? 4096;
+    this.port = options.port ?? OpencodeAdapter.DEFAULT_PORT;
     this.hostname = options.hostname ?? "127.0.0.1";
     this.opencodeBinary = options.opencodeBinary;
     this.password = options.password;
@@ -110,8 +113,10 @@ export class OpencodeAdapter implements BackendAdapter {
   }
 
   private async ensureServer(): Promise<void> {
+    const launchPort = await this.resolveLaunchPort();
+
     this.serverInfo = await this.launcher.launch("server", {
-      port: this.port,
+      port: launchPort,
       hostname: this.hostname,
       opencodeBinary: this.opencodeBinary,
       password: this.password,
@@ -125,6 +130,52 @@ export class OpencodeAdapter implements BackendAdapter {
     });
 
     this.startSseLoop();
+  }
+
+  private async resolveLaunchPort(): Promise<number> {
+    // Avoid local developer collisions with an already-running opencode server.
+    // Keep explicit custom ports unchanged; only auto-fallback for the default.
+    if (this.port !== OpencodeAdapter.DEFAULT_PORT) {
+      return this.port;
+    }
+
+    const inUse = await this.isPortInUse(this.hostname, this.port);
+    if (!inUse) return this.port;
+
+    const fallback = await this.reserveEphemeralPort(this.hostname);
+    this.logger?.warn?.(
+      `Default opencode port ${this.port} is in use on ${this.hostname}; falling back to ${fallback}`,
+    );
+    return fallback;
+  }
+
+  private isPortInUse(hostname: string, port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = createServer();
+      server.once("error", () => resolve(true));
+      server.listen(port, hostname, () => {
+        server.close(() => resolve(false));
+      });
+    });
+  }
+
+  private reserveEphemeralPort(hostname: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const server = createServer();
+      server.once("error", reject);
+      server.listen(0, hostname, () => {
+        const addr = server.address();
+        if (!addr || typeof addr === "string") {
+          server.close(() => reject(new Error("Failed to reserve ephemeral opencode port")));
+          return;
+        }
+        const port = addr.port;
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve(port);
+        });
+      });
+    });
   }
 
   // -------------------------------------------------------------------------
