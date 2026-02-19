@@ -32,7 +32,7 @@ export interface QueuedMessage {
 
 export interface Session {
   id: string;
-  cliSessionId?: string;
+  backendSessionId?: string;
   /** BackendSession from BackendAdapter. */
   backendSession: BackendSession | null;
   /** AbortController for the backend message consumption loop. */

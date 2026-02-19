@@ -121,11 +121,11 @@ describe("SessionManager", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Wiring: backend:session_id → launcher.setCLISessionId
+  // Wiring: backend:session_id → launcher.setBackendSessionId
   // -----------------------------------------------------------------------
 
   describe("backend:session_id wiring", () => {
-    it("forwards to launcher.setCLISessionId", () => {
+    it("forwards to launcher.setBackendSessionId", () => {
       mgr.start();
       const info = mgr.launcher.launch({ cwd: "/tmp" });
       // Simulate the bridge emitting backend:session_id
@@ -135,7 +135,7 @@ describe("SessionManager", () => {
       });
 
       const session = mgr.launcher.getSession(info.sessionId);
-      expect(session?.cliSessionId).toBe("cli-abc-123");
+      expect(session?.backendSessionId).toBe("cli-abc-123");
     });
   });
 

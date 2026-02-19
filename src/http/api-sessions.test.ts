@@ -159,7 +159,7 @@ describe("handleApiSessions", () => {
         cwd: "/tmp",
         model: "m1",
         permissionMode: "default",
-        cliSessionId: "backend-1",
+        backendSessionId: "backend-1",
         createdAt: 123,
       },
     ]);
@@ -317,7 +317,7 @@ describe("handleApiSessions", () => {
       state: "starting",
       cwd: "/repo",
       permissionMode: "default",
-      cliSessionId: "backend-2",
+      backendSessionId: "backend-2",
       createdAt: 456,
     });
   });

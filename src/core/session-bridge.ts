@@ -520,7 +520,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const unified = normalizeInbound({
       type: "user_message",
       content,
-      session_id: options?.sessionIdOverride || session.state.session_id || "",
+      session_id: options?.sessionIdOverride || session.backendSessionId || "",
       images: options?.images,
     });
     if (!unified) return;

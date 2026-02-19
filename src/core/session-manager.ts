@@ -29,7 +29,7 @@ import { TypedEventEmitter } from "./typed-emitter.js";
  * Replaces the manual wiring in the Vibe Companion's index.ts:34-68.
  *
  * Auto-wires:
- * - backend:session_id → launcher.setCLISessionId
+ * - backend:session_id → launcher.setBackendSessionId
  * - backend:relaunch_needed → launcher.relaunch (with dedup — A5)
  * - backend:connected → launcher.markConnected
  * - Reconnection watchdog (I4)

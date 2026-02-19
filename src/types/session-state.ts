@@ -90,7 +90,7 @@ export interface SdkSessionInfo {
   permissionMode?: string;
   cwd: string;
   createdAt: number;
-  cliSessionId?: string;
+  backendSessionId?: string;
   archived?: boolean;
   isWorktree?: boolean;
   repoRoot?: string;

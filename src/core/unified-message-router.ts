@@ -147,7 +147,7 @@ export class UnifiedMessageRouter {
 
     // Store backend session ID for resume
     if (m.session_id) {
-      session.cliSessionId = m.session_id as string;
+      session.backendSessionId = m.session_id as string;
       this.emitEvent("backend:session_id", {
         sessionId: session.id,
         backendSessionId: m.session_id as string,

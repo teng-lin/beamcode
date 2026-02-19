@@ -20,7 +20,7 @@ export interface SdkSessionInfo {
   permissionMode?: string;
   cwd: string;
   createdAt: number;
-  cliSessionId?: string;
+  backendSessionId?: string;
   archived?: boolean;
   name?: string;
   adapterType?: string;
