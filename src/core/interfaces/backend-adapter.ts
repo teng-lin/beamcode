@@ -8,6 +8,19 @@
 import type { UnifiedMessage } from "../types/unified-message.js";
 
 // ---------------------------------------------------------------------------
+// AdapterSlashExecutor
+// ---------------------------------------------------------------------------
+
+/** Duck-typed interface for adapter-specific slash command executors. */
+export interface AdapterSlashExecutor {
+  handles(command: string): boolean;
+  execute(
+    command: string,
+  ): Promise<{ content: string; source: "emulated"; durationMs: number } | null>;
+  supportedCommands(): string[];
+}
+
+// ---------------------------------------------------------------------------
 // Capabilities
 // ---------------------------------------------------------------------------
 
@@ -69,4 +82,6 @@ export interface BackendAdapter {
   readonly capabilities: BackendCapabilities;
   /** Open a new session (or resume an existing one). */
   connect(options: ConnectOptions): Promise<BackendSession>;
+  /** Optionally create an adapter-specific slash command executor for a session. */
+  createSlashExecutor?(session: BackendSession): AdapterSlashExecutor | null;
 }

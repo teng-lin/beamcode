@@ -643,7 +643,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.broadcaster.broadcastPresence(session);
         break;
       case "slash_command":
-        this.slashCommandHandler.handleSlashCommand(session, msg);
+        this.handleSlashCommandWithAdapter(session, msg);
         break;
       case "queue_message":
         this.queueHandler.handleQueueMessage(session, msg, ws);
@@ -660,6 +660,57 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         );
         break;
     }
+  }
+
+  private handleSlashCommandWithAdapter(
+    session: Session,
+    msg: { type: "slash_command"; command: string; request_id?: string },
+  ): void {
+    const { command, request_id } = msg;
+    const executor = session.adapterSlashExecutor;
+
+    // Try adapter-specific executor first (e.g. Codex → JSON-RPC)
+    if (executor?.handles(command)) {
+      executor
+        .execute(command)
+        .then((result) => {
+          if (!result) {
+            this.slashCommandHandler.handleSlashCommand(session, msg);
+            return;
+          }
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_result",
+            command,
+            request_id,
+            content: result.content,
+            source: result.source,
+          });
+          this.emit("slash_command:executed", {
+            sessionId: session.id,
+            command,
+            source: result.source,
+            durationMs: result.durationMs,
+          });
+        })
+        .catch((err) => {
+          const error = err instanceof Error ? err.message : String(err);
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_error",
+            command,
+            request_id,
+            error,
+          });
+          this.emit("slash_command:failed", {
+            sessionId: session.id,
+            command,
+            error,
+          });
+        });
+      return;
+    }
+
+    // Fallback: existing handler (local /help or forward to CLI)
+    this.slashCommandHandler.handleSlashCommand(session, msg);
   }
 
   private handleUserMessage(

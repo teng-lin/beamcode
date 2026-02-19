@@ -82,6 +82,7 @@ export function createMockSession(overrides?: Partial<Session>): Session {
       getAll: vi.fn(() => []),
     } as any,
     pendingPassthrough: null,
+    adapterSlashExecutor: null,
     ...overrides,
   };
 }
