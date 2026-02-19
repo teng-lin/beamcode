@@ -4,6 +4,5 @@
  */
 export { MemoryStorage } from "./adapters/memory-storage.js";
 export { NoopLogger } from "./adapters/noop-logger.js";
-export { MockCommandRunner } from "./testing/mock-command-runner.js";
 export { MockProcessManager } from "./testing/mock-process-manager.js";
 export { createMockSocket } from "./testing/mock-socket.js";
