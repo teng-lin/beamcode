@@ -250,7 +250,7 @@ export function translateToGemini(message: UnifiedMessage): GeminiAction {
         message: {
           kind: "message",
           role: "user",
-          parts: [{ kind: "data", data: confirmation as unknown as Record<string, unknown> }],
+          parts: [{ kind: "data", data: confirmation as Record<string, unknown> }],
           messageId: message.id,
         },
       };

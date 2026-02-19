@@ -5,10 +5,14 @@
  * PID tracking, and output piping.
  */
 
+import path from "node:path";
 import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js";
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
+
+/** Allowed binary basenames for the Gemini A2A server. */
+const ALLOWED_GEMINI_BINARIES = new Set(["gemini-cli-a2a-server", "npx"]);
 
 export interface GeminiLauncherOptions {
   processManager: ProcessManager;
@@ -68,6 +72,15 @@ export class GeminiLauncher extends ProcessSupervisor {
     const port = options.port ?? 0;
     const cwd = options.cwd ?? process.cwd();
     const binary = options.geminiBinary ?? "gemini-cli-a2a-server";
+
+    // Validate binary name to prevent arbitrary command execution
+    const binaryBasename = path.basename(binary);
+    if (!ALLOWED_GEMINI_BINARIES.has(binaryBasename)) {
+      throw new Error(
+        `Disallowed gemini binary "${binaryBasename}". ` +
+          `Allowed: ${[...ALLOWED_GEMINI_BINARIES].join(", ")}`,
+      );
+    }
 
     // Inherit parent environment so the child has PATH, HOME, API keys, etc.
     // CODER_AGENT_PORT is the env var gemini-cli-a2a-server reads for its listen port.
