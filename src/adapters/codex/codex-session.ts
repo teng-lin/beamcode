@@ -662,49 +662,8 @@ export class CodexSession implements BackendSession {
   private enqueueResponseItems(response: CodexResponse): void {
     const outputItems = Array.isArray(response.output) ? response.output : [];
     for (const item of outputItems) {
-      if (item.type === "message") {
-        const text = this.itemToText(item);
-        if (!text) continue;
-        this.queue.enqueue(
-          createUnifiedMessage({
-            type: "assistant",
-            role: "assistant",
-            content: [{ type: "text", text }],
-            metadata: {
-              item_id: item.id,
-              status: item.status,
-            },
-          }),
-        );
-      } else if (item.type === "function_call") {
-        this.queue.enqueue(
-          createUnifiedMessage({
-            type: "tool_progress",
-            role: "tool",
-            metadata: {
-              name: item.name,
-              arguments: item.arguments,
-              call_id: item.call_id,
-              item_id: item.id,
-              status: item.status,
-              done: true,
-            },
-          }),
-        );
-      } else if (item.type === "function_call_output") {
-        this.queue.enqueue(
-          createUnifiedMessage({
-            type: "tool_use_summary",
-            role: "tool",
-            metadata: {
-              output: item.output,
-              call_id: item.call_id,
-              item_id: item.id,
-              status: item.status,
-            },
-          }),
-        );
-      }
+      const msg = this.translateResponseItem(item);
+      if (msg) this.queue.enqueue(msg);
     }
     this.queue.enqueue(
       createUnifiedMessage({
@@ -717,6 +676,47 @@ export class CodexSession implements BackendSession {
         },
       }),
     );
+  }
+
+  private translateResponseItem(item: CodexItem): UnifiedMessage | null {
+    switch (item.type) {
+      case "message": {
+        const text = this.itemToText(item);
+        if (!text) return null;
+        return createUnifiedMessage({
+          type: "assistant",
+          role: "assistant",
+          content: [{ type: "text", text }],
+          metadata: { item_id: item.id, status: item.status },
+        });
+      }
+      case "function_call":
+        return createUnifiedMessage({
+          type: "tool_progress",
+          role: "tool",
+          metadata: {
+            name: item.name,
+            arguments: item.arguments,
+            call_id: item.call_id,
+            item_id: item.id,
+            status: item.status,
+            done: true,
+          },
+        });
+      case "function_call_output":
+        return createUnifiedMessage({
+          type: "tool_use_summary",
+          role: "tool",
+          metadata: {
+            output: item.output,
+            call_id: item.call_id,
+            item_id: item.id,
+            status: item.status,
+          },
+        });
+      default:
+        return null;
+    }
   }
 
   private itemToText(item: CodexItem): string {

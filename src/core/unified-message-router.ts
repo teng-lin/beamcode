@@ -335,15 +335,20 @@ export class UnifiedMessageRouter {
     const m = msg.metadata;
     const patch: Record<string, unknown> = {};
     if (typeof m.model === "string") patch.model = m.model;
-    if (typeof m.permissionMode === "string") patch.permissionMode = m.permissionMode;
+    const modeValue =
+      typeof m.mode === "string"
+        ? m.mode
+        : typeof m.permissionMode === "string"
+          ? m.permissionMode
+          : undefined;
+    if (modeValue !== undefined) patch.permissionMode = modeValue;
     if (Object.keys(patch).length > 0) {
       this.broadcaster.broadcast(session, {
         type: "session_update",
         session: patch as Partial<SessionState>,
       });
+      this.persistSession(session);
     }
-
-    this.persistSession(session);
   }
 
   private handleSessionLifecycle(session: Session, msg: UnifiedMessage): void {

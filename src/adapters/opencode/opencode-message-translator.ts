@@ -59,7 +59,7 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
         metadata: {
           subtype: "message_removed",
           session_id: event.properties.sessionID,
-          message_id: (event.properties as { messageID?: string }).messageID,
+          message_id: event.properties.messageID,
         },
       });
     case "server.heartbeat":
@@ -132,22 +132,10 @@ export function extractSessionId(event: OpencodeEvent): string | undefined {
 function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessage | null {
   switch (part.type) {
     case "text":
-      return createUnifiedMessage({
-        type: "stream_event",
-        role: "assistant",
-        metadata: {
-          delta: delta ?? "",
-          part_id: part.id,
-          message_id: part.messageID,
-          session_id: part.sessionID,
-          text: part.text,
-        },
-      });
     case "reasoning": {
-      const content: UnifiedContent[] = [];
-      if (part.text) {
-        content.push({ type: "thinking", thinking: part.text });
-      }
+      const isReasoning = part.type === "reasoning";
+      const content: UnifiedContent[] =
+        isReasoning && part.text ? [{ type: "thinking", thinking: part.text }] : [];
       return createUnifiedMessage({
         type: "stream_event",
         role: "assistant",
@@ -158,30 +146,20 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
           message_id: part.messageID,
           session_id: part.sessionID,
           text: part.text,
-          reasoning: true,
+          ...(isReasoning && { reasoning: true }),
         },
       });
     }
     case "tool":
       return translateToolPart(part);
     case "step-start":
-      return createUnifiedMessage({
-        type: "status_change",
-        role: "system",
-        metadata: {
-          session_id: part.sessionID,
-          step: "start",
-          step_id: part.id,
-          message_id: part.messageID,
-        },
-      });
     case "step-finish":
       return createUnifiedMessage({
         type: "status_change",
         role: "system",
         metadata: {
           session_id: part.sessionID,
-          step: "finish",
+          step: part.type === "step-start" ? "start" : "finish",
           step_id: part.id,
           message_id: part.messageID,
         },
@@ -342,21 +320,16 @@ function translateSessionError(sessionID: string, error: OpencodeMessageError): 
   });
 }
 
+const KNOWN_OPENCODE_ERROR_CODES = new Set([
+  "provider_auth",
+  "output_length",
+  "aborted",
+  "context_overflow",
+  "api_error",
+]);
+
 function normalizeOpencodeErrorCode(name: string): string {
-  switch (name) {
-    case "provider_auth":
-      return "provider_auth";
-    case "output_length":
-      return "output_length";
-    case "aborted":
-      return "aborted";
-    case "context_overflow":
-      return "context_overflow";
-    case "api_error":
-      return "api_error";
-    default:
-      return "unknown";
-  }
+  return KNOWN_OPENCODE_ERROR_CODES.has(name) ? name : "unknown";
 }
 
 function translatePermissionUpdated(properties: {

@@ -146,8 +146,14 @@ function reduceConfigurationChange(state: SessionState, msg: UnifiedMessage): Se
     newState.model = m.model;
     changed = true;
   }
-  if (typeof m.permissionMode === "string" && m.permissionMode !== state.permissionMode) {
-    newState.permissionMode = m.permissionMode;
+  const newMode =
+    typeof m.mode === "string"
+      ? m.mode
+      : typeof m.permissionMode === "string"
+        ? m.permissionMode
+        : undefined;
+  if (newMode !== undefined && newMode !== state.permissionMode) {
+    newState.permissionMode = newMode;
     changed = true;
   }
 

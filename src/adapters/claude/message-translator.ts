@@ -180,7 +180,6 @@ function normalizeClaudeError(
       return { error_code: "max_budget", error_message: message };
     case "error_max_structured_output_retries":
       return { error_code: "execution_error", error_message: message };
-    case "error_during_execution":
     default:
       return { error_code: "execution_error", error_message: message };
   }

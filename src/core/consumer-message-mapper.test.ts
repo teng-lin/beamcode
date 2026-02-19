@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   mapAssistantMessage,
   mapAuthStatus,
+  mapConfigurationChange,
   mapPermissionRequest,
   mapResultMessage,
+  mapSessionLifecycle,
   mapStreamEvent,
   mapToolProgress,
   mapToolUseSummary,
@@ -568,6 +570,84 @@ describe("mapAuthStatus", () => {
       isAuthenticating: false,
       output: ["Failed"],
       error: "Invalid API key",
+    });
+  });
+});
+
+// ─── mapConfigurationChange ─────────────────────────────────────────────────
+
+describe("mapConfigurationChange", () => {
+  it("maps configuration_change with subtype and metadata", () => {
+    const msg = createUnifiedMessage({
+      type: "configuration_change",
+      role: "user",
+      metadata: {
+        subtype: "set_permission_mode",
+        mode: "plan",
+      },
+    });
+
+    const result = mapConfigurationChange(msg);
+    expect(result).toEqual({
+      type: "configuration_change",
+      subtype: "set_permission_mode",
+      metadata: { mode: "plan" },
+    });
+  });
+
+  it("uses 'unknown' when subtype is missing", () => {
+    const msg = createUnifiedMessage({
+      type: "configuration_change",
+      role: "system",
+      metadata: { model: "gpt-4" },
+    });
+
+    const result = mapConfigurationChange(msg);
+    expect(result).toEqual({
+      type: "configuration_change",
+      subtype: "unknown",
+      metadata: { model: "gpt-4" },
+    });
+  });
+});
+
+// ─── mapSessionLifecycle ────────────────────────────────────────────────────
+
+describe("mapSessionLifecycle", () => {
+  it("maps session_compacted lifecycle event", () => {
+    const msg = createUnifiedMessage({
+      type: "session_lifecycle",
+      role: "system",
+      metadata: {
+        subtype: "session_compacted",
+        session_id: "sess-42",
+      },
+    });
+
+    const result = mapSessionLifecycle(msg);
+    expect(result).toEqual({
+      type: "session_lifecycle",
+      subtype: "session_compacted",
+      metadata: { session_id: "sess-42" },
+    });
+  });
+
+  it("maps message_removed lifecycle event", () => {
+    const msg = createUnifiedMessage({
+      type: "session_lifecycle",
+      role: "system",
+      metadata: {
+        subtype: "message_removed",
+        session_id: "sess-42",
+        message_id: "msg-7",
+      },
+    });
+
+    const result = mapSessionLifecycle(msg);
+    expect(result).toEqual({
+      type: "session_lifecycle",
+      subtype: "message_removed",
+      metadata: { session_id: "sess-42", message_id: "msg-7" },
     });
   });
 });

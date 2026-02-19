@@ -234,23 +234,24 @@ export function mapAuthStatus(msg: UnifiedMessage): ConsumerMessage {
  * Map a UnifiedMessage of type "configuration_change" to a ConsumerMessage.
  */
 export function mapConfigurationChange(msg: UnifiedMessage): ConsumerMessage {
-  const m = msg.metadata;
-  const { subtype: sub, ...rest } = m;
-  return {
-    type: "configuration_change",
-    subtype: (sub as string) ?? "unknown",
-    metadata: rest,
-  };
+  return mapMetadataMessage("configuration_change", msg);
 }
 
 /**
  * Map a UnifiedMessage of type "session_lifecycle" to a ConsumerMessage.
  */
 export function mapSessionLifecycle(msg: UnifiedMessage): ConsumerMessage {
-  const m = msg.metadata;
-  const { subtype: sub, ...rest } = m;
+  return mapMetadataMessage("session_lifecycle", msg);
+}
+
+/** Shared mapper for message types that forward subtype + metadata. */
+function mapMetadataMessage(
+  type: "configuration_change" | "session_lifecycle",
+  msg: UnifiedMessage,
+): ConsumerMessage {
+  const { subtype: sub, ...rest } = msg.metadata;
   return {
-    type: "session_lifecycle",
+    type,
     subtype: (sub as string) ?? "unknown",
     metadata: rest,
   };
