@@ -25,7 +25,7 @@ export interface BridgeOperations {
   /**
    * Force-close a session and all its connections.
    */
-  closeSession(id: string): void;
+  closeSession(id: string): Promise<void>;
 
   /**
    * Optional storage interface for archival operations.

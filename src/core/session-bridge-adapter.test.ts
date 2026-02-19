@@ -939,7 +939,7 @@ describe("SessionBridge (BackendAdapter path)", () => {
       const closedHandler = vi.fn();
       bridge.on("session:closed", closedHandler);
 
-      bridge.closeSession("sess-1");
+      await bridge.closeSession("sess-1");
 
       expect(backendSession.closed).toBe(true);
       expect(bridge.getSession("sess-1")).toBeUndefined();
