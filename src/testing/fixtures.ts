@@ -21,7 +21,6 @@ export function makeDefaultSessionState(): SessionState {
     permissionMode: "default",
     claude_code_version: "",
     mcp_servers: [],
-    agents: [],
     slash_commands: [],
     skills: [],
     total_cost_usd: 0,

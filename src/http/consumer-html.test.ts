@@ -197,15 +197,4 @@ describe("consumer-html", () => {
       expect(decompressed).toContain('<meta name="beamcode-consumer-token" content="my-key">');
     });
   });
-
-  describe("injectApiKey (deprecated)", () => {
-    it("delegates to injectConsumerToken", async () => {
-      const { injectApiKey, loadConsumerHtml } = await import("./consumer-html.js");
-
-      injectApiKey("legacy-key");
-      const html = loadConsumerHtml();
-
-      expect(html).toContain('<meta name="beamcode-consumer-token" content="legacy-key">');
-    });
-  });
 });

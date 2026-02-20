@@ -71,7 +71,6 @@ function translateSystemInit(msg: CLISystemInitMessage): UnifiedMessage {
       apiKeySource: msg.apiKeySource,
       claude_code_version: msg.claude_code_version,
       mcp_servers: msg.mcp_servers,
-      agents: msg.agents ?? [],
       slash_commands: msg.slash_commands ?? [],
       skills: msg.skills ?? [],
       output_style: msg.output_style,

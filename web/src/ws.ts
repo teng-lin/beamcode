@@ -506,11 +506,6 @@ export function send(message: InboundMessage, sessionId?: string): void {
   }
 }
 
-/** @deprecated Use `useStore.getState().currentSessionId` instead. */
-export function getActiveSessionId(): string | null {
-  return useStore.getState().currentSessionId;
-}
-
 /** Reset internal state -- test-only. */
 export function _resetForTesting(): void {
   disconnect();

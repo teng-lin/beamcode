@@ -17,7 +17,6 @@ function makeSession(id: string, overrides: Partial<PersistedSession> = {}): Per
       permissionMode: "default",
       claude_code_version: "1.0",
       mcp_servers: [],
-      agents: [],
       slash_commands: [],
       skills: [],
       total_cost_usd: 0,

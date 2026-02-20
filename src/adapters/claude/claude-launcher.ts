@@ -427,11 +427,6 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
     }
   }
 
-  /** @deprecated Use setBackendSessionId */
-  setCLISessionId(sessionId: string, backendSessionId: string): void {
-    this.setBackendSessionId(sessionId, backendSessionId);
-  }
-
   // ---------------------------------------------------------------------------
   // Kill / Cleanup
   // ---------------------------------------------------------------------------

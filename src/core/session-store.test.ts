@@ -57,7 +57,6 @@ describe("makeDefaultState", () => {
     const state = makeDefaultState("s1");
     expect(state.tools).toEqual([]);
     expect(state.mcp_servers).toEqual([]);
-    expect(state.agents).toEqual([]);
     expect(state.slash_commands).toEqual([]);
     expect(state.skills).toEqual([]);
   });

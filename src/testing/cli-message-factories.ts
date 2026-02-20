@@ -116,7 +116,6 @@ export function makeInitMsg(overrides: Record<string, unknown> = {}) {
     permissionMode: "default",
     claude_code_version: "1.0",
     mcp_servers: [],
-    agents: [],
     slash_commands: [],
     skills: [],
     output_style: "normal",

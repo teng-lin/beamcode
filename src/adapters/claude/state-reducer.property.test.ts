@@ -1,8 +1,8 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { reduce } from "../../core/session-state-reducer.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { SessionState } from "../../types/session-state.js";
-import { reduce } from "./state-reducer.js";
 
 function arbSessionState(): fc.Arbitrary<SessionState> {
   return fc.record({
@@ -13,7 +13,6 @@ function arbSessionState(): fc.Arbitrary<SessionState> {
     permissionMode: fc.string(),
     claude_code_version: fc.string(),
     mcp_servers: fc.array(fc.record({ name: fc.string(), status: fc.string() })),
-    agents: fc.array(fc.string()),
     slash_commands: fc.array(fc.string()),
     skills: fc.array(fc.string()),
     is_compacting: fc.boolean(),
