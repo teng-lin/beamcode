@@ -286,7 +286,7 @@ function translateCompleted(event: CodexTurnEvent): UnifiedMessage {
 }
 
 function translateFailed(event: CodexTurnEvent): UnifiedMessage {
-  const errorMsg = event.response?.status ?? "unknown_error";
+  const status = event.response?.status ?? "unknown_error";
   return createUnifiedMessage({
     type: "result",
     role: "system",
@@ -294,11 +294,24 @@ function translateFailed(event: CodexTurnEvent): UnifiedMessage {
       status: "failed",
       is_error: true,
       response_id: event.response?.id,
-      error: errorMsg,
-      error_code: "execution_error",
-      error_message: errorMsg,
+      error: status,
+      error_code: classifyCodexError(status),
+      error_message: status,
     },
   });
+}
+
+function classifyCodexError(status: string): string {
+  switch (status) {
+    case "rate_limited":
+      return "rate_limit";
+    case "incomplete":
+      return "output_length";
+    case "cancelled":
+      return "aborted";
+    default:
+      return "execution_error";
+  }
 }
 
 /** Extract plain text from a CodexItem's content array. */

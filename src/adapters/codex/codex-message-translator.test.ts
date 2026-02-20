@@ -254,6 +254,25 @@ describe("codex-message-translator", () => {
         const result = translateCodexEvent(makeResponseFailed())!;
         expect(result.metadata.response_id).toBe("resp-2");
       });
+
+      it("sets canonical error_code in metadata", () => {
+        const event: CodexTurnEvent = {
+          type: "response.failed",
+          response: { id: "r-1", status: "failed", output: [] },
+        };
+        const result = translateCodexEvent(event)!;
+        expect(result.metadata.error_code).toBe("execution_error");
+        expect(result.metadata.is_error).toBe(true);
+      });
+
+      it("maps rate_limit status to rate_limit error_code", () => {
+        const event: CodexTurnEvent = {
+          type: "response.failed",
+          response: { id: "r-1", status: "rate_limited", output: [] },
+        };
+        const result = translateCodexEvent(event)!;
+        expect(result.metadata.error_code).toBe("rate_limit");
+      });
     });
 
     describe("null returns for events without items", () => {

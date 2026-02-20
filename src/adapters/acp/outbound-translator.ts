@@ -68,7 +68,7 @@ export function translateSessionUpdate(update: AcpSessionUpdate): UnifiedMessage
       return createUnifiedMessage({
         type: "unknown",
         role: "system",
-        metadata: { sessionId: update.sessionId, raw: update },
+        metadata: { session_id: update.sessionId, raw: update },
       });
   }
 }
@@ -80,7 +80,7 @@ export function translatePermissionRequest(request: AcpPermissionRequest): Unifi
     type: "permission_request",
     role: "system",
     metadata: {
-      sessionId: request.sessionId,
+      session_id: request.sessionId,
       // Map ACP toolCall fields to the flat names expected by consumer-message-mapper
       request_id: tc.toolCallId,
       tool_use_id: tc.toolCallId,
@@ -99,7 +99,7 @@ export function translatePromptResult(result: AcpPromptResult): UnifiedMessage {
   return createUnifiedMessage({
     type: "result",
     role: "system",
-    metadata: { sessionId, stopReason, ...rest },
+    metadata: { session_id: sessionId, stopReason, ...rest },
   });
 }
 
@@ -122,7 +122,7 @@ export function translatePromptError(
     type: "result",
     role: "system",
     metadata: {
-      sessionId,
+      session_id: sessionId,
       stopReason: "error",
       error_code: classify ? classify(error.code, error.message) : "api_error",
       error_message: error.message,
@@ -141,7 +141,7 @@ export function translateAuthStatus(
     type: "auth_status",
     role: "system",
     metadata: {
-      sessionId,
+      session_id: sessionId,
       isAuthenticating: false,
       output: [],
       error,
@@ -181,7 +181,7 @@ function translateAgentMessageChunk(update: AcpSessionUpdate): UnifiedMessage {
     role: "assistant",
     content,
     metadata: {
-      sessionId: update.sessionId,
+      session_id: update.sessionId,
       // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
       ...(textChunk?.text && {
         event: { type: "content_block_delta", delta: { type: "text_delta", text: textChunk.text } },
@@ -202,7 +202,7 @@ function translateAgentThoughtChunk(update: AcpSessionUpdate): UnifiedMessage {
     role: "assistant",
     content,
     metadata: {
-      sessionId: update.sessionId,
+      session_id: update.sessionId,
       thought: true,
       // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
       ...(textChunk?.text && {
@@ -220,8 +220,8 @@ function translateToolCall(update: AcpSessionUpdate): UnifiedMessage {
     type: "tool_progress",
     role: "tool",
     metadata: {
-      sessionId: update.sessionId,
-      toolCallId: update.toolCallId as string,
+      session_id: update.sessionId,
+      tool_use_id: update.toolCallId as string,
       title: update.title as string | undefined,
       kind: update.kind as string | undefined,
       status: update.status as string | undefined,
@@ -238,8 +238,8 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
       type: "tool_use_summary",
       role: "tool",
       metadata: {
-        sessionId: update.sessionId,
-        toolCallId: update.toolCallId as string,
+        session_id: update.sessionId,
+        tool_use_id: update.toolCallId as string,
         content,
         status,
         is_error: status === "failed",
@@ -252,8 +252,8 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
     type: "tool_progress",
     role: "tool",
     metadata: {
-      sessionId: update.sessionId,
-      toolCallId: update.toolCallId as string,
+      session_id: update.sessionId,
+      tool_use_id: update.toolCallId as string,
       content,
       status: status ?? "in_progress",
     },
@@ -287,7 +287,7 @@ function translatePlan(update: AcpSessionUpdate): UnifiedMessage {
     type: "status_change",
     role: "system",
     metadata: {
-      sessionId: update.sessionId,
+      session_id: update.sessionId,
       planEntries: update.planEntries,
     },
   });
@@ -299,7 +299,7 @@ function translateAvailableCommandsUpdate(update: AcpSessionUpdate): UnifiedMess
     role: "system",
     metadata: {
       subtype: "available_commands_update",
-      sessionId: update.sessionId,
+      session_id: update.sessionId,
       availableCommands: update.availableCommands,
     },
   });
@@ -311,7 +311,7 @@ function translateCurrentModeUpdate(update: AcpSessionUpdate): UnifiedMessage {
     role: "system",
     metadata: {
       subtype: "current_mode_update",
-      sessionId: update.sessionId,
+      session_id: update.sessionId,
       modeId: update.modeId as string,
     },
   });

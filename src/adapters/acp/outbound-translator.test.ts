@@ -32,7 +32,7 @@ describe("translateSessionUpdate", () => {
       expect(result.role).toBe("assistant");
       expect(result.content).toHaveLength(1);
       expect(result.content[0]).toEqual({ type: "text", text: "Hello world" });
-      expect(result.metadata.sessionId).toBe("sess-1");
+      expect(result.metadata.session_id).toBe("sess-1");
     });
 
     it("synthesizes Claude-compatible event in metadata", () => {
@@ -106,7 +106,7 @@ describe("translateSessionUpdate", () => {
 
       expect(result.type).toBe("tool_progress");
       expect(result.role).toBe("tool");
-      expect(result.metadata.toolCallId).toBe("call-1");
+      expect(result.metadata.tool_use_id).toBe("call-1");
       expect(result.metadata.title).toBe("Reading file");
       expect(result.metadata.kind).toBe("read");
       expect(result.metadata.status).toBe("pending");
@@ -126,7 +126,7 @@ describe("translateSessionUpdate", () => {
 
       expect(result.type).toBe("tool_progress");
       expect(result.role).toBe("tool");
-      expect(result.metadata.toolCallId).toBe("call-1");
+      expect(result.metadata.tool_use_id).toBe("call-1");
       expect(result.metadata.status).toBe("in_progress");
       expect(result.metadata.content).toEqual({ type: "text", text: "Processing..." });
     });
@@ -157,7 +157,7 @@ describe("translateSessionUpdate", () => {
 
       expect(result.type).toBe("tool_use_summary");
       expect(result.role).toBe("tool");
-      expect(result.metadata.toolCallId).toBe("call-1");
+      expect(result.metadata.tool_use_id).toBe("call-1");
       expect(result.metadata.status).toBe("completed");
       expect(result.metadata.is_error).toBe(false);
     });
@@ -271,7 +271,7 @@ describe("translatePermissionRequest", () => {
 
     expect(result.type).toBe("permission_request");
     expect(result.role).toBe("system");
-    expect(result.metadata.sessionId).toBe("sess-1");
+    expect(result.metadata.session_id).toBe("sess-1");
     expect(result.metadata.request_id).toBe("call-1");
     expect(result.metadata.tool_use_id).toBe("call-1");
     expect(result.metadata.tool_name).toBe("shell");
@@ -319,7 +319,7 @@ describe("translatePromptResult", () => {
     expect(msg.type).toBe("result");
     expect(msg.role).toBe("system");
     expect(msg.metadata.stopReason).toBe("end_turn");
-    expect(msg.metadata.sessionId).toBe("sess-1");
+    expect(msg.metadata.session_id).toBe("sess-1");
   });
 
   it("translates cancelled result", () => {
@@ -459,10 +459,86 @@ describe("translateAuthStatus", () => {
 
     expect(msg.type).toBe("auth_status");
     expect(msg.role).toBe("system");
-    expect(msg.metadata.sessionId).toBe("sess-1");
+    expect(msg.metadata.session_id).toBe("sess-1");
     expect(msg.metadata.isAuthenticating).toBe(false);
     expect(msg.metadata.output).toEqual([]);
     expect(msg.metadata.error).toBe("Verify your account to continue.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metadata key normalization (snake_case)
+// ---------------------------------------------------------------------------
+
+describe("outbound-translator metadata key normalization", () => {
+  it("translateSessionUpdate uses snake_case session_id", () => {
+    const msg = translateSessionUpdate({
+      sessionId: "s-1",
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "hi" },
+    });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+  });
+
+  it("translateToolCall uses snake_case tool_use_id", () => {
+    const msg = translateSessionUpdate({
+      sessionId: "s-1",
+      sessionUpdate: "tool_call",
+      toolCallId: "tc-1",
+      title: "Read file",
+      kind: "read",
+    });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata.tool_use_id).toBe("tc-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+    expect(msg.metadata).not.toHaveProperty("toolCallId");
+  });
+
+  it("translateToolCallUpdate completed uses snake_case keys", () => {
+    const msg = translateSessionUpdate({
+      sessionId: "s-1",
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tc-1",
+      status: "completed",
+      content: [],
+    });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata.tool_use_id).toBe("tc-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+    expect(msg.metadata).not.toHaveProperty("toolCallId");
+  });
+
+  it("translatePermissionRequest uses snake_case keys", () => {
+    const msg = translatePermissionRequest({
+      sessionId: "s-1",
+      toolCall: { toolCallId: "tc-1", kind: "write", title: "Write file" },
+      options: [{ optionId: "o1", name: "Allow", kind: "allow" }],
+    });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata.tool_use_id).toBe("tc-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+  });
+
+  it("translatePromptResult uses snake_case session_id", () => {
+    const msg = translatePromptResult({
+      sessionId: "s-1",
+      stopReason: "end_turn",
+    });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+  });
+
+  it("translatePromptError uses snake_case session_id", () => {
+    const msg = translatePromptError("s-1", { code: -1, message: "fail" });
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
+  });
+
+  it("translateAuthStatus uses snake_case session_id", () => {
+    const msg = translateAuthStatus("s-1", "auth failed");
+    expect(msg.metadata.session_id).toBe("s-1");
+    expect(msg.metadata).not.toHaveProperty("sessionId");
   });
 });
 
