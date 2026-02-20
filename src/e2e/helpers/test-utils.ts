@@ -210,14 +210,37 @@ export function waitForMessage(
       }
     }
 
+    const receivedDuringWait: string[] = [];
+
     const timer = setTimeout(() => {
       ws.removeListener("message", handler);
-      reject(new Error(`Timeout waiting for message after ${timeoutMs}ms`));
+      const diagnostics = [
+        `Timeout waiting for message after ${timeoutMs}ms`,
+        `WebSocket readyState: ${ws.readyState}`,
+        `Prebuffer (${prebuffer.length}): ${prebuffer.slice(-5).map((m) => {
+          try {
+            const p = JSON.parse(m) as { type?: string };
+            return p.type ?? "unknown";
+          } catch {
+            return "unparseable";
+          }
+        }).join(", ")}`,
+        `Received during wait (${receivedDuringWait.length}): ${receivedDuringWait.slice(-10).map((m) => {
+          try {
+            const p = JSON.parse(m) as { type?: string };
+            return p.type ?? "unknown";
+          } catch {
+            return "unparseable";
+          }
+        }).join(", ")}`,
+      ];
+      reject(new Error(diagnostics.join("\n")));
     }, timeoutMs);
 
     const handler = (data: Buffer | string) => {
       try {
         const raw = data.toString();
+        receivedDuringWait.push(raw);
         const parsed = JSON.parse(raw);
         if (predicate(parsed)) {
           removeFirstRaw(prebuffer, raw);

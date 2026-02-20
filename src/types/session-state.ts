@@ -78,6 +78,7 @@ export interface SessionSnapshot {
   pendingPermissions: PermissionRequest[];
   messageHistoryLength: number;
   lastActivity: number; // Timestamp of last message or activity
+  lastStatus: "compacting" | "idle" | "running" | null;
 }
 
 /** Session info from the launcher (process-level info) */
