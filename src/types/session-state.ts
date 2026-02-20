@@ -34,6 +34,8 @@ export interface SessionState extends DevToolSessionState {
   team?: TeamState;
   /** Backend adapter name (e.g. "claude", "codex", "acp"). */
   adapterName?: string;
+  /** Auth methods advertised by the backend (e.g. ACP initialize). */
+  authMethods?: { id: string; name: string; description?: string | null }[];
   slash_commands: string[];
   skills: string[];
   last_model_usage?: Record<

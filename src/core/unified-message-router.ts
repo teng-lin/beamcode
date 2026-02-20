@@ -194,6 +194,11 @@ export class UnifiedMessageRouter {
       if (gitInfo) applyGitInfo(session, gitInfo);
     }
 
+    // Store auth methods if the backend advertises them
+    if (Array.isArray(m.authMethods)) {
+      session.state.authMethods = m.authMethods as SessionState["authMethods"];
+    }
+
     // Populate registry from init data (per-session)
     session.registry.clearDynamic();
     if (session.state.slash_commands.length > 0) {

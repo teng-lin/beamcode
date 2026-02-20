@@ -175,6 +175,8 @@ export interface ConsumerSessionState {
   last_duration_ms?: number;
   last_duration_api_ms?: number;
   team?: ConsumerTeamState | null;
+  /** Auth methods advertised by the backend during initialization. */
+  authMethods?: { id: string; name: string; description?: string | null }[];
   circuitBreaker?: {
     state: string;
     failureCount: number;

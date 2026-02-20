@@ -52,7 +52,7 @@ export class GeminiAdapter implements BackendAdapter {
       adapterOptions: {
         ...options.adapterOptions,
         command: binary,
-        args: ["--experimental-acp"],
+        args: ["--experimental-acp", "--approval-mode", "default"],
         cwd: adapterOptions.cwd,
       },
     });

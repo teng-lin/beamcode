@@ -68,6 +68,12 @@ export class AcpSession implements BackendSession {
       pendingRequestId: this.pendingPermissionRequestId,
     });
     if (!action) return;
+
+    // Override sessionId in params with the ACP session's actual ID
+    // (beamcode's internal session ID differs from the one assigned by the agent)
+    if (action.params && typeof action.params === "object" && "sessionId" in action.params) {
+      (action.params as Record<string, unknown>).sessionId = this.sessionId;
+    }
     this.tracer?.translate(
       "translateToAcp",
       "T2",

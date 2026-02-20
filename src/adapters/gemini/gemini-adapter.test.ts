@@ -44,7 +44,7 @@ describe("GeminiAdapter", () => {
       await adapter.connect({ sessionId: "sess-1" });
 
       expect(spawnCalls[0].command).toBe("gemini");
-      expect(spawnCalls[0].args).toEqual(["--experimental-acp"]);
+      expect(spawnCalls[0].args).toEqual(["--experimental-acp", "--approval-mode", "default"]);
     });
 
     it("uses geminiBinary from constructor options", async () => {
@@ -58,7 +58,7 @@ describe("GeminiAdapter", () => {
       await adapter.connect({ sessionId: "sess-1" });
 
       expect(spawnCalls[0].command).toBe("/usr/local/bin/gemini-dev");
-      expect(spawnCalls[0].args).toEqual(["--experimental-acp"]);
+      expect(spawnCalls[0].args).toEqual(["--experimental-acp", "--approval-mode", "default"]);
     });
 
     it("uses geminiBinary from adapterOptions (overrides constructor)", async () => {
