@@ -73,11 +73,6 @@ export function injectConsumerToken(token: string): void {
   cachedCsp = buildCsp(cachedHtml);
 }
 
-/** @deprecated Use injectConsumerToken instead. Kept for backward compatibility. */
-export function injectApiKey(apiKey: string): void {
-  injectConsumerToken(apiKey);
-}
-
 export function handleConsumerHtml(req: IncomingMessage, res: ServerResponse): void {
   const html = loadConsumerHtml();
 

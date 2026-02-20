@@ -24,9 +24,6 @@ export interface SessionLauncher extends SessionRegistry, TypedEventEmitter<Laun
   /** Kill all active processes. */
   killAll(): Promise<void>;
 
-  /** @deprecated Use setBackendSessionId. */
-  setCLISessionId?(sessionId: string, backendSessionId: string): void;
-
   /** Restore sessions from persistent storage. Returns count restored. */
   restoreFromStorage(): number;
 }
