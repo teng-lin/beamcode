@@ -5,15 +5,19 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import type { PrometheusMetricsCollector } from "../adapters/prometheus-metrics-collector.js";
 import type { SessionManager } from "../core/session-manager.js";
 import { handleApiSessions } from "./api-sessions.js";
 import { handleConsumerHtml } from "./consumer-html.js";
-import { handleHealth } from "./health.js";
+import { type HealthContext, handleHealth } from "./health.js";
+import { handleMetrics } from "./metrics-endpoint.js";
 
 export interface HttpServerOptions {
   sessionManager: SessionManager;
   activeSessionId: string;
   apiKey?: string;
+  healthContext?: HealthContext;
+  prometheusCollector?: PrometheusMetricsCollector;
 }
 
 /** Timing-safe string comparison using SHA-256 to normalize lengths. */
@@ -47,7 +51,12 @@ export function createBeamcodeServer(
 
     // Route dispatch
     if (url.pathname === "/health") {
-      handleHealth(req, res);
+      handleHealth(req, res, options.healthContext);
+      return;
+    }
+
+    if (url.pathname === "/metrics" && options.prometheusCollector) {
+      handleMetrics(req, res, options.prometheusCollector);
       return;
     }
 

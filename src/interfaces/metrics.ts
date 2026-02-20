@@ -148,7 +148,27 @@ export interface MetricsCollector {
   getStats?(options?: { sessionId?: string }): Record<string, unknown>;
 
   /**
+   * Get error statistics (optional).
+   */
+  getErrorStats?(): ErrorStats | undefined;
+
+  /**
    * Reset metrics (optional).
    */
   reset?(): void;
+}
+
+/** A single aggregated error record. */
+export interface AggregatedError {
+  timestamp: number;
+  source: string;
+  message: string;
+  sessionId?: string;
+  severity: "warning" | "error" | "critical";
+}
+
+/** Summary of error counts and recent errors. */
+export interface ErrorStats {
+  counts: { warning: number; error: number; critical: number; total: number };
+  recentErrors: AggregatedError[];
 }

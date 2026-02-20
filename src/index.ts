@@ -3,9 +3,11 @@
 export type { ClaudeLauncherOptions } from "./adapters/claude/claude-launcher.js";
 export { ClaudeLauncher } from "./adapters/claude/claude-launcher.js";
 // Adapters
+export { CompositeMetricsCollector } from "./adapters/composite-metrics-collector.js";
 export { ConsoleLogger } from "./adapters/console-logger.js";
 export { ConsoleMetricsCollector } from "./adapters/console-metrics-collector.js";
 export { DefaultGitResolver } from "./adapters/default-git-resolver.js";
+export { ErrorAggregator } from "./adapters/error-aggregator.js";
 export { FileStorage } from "./adapters/file-storage.js";
 export { MemoryStorage } from "./adapters/memory-storage.js";
 export { NodeProcessManager } from "./adapters/node-process-manager.js";
@@ -104,6 +106,8 @@ export {
   StorageError,
   toBeamCodeError,
 } from "./errors.js";
+// HTTP
+export type { HealthContext } from "./http/health.js";
 // Interfaces
 export type {
   AuthContext,
@@ -114,15 +118,24 @@ export type {
 export type { GitInfo, GitInfoResolver } from "./interfaces/git-resolver.js";
 export type { Logger } from "./interfaces/logger.js";
 export type {
+  AggregatedError,
+  AuthenticationFailedEvent,
   BackendConnectedEvent,
   BackendDisconnectedEvent,
   ConsumerConnectedEvent,
   ConsumerDisconnectedEvent,
   ErrorEvent,
+  ErrorStats,
+  LatencyEvent,
+  MessageDroppedEvent,
+  MessageReceivedEvent,
+  MessageSentEvent,
   MetricsCollector,
   MetricsEvent,
   MetricsEventType,
+  QueueDepthEvent,
   RateLimitExceededEvent,
+  SendFailedEvent,
   SessionClosedEvent,
   SessionCreatedEvent,
 } from "./interfaces/metrics.js";
@@ -174,7 +187,7 @@ export type {
   SessionSnapshot,
   SessionState,
 } from "./types/session-state.js";
-
-// Utilities
 export { stripAnsi } from "./utils/ansi-strip.js";
 export { NDJSONLineBuffer, parseNDJSON, serializeNDJSON } from "./utils/ndjson.js";
+// Utilities
+export { RingBuffer } from "./utils/ring-buffer.js";

@@ -2,12 +2,15 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { createAdapterResolver } from "../adapters/adapter-resolver.js";
 import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
+import { CompositeMetricsCollector } from "../adapters/composite-metrics-collector.js";
 import { ConsoleMetricsCollector } from "../adapters/console-metrics-collector.js";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import { DefaultGitResolver } from "../adapters/default-git-resolver.js";
+import { ErrorAggregator } from "../adapters/error-aggregator.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { NodeProcessManager } from "../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
+import type { PrometheusMetricsCollector } from "../adapters/prometheus-metrics-collector.js";
 import { LogLevel, StructuredLogger } from "../adapters/structured-logger.js";
 import { TokenBucketLimiter } from "../adapters/token-bucket-limiter.js";
 
@@ -48,6 +51,7 @@ interface CliConfig {
   trace: boolean;
   traceLevel: TraceLevel;
   traceAllowSensitive: boolean;
+  prometheus?: boolean;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -72,6 +76,7 @@ function printHelp(): void {
     --trace                Enable message tracing (NDJSON to stderr)
     --trace-level <level>  Trace detail: smart (default), headers, full
     --trace-allow-sensitive  Allow sensitive payload logging with --trace-level full
+    --prometheus            Enable Prometheus metrics on /metrics endpoint
     --verbose, -v          Verbose logging
     --help, -h             Show this help
 
@@ -165,6 +170,9 @@ function parseArgs(argv: string[]): CliConfig {
       case "--trace-allow-sensitive":
         config.traceAllowSensitive = true;
         traceAllowSensitiveExplicit = true;
+        break;
+      case "--prometheus":
+        config.prometheus = true;
         break;
       case "--verbose":
       case "-v":
@@ -288,7 +296,11 @@ async function main(): Promise<void> {
 
   // 3. Create SessionManager (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
-  const metrics = new ConsoleMetricsCollector(logger);
+  const errorAggregator = new ErrorAggregator();
+  let metrics: import("../interfaces/metrics.js").MetricsCollector = new ConsoleMetricsCollector(
+    logger,
+    errorAggregator,
+  );
   const processManager = new NodeProcessManager();
   const adapterResolver = createAdapterResolver({ processManager, logger }, config.adapter);
   const adapter = adapterResolver.resolve(config.adapter);
@@ -315,6 +327,26 @@ async function main(): Promise<void> {
   const consumerToken = randomBytes(24).toString("base64url");
   injectConsumerToken(consumerToken);
 
+  // ── Prometheus opt-in (may reassign metrics) ──
+  let prometheusCollector: PrometheusMetricsCollector | undefined;
+  if (config.prometheus || process.env.BEAMCODE_PROMETHEUS === "1") {
+    try {
+      const promClient = await import("prom-client");
+      const { PrometheusMetricsCollector: PromCollector } = await import(
+        "../adapters/prometheus-metrics-collector.js"
+      );
+      prometheusCollector = new PromCollector(promClient.default ?? promClient);
+      const consoleMetrics = metrics;
+      metrics = new CompositeMetricsCollector([consoleMetrics, prometheusCollector]);
+      logger.info("Prometheus metrics enabled", { component: "startup" });
+    } catch (err) {
+      logger.warn(
+        `Prometheus metrics disabled: ${err instanceof Error ? err.message : String(err)}`,
+        { component: "startup" },
+      );
+    }
+  }
+
   // When a tunnel is active, enforce token auth on consumer WebSocket connections.
   // Tunnel-forwarded requests bypass bind-address and origin checks, so the only
   // protection would be UUID unpredictability without this authenticator.
@@ -339,6 +371,8 @@ async function main(): Promise<void> {
     sessionManager,
     activeSessionId: "",
     apiKey: consumerToken,
+    healthContext: { version, metrics },
+    prometheusCollector,
   });
 
   // 5. Start HTTP server and wait for it to be listening

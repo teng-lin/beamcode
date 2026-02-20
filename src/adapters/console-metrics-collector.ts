@@ -1,5 +1,6 @@
 import type { Logger } from "../interfaces/logger.js";
-import type { MetricsCollector, MetricsEventType } from "../interfaces/metrics.js";
+import type { ErrorStats, MetricsCollector, MetricsEventType } from "../interfaces/metrics.js";
+import type { ErrorAggregator } from "./error-aggregator.js";
 
 /**
  * Console-based metrics collector for observability.
@@ -9,7 +10,10 @@ export class ConsoleMetricsCollector implements MetricsCollector {
   private sessionEventCounts = new Map<string, number>();
   private sessionConnections = new Map<string, { backend: number; consumers: number }>();
 
-  constructor(private logger: Logger) {}
+  constructor(
+    private logger: Logger,
+    private errorAggregator?: ErrorAggregator,
+  ) {}
 
   recordEvent(event: MetricsEventType): void {
     const sessionId = event.sessionId || "global";
@@ -131,6 +135,13 @@ export class ConsoleMetricsCollector implements MetricsCollector {
           error: event.error,
           severity: event.severity,
         });
+        this.errorAggregator?.record({
+          timestamp: event.timestamp,
+          source: event.source,
+          message: event.error,
+          sessionId: event.sessionId,
+          severity: event.severity,
+        });
         break;
 
       case "ratelimit:exceeded":
@@ -192,8 +203,17 @@ export class ConsoleMetricsCollector implements MetricsCollector {
     };
   }
 
+  getErrorStats(): ErrorStats | undefined {
+    if (!this.errorAggregator) return undefined;
+    return {
+      counts: this.errorAggregator.getCounts(),
+      recentErrors: this.errorAggregator.getRecentErrors(),
+    };
+  }
+
   reset(): void {
     this.sessionEventCounts.clear();
     this.sessionConnections.clear();
+    this.errorAggregator?.reset();
   }
 }
