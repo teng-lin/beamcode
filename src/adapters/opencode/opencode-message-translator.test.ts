@@ -243,7 +243,7 @@ describe("translateEvent: message.part.updated with tool part running", () => {
     expect(msg!.role).toBe("tool");
     expect(msg!.metadata.status).toBe("running");
     expect(msg!.metadata.tool).toBe("bash");
-    expect(msg!.metadata.call_id).toBe("call-1");
+    expect(msg!.metadata.tool_use_id).toBe("call-1");
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 
@@ -287,10 +287,15 @@ describe("translateEvent: message.part.updated with tool part error", () => {
 });
 
 describe("translateEvent: message.part.updated with tool part pending", () => {
-  it("returns null (not yet user-facing)", () => {
+  it("produces tool_progress with pending status", () => {
     const event = makeToolPartEvent("pending");
     const msg = translateEvent(event);
-    expect(msg).toBeNull();
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("tool_progress");
+    expect(msg!.metadata.status).toBe("pending");
+    expect(msg!.metadata.tool).toBe("bash");
+    expect(msg!.metadata.tool_use_id).toBe("call-1");
+    expect(msg!.metadata.input).toEqual({ cmd: "ls" });
   });
 });
 
@@ -1084,7 +1089,7 @@ describe("edge cases", () => {
     expect(msg!.metadata.part_id).toBe(PART_ID);
     expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
-    expect(msg!.metadata.call_id).toBe("call-1");
+    expect(msg!.metadata.tool_use_id).toBe("call-1");
   });
 
   it("each translated message gets a unique id", () => {

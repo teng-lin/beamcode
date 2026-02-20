@@ -122,7 +122,7 @@ export function translateApprovalRequest(request: CodexApprovalRequest): Unified
         call_id: request.item.call_id,
       },
       tool_name: request.item.name,
-      call_id: request.item.call_id,
+      tool_use_id: request.item.call_id,
     },
   });
 }
@@ -209,7 +209,7 @@ function translateItemAdded(event: CodexTurnEvent): UnifiedMessage | null {
       metadata: {
         name: item.name,
         arguments: item.arguments,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
@@ -230,7 +230,7 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
       role: "tool",
       metadata: {
         output: item.output,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         status: item.status,
         item_id: item.id,
         output_index: event.output_index,
@@ -245,7 +245,7 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
       metadata: {
         name: item.name,
         arguments: item.arguments,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
