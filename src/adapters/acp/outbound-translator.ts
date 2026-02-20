@@ -30,10 +30,17 @@ export interface AcpPromptResult {
   [key: string]: unknown;
 }
 
+export interface AcpAuthMethod {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
 export interface AcpInitializeResult {
   protocolVersion: number;
   agentCapabilities: Record<string, unknown>;
   agentInfo?: { name?: string; version?: string };
+  authMethods?: AcpAuthMethod[];
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +96,34 @@ export function translatePromptResult(result: AcpPromptResult): UnifiedMessage {
   });
 }
 
+/** Signature for backend-specific error classifiers. */
+export type ErrorClassifier = (code: number, message: string) => string;
+
+/**
+ * Translate a JSON-RPC error on a prompt response into a result UnifiedMessage.
+ *
+ * Preserves the full error detail (code, message, data) so consumers can
+ * surface actionable info. An optional classifier maps the error to a
+ * UnifiedErrorCode; defaults to "api_error" when no classifier is provided.
+ */
+export function translatePromptError(
+  sessionId: string,
+  error: { code: number; message: string; data?: unknown },
+  classify?: ErrorClassifier,
+): UnifiedMessage {
+  return createUnifiedMessage({
+    type: "result",
+    role: "system",
+    metadata: {
+      sessionId,
+      stopReason: "error",
+      error_code: classify ? classify(error.code, error.message) : "api_error",
+      error_message: error.message,
+      ...(error.data !== undefined && { error_data: error.data }),
+    },
+  });
+}
+
 /** Translate an initialize response into a UnifiedMessage. */
 export function translateInitializeResult(result: AcpInitializeResult): UnifiedMessage {
   return createUnifiedMessage({
@@ -99,6 +134,7 @@ export function translateInitializeResult(result: AcpInitializeResult): UnifiedM
       agentCapabilities: result.agentCapabilities,
       agentName: result.agentInfo?.name,
       agentVersion: result.agentInfo?.version,
+      ...(result.authMethods && { authMethods: result.authMethods }),
     },
   });
 }

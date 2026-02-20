@@ -8,6 +8,7 @@ import type {
 import {
   translateInitializeResult,
   translatePermissionRequest,
+  translatePromptError,
   translatePromptResult,
   translateSessionUpdate,
 } from "./outbound-translator.js";
@@ -309,6 +310,80 @@ describe("translateInitializeResult", () => {
 
     expect(msg.metadata.agentName).toBeUndefined();
     expect(msg.metadata.agentVersion).toBeUndefined();
+  });
+
+  it("includes authMethods when present", () => {
+    const result: AcpInitializeResult = {
+      protocolVersion: 1,
+      agentCapabilities: {},
+      authMethods: [
+        { id: "oauth-personal", name: "Log in with Google" },
+        {
+          id: "gemini-api-key",
+          name: "Use Gemini API key",
+          description: "Requires GEMINI_API_KEY",
+        },
+      ],
+    };
+    const msg = translateInitializeResult(result);
+
+    expect(msg.metadata.authMethods).toEqual([
+      { id: "oauth-personal", name: "Log in with Google" },
+      { id: "gemini-api-key", name: "Use Gemini API key", description: "Requires GEMINI_API_KEY" },
+    ]);
+  });
+
+  it("omits authMethods when not present", () => {
+    const result: AcpInitializeResult = {
+      protocolVersion: 1,
+      agentCapabilities: {},
+    };
+    const msg = translateInitializeResult(result);
+
+    expect(msg.metadata.authMethods).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// translatePromptError
+// ---------------------------------------------------------------------------
+
+describe("translatePromptError", () => {
+  it("defaults to api_error without a classifier", () => {
+    const msg = translatePromptError("sess-1", {
+      code: 500,
+      message: "Verify your account to continue.",
+    });
+
+    expect(msg.type).toBe("result");
+    expect(msg.metadata.stopReason).toBe("error");
+    expect(msg.metadata.error_code).toBe("api_error");
+    expect(msg.metadata.error_message).toBe("Verify your account to continue.");
+  });
+
+  it("uses provided classifier when given", () => {
+    const classify = (code: number, _msg: string) => (code === 401 ? "provider_auth" : "unknown");
+    const msg = translatePromptError("sess-1", { code: 401, message: "Unauthorized" }, classify);
+    expect(msg.metadata.error_code).toBe("provider_auth");
+  });
+
+  it("preserves error data when present", () => {
+    const msg = translatePromptError("sess-1", {
+      code: 500,
+      message: "Internal error",
+      data: { details: "Session not found: abc" },
+    });
+
+    expect(msg.metadata.error_code).toBe("api_error");
+    expect(msg.metadata.error_data).toEqual({ details: "Session not found: abc" });
+  });
+
+  it("omits error_data when not present", () => {
+    const msg = translatePromptError("sess-1", {
+      code: 500,
+      message: "Internal error",
+    });
+    expect(msg.metadata.error_data).toBeUndefined();
   });
 });
 

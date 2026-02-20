@@ -16,7 +16,7 @@ import type {
 import type { MessageTracer } from "../../core/message-tracer.js";
 import { AcpSession } from "./acp-session.js";
 import { JsonRpcCodec } from "./json-rpc.js";
-import type { AcpInitializeResult } from "./outbound-translator.js";
+import type { AcpInitializeResult, ErrorClassifier } from "./outbound-translator.js";
 
 const PROTOCOL_VERSION = 1;
 
@@ -35,9 +35,11 @@ export class AcpAdapter implements BackendAdapter {
   };
 
   private readonly spawnFn: SpawnFn;
+  private readonly errorClassifier?: ErrorClassifier;
 
-  constructor(spawnFn?: SpawnFn) {
+  constructor(spawnFn?: SpawnFn, errorClassifier?: ErrorClassifier) {
     this.spawnFn = spawnFn ?? spawn;
+    this.errorClassifier = errorClassifier;
   }
 
   async connect(options: ConnectOptions): Promise<BackendSession> {
@@ -98,7 +100,7 @@ export class AcpAdapter implements BackendAdapter {
 
     const sessionId = sessionResult.sessionId ?? options.sessionId;
 
-    return new AcpSession(sessionId, child, codec, initResult, tracer);
+    return new AcpSession(sessionId, child, codec, initResult, tracer, this.errorClassifier);
   }
 }
 

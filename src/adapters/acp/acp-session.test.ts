@@ -496,6 +496,101 @@ describe("AcpSession", () => {
       expect(msg.value.metadata.stopReason).toBe("end_turn");
     });
 
+    it("defaults to api_error when no error classifier is provided", async () => {
+      // First send a user_message to create a pending request
+      const userMsg = createUnifiedMessage({
+        type: "user_message",
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        metadata: { sessionId: "sess-1" },
+      });
+      session.send(userMsg);
+
+      const errorResponse = {
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: 500, message: "Verify your account to continue." },
+      };
+      mockDecode(codec).mockReturnValueOnce(errorResponse);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, errorResponse);
+
+      const msg = await iter.next();
+      expect(msg.value.type).toBe("result");
+      expect(msg.value.metadata.stopReason).toBe("error");
+      expect(msg.value.metadata.error_code).toBe("api_error");
+      expect(msg.value.metadata.error_message).toBe("Verify your account to continue.");
+    });
+
+    it("uses injected error classifier when provided", async () => {
+      const classifier = (_code: number, msg: string) =>
+        msg.includes("Verify") ? "provider_auth" : "api_error";
+      const classifiedSession = new AcpSession(
+        "sess-2",
+        child,
+        codec,
+        defaultInitResult,
+        undefined,
+        classifier,
+      );
+
+      const userMsg = createUnifiedMessage({
+        type: "user_message",
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        metadata: { sessionId: "sess-2" },
+      });
+      classifiedSession.send(userMsg);
+
+      const errorResponse = {
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: 500, message: "Verify your account to continue." },
+      };
+      mockDecode(codec).mockReturnValueOnce(errorResponse);
+
+      const iter = classifiedSession.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, errorResponse);
+
+      const msg = await iter.next();
+      expect(msg.value.metadata.error_code).toBe("provider_auth");
+    });
+
+    it("preserves error_data from JSON-RPC error response", async () => {
+      const userMsg = createUnifiedMessage({
+        type: "user_message",
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        metadata: { sessionId: "sess-1" },
+      });
+      session.send(userMsg);
+
+      const errorResponse = {
+        jsonrpc: "2.0",
+        id: 1,
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: { details: "Session not found: abc" },
+        },
+      };
+      mockDecode(codec).mockReturnValueOnce(errorResponse);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, errorResponse);
+
+      const msg = await iter.next();
+      expect(msg.value.metadata.error_code).toBe("api_error");
+      expect(msg.value.metadata.error_data).toEqual({ details: "Session not found: abc" });
+    });
+
     it("returns null for response without stopReason and no pending match", async () => {
       const response = {
         jsonrpc: "2.0",

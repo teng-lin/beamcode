@@ -17,10 +17,11 @@ import {
   isJsonRpcResponse,
   type JsonRpcCodec,
 } from "./json-rpc.js";
-import type { AcpInitializeResult } from "./outbound-translator.js";
+import type { AcpInitializeResult, ErrorClassifier } from "./outbound-translator.js";
 import {
   translateInitializeResult,
   translatePermissionRequest,
+  translatePromptError,
   translatePromptResult,
   translateSessionUpdate,
 } from "./outbound-translator.js";
@@ -37,6 +38,7 @@ export class AcpSession implements BackendSession {
   private readonly codec: JsonRpcCodec;
   private readonly initResult: AcpInitializeResult;
   private readonly tracer?: MessageTracer;
+  private readonly errorClassifier?: ErrorClassifier;
   private readonly pendingRequests = new Map<number | string, PendingRequest>();
   private pendingPermissionRequestId: number | string | undefined;
   private closed = false;
@@ -47,12 +49,14 @@ export class AcpSession implements BackendSession {
     codec: JsonRpcCodec,
     initResult: AcpInitializeResult,
     tracer?: MessageTracer,
+    errorClassifier?: ErrorClassifier,
   ) {
     this.sessionId = sessionId;
     this.child = child;
     this.codec = codec;
     this.initResult = initResult;
     this.tracer = tracer;
+    this.errorClassifier = errorClassifier;
   }
 
   send(message: UnifiedMessage): void {
@@ -314,11 +318,7 @@ export class AcpSession implements BackendSession {
       if (pending) {
         this.pendingRequests.delete(msg.id);
         if (msg.error) {
-          return translatePromptResult({
-            sessionId: this.sessionId,
-            stopReason: "error",
-            error: msg.error.message,
-          });
+          return translatePromptError(this.sessionId, msg.error, this.errorClassifier);
         }
       }
 

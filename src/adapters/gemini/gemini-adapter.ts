@@ -12,6 +12,7 @@ import type {
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
 import { AcpAdapter, type SpawnFn } from "../acp/acp-adapter.js";
+import { classifyGeminiError } from "./gemini-error-classifier.js";
 
 export interface GeminiAdapterOptions {
   geminiBinary?: string;
@@ -45,7 +46,7 @@ export class GeminiAdapter implements BackendAdapter {
 
     const binary = adapterOptions.geminiBinary ?? this.geminiBinary ?? "gemini";
 
-    const acp = new AcpAdapter(this.spawnFn);
+    const acp = new AcpAdapter(this.spawnFn, classifyGeminiError);
     return acp.connect({
       ...options,
       adapterOptions: {
