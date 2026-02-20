@@ -19,11 +19,11 @@
        └──────────────────┴──────────────────┴───────────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │  UnifiedMessage │  ← 18 types, 7 content types
+                                    │  UnifiedMessage │  ← 19 types, 7 content types
                                     └────────┬────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │  Message Router │  ← handles 12 of 18 types
+                                    │  Message Router │  ← handles 12 of 19 types (+default)
                                     └────────┬────────┘
                                              │
                                     ┌────────▼────────┐
@@ -37,7 +37,7 @@
 
 ## 2. Current UnifiedMessage Type Coverage
 
-**18 types defined**, **12 have router handlers** and **12 have consumer mappers**:
+**19 types defined**, **12 have router handlers**, **12 have consumer mappers**, and **1 has a default trace handler**:
 
 | UnifiedMessageType | Router Handler | Consumer Mapper | Broadcast to UI |
 |---|:---:|:---:|:---:|
@@ -56,12 +56,12 @@
 | `user_message` | NO | NO | NO |
 | `permission_response` | NO | NO | NO |
 | `interrupt` | NO | NO | NO |
-| `team_message` | NO | NO | NO |
-| `team_task_update` | NO | NO | NO |
-| `team_state_change` | NO | NO | NO |
-| `unknown` | NO | NO | NO |
+| `team_message` | NO — reserved | NO — reserved | NO |
+| `team_task_update` | NO — reserved | NO — reserved | NO |
+| `team_state_change` | NO — reserved | NO — reserved | NO |
+| `unknown` | default (traced) | NO | NO |
 
-`user_message`, `permission_response`, `interrupt` are intentionally bridge-handled (consumer→backend). `team_*` types update state via reducer. `unknown` silently vanishes (by design).
+`user_message`, `permission_response`, `interrupt` are intentionally bridge-handled (consumer→backend). `team_*` types are reserved for the tool-correlation taxonomy in `team-tool-recognizer.ts` — they are never emitted as routable messages. `unknown` is traced via the router's default case for diagnosability.
 
 ## 3. UnifiedContent Type Coverage
 
@@ -123,16 +123,16 @@ Consumer mapper now has proper `case "code"` and `case "image"` handlers.
 | Thinking/reasoning | `thinking` block | — | `reasoning` part | `thought_chunk` | `ThinkingContent` (YES) |
 | Tool invocation | `tool_progress` | `item.added` | tool `running` | `tool_call` | `tool_progress` (YES) |
 | Tool completion | `tool_use_summary` | `item.done` | tool `completed` | `tool_call_update` | `tool_use_summary` (YES) |
-| Tool pending | — | — | tool `pending` | — | **DROPPED** |
+| Tool pending | — | — | tool `pending` | — | `tool_progress` (YES) |
 | Permission request | `control_request` | `approval_requested` | `permission.updated` | `request_permission` | `permission_request` (YES) |
-| Error subtypes | 5 subtypes | error object | 6 subtypes | `error_code` | `UnifiedErrorCode` (YES) |
+| Error subtypes | 5 subtypes | classified | 6 subtypes | `error_code` | `UnifiedErrorCode` (YES) |
 | Session compaction | `status:compacting` | — | `session.compacted` | — | `session_lifecycle` (YES) |
 | Message removal | — | — | `message.removed` | — | `session_lifecycle` (YES) |
 | Step boundaries | — | — | `step-start/finish` | — | `status_change` (YES) |
 | Dynamic commands | — | — | — | `commands_update` | `configuration_change` (YES) |
 | Mode/config change | — | — | — | `current_mode_update` | `configuration_change` (YES) |
 | Refusal | — | `refusal` part | — | — | `RefusalContent` (YES) |
-| Token usage | Full | — | Full | — | Partial |
+| Token usage | Full | — | Full | — | Partial (not available from Codex/ACP upstream) |
 | Image content | — | — | — | YES (inbound) | `ImageContent` (YES) |
 | Code content | — | — | — | — | `CodeContent` (YES) |
 | Auth flow | `auth_status` | — | — | YES | `auth_status` (YES) |
@@ -141,7 +141,7 @@ Consumer mapper now has proper `case "code"` and `case "image"` handlers.
 
 ## 6. Complete Silent Drop Inventory
 
-**17 remaining silent drop points** (6 resolved since initial audit):
+**15 remaining silent drop points** (8 resolved since initial audit):
 
 | # | Layer | File | What's Dropped |
 |---|---|---|---|
@@ -162,21 +162,22 @@ Consumer mapper now has proper `case "code"` and `case "image"` handlers.
 | 15 | OpenCode adapter | `opencode-message-translator.ts` | `message.part.removed` → `null` |
 | 16 | OpenCode adapter | `opencode-message-translator.ts` | Unknown event types → `null` |
 | ~~17~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`step-start`/`step-finish` → `null`~~ — **RESOLVED** (now → `status_change`) |
-| 18 | OpenCode adapter | `opencode-message-translator.ts` | Tool `pending` state → `null` |
+| ~~18~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~Tool `pending` state → `null`~~ — **RESOLVED** (now → `tool_progress`) |
 | 19 | ACP adapter | `outbound-translator.ts` | Unknown session updates → `unknown` type |
 | 20 | ACP adapter | `acp-session.ts` | `fs/*`, `terminal/*` requests → error stub |
 | ~~21~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`configuration_change` — no case~~ — **RESOLVED** |
-| 22 | Router | `unified-message-router.ts` | `unknown` — no case |
+| ~~22~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`unknown` — no case~~ — **RESOLVED** (now traced via default case) |
 | ~~23~~ | ~~Consumer mapper~~ | ~~`consumer-message-mapper.ts`~~ | ~~`code`/`image` content → empty text~~ — **RESOLVED** |
 
 ## 7. Metadata Key Inconsistencies
 
-| Concept | Claude/Codex/OpenCode | ACP | Issue |
+| Concept | Claude/Codex/OpenCode | ACP | Status |
 |---|---|---|---|
-| Session ID | `session_id` (snake_case) | `sessionId` (camelCase) | Inconsistent |
-| Tool call ID | `tool_use_id` / `call_id` | `toolCallId` | 3 different keys |
+| Session ID | `session_id` (snake_case) | `session_id` (normalized) | **RESOLVED** — all adapters now emit `session_id` |
+| Tool call ID | `tool_use_id` | `tool_use_id` (normalized) | **RESOLVED** — all adapters now emit `tool_use_id` |
 | Error flag | `is_error` | `is_error` | Consistent |
 | Error detail | `error` (string) | — | OpenCode has `error_name` + `error_message` |
+| Error code | `error_code` (canonical) | `error_code` | **RESOLVED** — Codex now classifies errors to canonical `UnifiedErrorCode` |
 | Tool status | `status` / `done` | `status` | Codex uses boolean `done`, others use string |
 | Thinking flag | — | `thought: true` | OpenCode uses `reasoning: true` |
 
@@ -223,9 +224,12 @@ All four items completed:
 
 ## Metadata Key Convention
 
-- **All new canonical keys** use `snake_case` (matching majority of codebase)
-- **Existing keys are NOT renamed** (backwards compatibility)
-- **ACP adapter**: normalize new keys at boundary (e.g. `sessionId` → `session_id` for new fields only)
+- **All canonical keys** use `snake_case` (matching codebase convention)
+- **All adapters** normalize metadata keys at the adapter boundary:
+  - ACP: `sessionId` → `session_id`, `toolCallId` → `tool_use_id`
+  - Codex: `call_id` → `tool_use_id`
+  - OpenCode: `call_id` → `tool_use_id`
+- **Consumer mapper** no longer needs multi-key fallbacks — all adapters emit `tool_use_id`
 
 ---
 
