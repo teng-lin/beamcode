@@ -1,6 +1,6 @@
 # beamcode
 
-Code from anywhere. Collaborate on any agent session. Drive Claude, Codex, Goose, or any CLI agent from your phone, tablet, or laptop — and let teammates watch, join, and catch up in real time.
+Code from anywhere. Collaborate on any agent session. Drive Claude, Codex, OpenCode, Gemini, Goose, or any CLI agent from your phone, tablet, or laptop — and let teammates watch, join, and catch up in real time.
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
@@ -87,7 +87,7 @@ This unlocks scenarios no existing tool supports:
 ## Features
 
 - **Multi-consumer sessions**: N frontends per session with fan-out, RBAC, presence, and history replay
-- **Multi-agent support**: Adapters for Claude Code (`--sdk-url`), ACP (25+ agents), and Codex CLI (JSON-RPC)
+- **Multi-agent support**: Adapters for Claude Code (`--sdk-url`), Codex CLI (JSON-RPC), OpenCode (REST+SSE), Gemini CLI (via ACP), and ACP backends (25+ agents)
 - **Web UI**: Companion-style interface with real-time streaming, permission handling, slash commands, and team coordination
 - **E2E encryption**: libsodium sealed boxes (XSalsa20-Poly1305) with pairing link key exchange
 - **Remote access**: Cloudflare Tunnel — no open ports, no VPN, no SSH
@@ -205,6 +205,7 @@ See [SECURITY.md](./SECURITY.md) for the full threat model and cryptographic det
 ## Documentation
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — Architecture, adapters, configuration, events, testing
+- [docs/architecture-diagram.md](./docs/architecture-diagram.md) — End-to-end system diagram and module map
 - [SECURITY.md](./SECURITY.md) — Threat model and cryptographic details
 
 ## License

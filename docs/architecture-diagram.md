@@ -66,7 +66,7 @@
 │  │              core/ — SessionBridge + Extracted Modules               │           │
 │  │                                                                      │           │
 │  │  ┌──────────────────────────────────────────────────────────────┐    │           │
-│  │  │  SessionBridge (orchestrator, TypedEventEmitter) ~629 LOC    │    │           │
+│  │  │  SessionBridge (orchestrator, TypedEventEmitter) ~741 LOC    │    │           │
 │  │  │  Delegates to:                                               │    │           │
 │  │  │  ┌───────────────────┐ ┌─────────────────┐ ┌──────────────┐  │    │           │
 │  │  │  │ BackendLifecycle  │ │ UnifiedMessage  │ │ Consumer     │  │    │           │
@@ -317,7 +317,7 @@
                         └──────────────┬───────────────┘
                                        │
                         ┌──────────────▼────────────────┐
-                        │      SessionBridge  ~629 LOC  │
+                        │      SessionBridge  ~741 LOC  │
                         │  (TypedEventEmitter)          │
                         │                               │
                         │  Unified message routing:     │
@@ -364,7 +364,7 @@
   • SessionStateReducer  — reduces CLI events into SessionState
 
   Before refactoring: SessionBridge ~2,031 lines (god class)
-  After refactoring:  SessionBridge ~629 lines + 15+ extracted modules
+  After refactoring:  SessionBridge ~741 lines + 15+ extracted modules
 ```
 
 ---
@@ -578,7 +578,7 @@ Web Consumer                                   Daemon
   ✅ Codex adapter (JSON-RPC/WS, Thread/Turn/Item)
   ✅ Gemini adapter (wraps ACP, spawns gemini --experimental-acp)
   ✅ OpenCode adapter (REST+SSE, demuxed sessions)
-  ✅ SessionBridge decomposition (15+ extracted modules, ~629 LOC)
+  ✅ SessionBridge decomposition (15+ extracted modules, ~741 LOC)
   ✅ SlashCommand handler chain (replaces binary routing)
   ✅ Structured error types
   ✅ State schema versioning + migration
@@ -714,7 +714,7 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │   └── config-schema.ts           ◄── Configuration schema + validation
 │   │
 │   ├── core/                          ◄── SessionBridge + extracted modules
-│   │   ├── session-bridge.ts          ◄── Orchestrator (~629 LOC, TypedEventEmitter)
+│   │   ├── session-bridge.ts          ◄── Orchestrator (~741 LOC, TypedEventEmitter)
 │   │   ├── session-store.ts           ◄── Session CRUD + persistence
 │   │   ├── session-manager.ts         ◄── Orchestrates bridge + launchers
 │   │   ├── backend-lifecycle-manager.ts ◄── BackendAdapter connect/disconnect/consume
@@ -740,7 +740,6 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │   ├── slash-command-registry.ts  ◄── Per-session command registration
 │   │   ├── slash-command-executor.ts  ◄── Command execution
 │   │   ├── process-supervisor.ts      ◄── Process lifecycle management
-│   │   ├── cli-launcher.ts            ◄── CLI process launching
 │   │   ├── typed-emitter.ts           ◄── TypedEventEmitter base
 │   │   ├── types/
 │   │   │   ├── unified-message.ts     ◄── Canonical message envelope
@@ -796,7 +795,6 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │   ├── session-operational-handler.ts ◄── Privileged session ops (list/close/archive)
 │   │   ├── console-metrics-collector.ts  ◄── Metrics → console output
 │   │   ├── console-logger.ts
-│   │   ├── noop-logger.ts
 │   │   ├── memory-storage.ts
 │   │   ├── node-process-manager.ts
 │   │   ├── node-ws-server.ts
@@ -865,6 +863,7 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │   │   └── sodium-loader.ts       ◄── libsodium-wrappers init
 │   │   ├── ndjson.ts                  ◄── Parse/serialize newline-delimited JSON
 │   │   ├── ansi-strip.ts
+│   │   ├── noop-logger.ts
 │   │   ├── redact-secrets.ts          ◄── Secret redaction for process output
 │   │   ├── claude-detection.ts
 │   │   └── resolve-package-version.ts

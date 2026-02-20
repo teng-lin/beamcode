@@ -80,9 +80,9 @@ interface Encryptable    { encrypt(msg: UnifiedMessage): EncryptedEnvelope; decr
 | Adapter | Protocol | Agents | Streaming | Permissions | Session Resume |
 |---------|----------|--------|-----------|-------------|----------------|
 | Claude | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
-| ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Cline, ...) | No | Yes | Varies |
+| ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Cline, ...) | Yes | Yes | Varies |
 | Codex | JSON-RPC/WebSocket | Codex CLI | Yes | Yes | Yes |
-| Gemini | JSON-RPC 2.0/stdio | Gemini CLI (wraps ACP) | No | Yes | Varies |
+| Gemini | JSON-RPC 2.0/stdio | Gemini CLI (wraps ACP) | Yes | Yes | Varies |
 | OpenCode | REST+SSE | opencode | Yes | Yes | No |
 
 #### Claude
@@ -832,7 +832,7 @@ Trace levels:
 | `closeWebSockets(...sockets)` | Graceful WebSocket cleanup |
 | `cleanupSessionManager(mgr)` | Tear down a test session manager |
 
-`src/e2e/helpers/backend-test-utils.ts`: mock infrastructure per adapter (ACP subprocess, Codex WebSocket, Gemini SSE, Opencode HTTP+SSE).
+`src/e2e/helpers/backend-test-utils.ts`: mock infrastructure per adapter (ACP subprocess, Codex WebSocket, OpenCode HTTP+SSE). Gemini coverage uses ACP transport/helpers.
 
 ### Test utilities (library)
 
