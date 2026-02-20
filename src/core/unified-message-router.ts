@@ -241,10 +241,11 @@ export class UnifiedMessageRouter {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
     const { status: _s, ...rest } = msg.metadata;
+    const filtered = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
     const statusMsg = {
       type: "status_change" as const,
       status: session.lastStatus,
-      ...(Object.keys(rest).length > 0 && { metadata: rest }),
+      ...(Object.keys(filtered).length > 0 && { metadata: filtered }),
     };
     this.traceT4("handleStatusChange", session, msg, statusMsg, trace);
     this.broadcaster.broadcast(session, statusMsg);

@@ -12,7 +12,11 @@
  * No side effects, no state mutation, no I/O.
  */
 
-import type { UnifiedContent, UnifiedMessage } from "../../core/types/unified-message.js";
+import type {
+  UnifiedContent,
+  UnifiedErrorCode,
+  UnifiedMessage,
+} from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 
 // ---------------------------------------------------------------------------
@@ -301,7 +305,7 @@ function translateFailed(event: CodexTurnEvent): UnifiedMessage {
   });
 }
 
-function classifyCodexError(status: string): string {
+function classifyCodexError(status: string): UnifiedErrorCode {
   switch (status) {
     case "rate_limited":
       return "rate_limit";

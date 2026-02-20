@@ -390,7 +390,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     const msgs = await reader.collect(2);
     expect(msgs[0].type).toBe("tool_progress");
-    expect(msgs[0].metadata.toolCallId).toBe("tc-1");
+    expect(msgs[0].metadata.tool_use_id).toBe("tc-1");
     expect(msgs[0].metadata.title).toBe("Running bash");
     expect(msgs[1].type).toBe("result");
   });
@@ -425,7 +425,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     const msgs = await reader.collect(2);
     expect(msgs[0].type).toBe("tool_use_summary");
-    expect(msgs[0].metadata.toolCallId).toBe("tc-2");
+    expect(msgs[0].metadata.tool_use_id).toBe("tc-2");
     expect(msgs[0].metadata.status).toBe("completed");
     expect(msgs[0].metadata.is_error).toBe(false);
     expect(msgs[1].type).toBe("result");
