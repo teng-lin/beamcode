@@ -13,7 +13,7 @@ export interface BackendPrereqState {
 }
 
 // ---------------------------------------------------------------------------
-// SDK-URL (Claude) — legacy export kept for backward compat
+// Claude (Real CLI)
 // ---------------------------------------------------------------------------
 
 export interface RealCliPrereqState extends BackendPrereqState {
