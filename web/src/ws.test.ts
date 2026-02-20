@@ -1159,14 +1159,6 @@ describe("handleMessage", () => {
     expect(logs[logs.length - 1]).toBe("Green text");
   });
 
-  // ── Queue message helpers & cleanup ─────────────────────────────────
-
-  afterEach(() => {
-    for (const el of document.querySelectorAll("[data-queued-message]")) {
-      el.remove();
-    }
-  });
-
   /** Seed a queued message into the store for session "s1". */
   function seedQueuedMessage(content = "queued") {
     useStore.getState().setQueuedMessage("s1", {
@@ -1175,15 +1167,6 @@ describe("handleMessage", () => {
       content,
       queuedAt: 1700000000,
     });
-  }
-
-  /** Mount a mock DOM element with `data-queued-message` and a fake bounding rect. */
-  function mountQueuedMessageElement(rect = { top: 100, left: 50, width: 300 }): HTMLDivElement {
-    const el = document.createElement("div");
-    el.setAttribute("data-queued-message", "");
-    el.getBoundingClientRect = () => rect as DOMRect;
-    document.body.appendChild(el);
-    return el;
   }
 
   // ── message_queued ──────────────────────────────────────────────────────
@@ -1295,40 +1278,6 @@ describe("handleMessage", () => {
 
     expect(getSessionData()?.queuedMessage).toBeNull();
     expect(getSessionData()?.isEditingQueue).toBe(false);
-  });
-
-  it("queued_message_sent: captures FLIP origin from DOM element", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    mountQueuedMessageElement();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-
-    expect(getSessionData()?.flipOrigin).toEqual({ top: 100, left: 50, width: 300 });
-  });
-
-  it("queued_message_sent: clears flipOrigin after 2s safety timeout", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    mountQueuedMessageElement();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-    expect(getSessionData()?.flipOrigin).not.toBeNull();
-
-    // 2000ms matches the safety timeout in ws.ts queued_message_sent handler
-    vi.advanceTimersByTime(2001);
-    expect(getSessionData()?.flipOrigin).toBeNull();
-  });
-
-  it("queued_message_sent: no flipOrigin when no DOM element exists", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-
-    expect(getSessionData()?.flipOrigin).toBeNull();
   });
 
   // ── Unhandled message type ──────────────────────────────────────────────

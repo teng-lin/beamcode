@@ -88,7 +88,7 @@ export function AssistantMessage({ message, sessionId }: AssistantMessageProps) 
   }, [message.content]);
 
   return (
-    <div className="animate-fadeSlideIn flex flex-col gap-1.5 text-sm">
+    <div className="flex flex-col gap-1.5 text-sm">
       {groups.map((group) => {
         switch (group.type) {
           case "text": {

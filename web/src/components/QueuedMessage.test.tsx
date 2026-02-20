@@ -37,14 +37,9 @@ describe("QueuedMessage", () => {
     ).toBeInTheDocument();
   });
 
-  it("has data-queued-message attribute for FLIP animation targeting", () => {
-    render(<QueuedMessage {...defaults} />);
-    expect(screen.getByText(defaults.content).closest("[data-queued-message]")).toBeInTheDocument();
-  });
-
   it("applies opacity-50 class for queued appearance", () => {
     render(<QueuedMessage {...defaults} />);
-    const wrapper = screen.getByText(defaults.content).closest("[data-queued-message]");
+    const wrapper = screen.getByText(defaults.content).parentElement?.parentElement;
     expect(wrapper).toBeInTheDocument();
     expect(wrapper).toHaveClass("opacity-50");
   });
