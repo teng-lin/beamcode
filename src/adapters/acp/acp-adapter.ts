@@ -78,6 +78,8 @@ export class AcpAdapter implements BackendAdapter {
     const sessionMethod = options.resume ? "session/load" : "session/new";
     const { id: sessionReqId, raw: sessionReq } = codec.createRequest(sessionMethod, {
       sessionId: options.sessionId,
+      cwd: cwd ?? process.cwd(),
+      mcpServers: (options.adapterOptions?.mcpServers as unknown[]) ?? [],
     });
 
     tracer?.send("backend", "native_outbound", sessionReq, {

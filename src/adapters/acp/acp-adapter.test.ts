@@ -83,7 +83,10 @@ describe("AcpAdapter", () => {
     it("sends initialize and session/new handshake", async () => {
       setup();
       const adapter = new AcpAdapter(mockSpawn);
-      const connectPromise = adapter.connect({ sessionId: "sess-1" });
+      const connectPromise = adapter.connect({
+        sessionId: "sess-1",
+        adapterOptions: { cwd: "/test/dir" },
+      });
 
       await tick();
 
@@ -100,6 +103,8 @@ describe("AcpAdapter", () => {
 
       const sessionReq = JSON.parse(mockChild.stdin.chunks[1]);
       expect(sessionReq.method).toBe("session/new");
+      expect(sessionReq.params.cwd).toBe("/test/dir");
+      expect(sessionReq.params.mcpServers).toEqual([]);
 
       respondToRequest(mockChild.stdout, 2, { sessionId: "sess-1" });
       await connectPromise;
