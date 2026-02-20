@@ -105,30 +105,6 @@ export function getOpencodePrereqState(): BackendPrereqState {
 }
 
 // ---------------------------------------------------------------------------
-// Dispatch by adapter name
-// ---------------------------------------------------------------------------
-
-export function getBackendPrereqs(name: string): BackendPrereqState {
-  switch (name) {
-    case "claude":
-      return getRealCliPrereqState();
-    case "codex":
-      return getCodexPrereqState();
-    case "gemini":
-      return getGeminiPrereqState();
-    case "opencode":
-      return getOpencodePrereqState();
-    default:
-      return {
-        ok: false,
-        reason: `Unknown backend: ${name}`,
-        hasApiKey: false,
-        canRunPromptTests: false,
-      };
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 

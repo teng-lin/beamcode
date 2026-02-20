@@ -67,7 +67,7 @@ export function attachTrace(manager: SessionManager): void {
   traceByManager.set(manager, trace);
 }
 
-export function getTrace(manager: SessionManager): ManagerTrace | undefined {
+function getTrace(manager: SessionManager): ManagerTrace | undefined {
   return traceByManager.get(manager);
 }
 
@@ -278,21 +278,6 @@ export async function connectConsumerAndWaitReady(
     const connected = await waitForMessageType(consumer, "cli_connected", timeoutMs);
     expect((connected as { type: string }).type).toBe("cli_connected");
   }
-  return consumer;
-}
-
-export async function connectConsumerWithQuery(
-  port: number,
-  sessionId: string,
-  query: Record<string, string>,
-): Promise<WebSocket> {
-  const q = new URLSearchParams(query).toString();
-  const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?${q}`);
-  attachPrebuffer(consumer);
-  await new Promise<void>((resolve, reject) => {
-    consumer.once("open", () => resolve());
-    consumer.once("error", (err) => reject(err));
-  });
   return consumer;
 }
 
