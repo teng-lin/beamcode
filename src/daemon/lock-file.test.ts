@@ -67,4 +67,63 @@ describe("lock-file", () => {
     await releaseLock(lockPath);
     // No throw
   });
+
+  // -----------------------------------------------------------------------
+  // Non-EEXIST error rethrown
+  // -----------------------------------------------------------------------
+
+  it("rethrows non-EEXIST errors (e.g. ENOENT)", async () => {
+    // Use a path whose parent directory does not exist → triggers ENOENT (not EEXIST)
+    const badPath = "/nonexistent-dir-abc123/daemon.lock";
+    await expect(acquireLock(badPath)).rejects.toThrow();
+    // The error should NOT be about "already running"
+    try {
+      await acquireLock(badPath);
+    } catch (err) {
+      expect((err as Error).message).not.toContain("already running");
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Second attempt EEXIST after stale removal → "Daemon already running"
+  // -----------------------------------------------------------------------
+
+  it("reports 'Daemon already running' when second attempt hits EEXIST", async () => {
+    // Create a lock file with a dead PID so isLockStale returns true
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(lockPath, "999999999", "utf-8");
+
+    // First acquire should succeed because the stale lock is removed and retried
+    await acquireLock(lockPath);
+    const content = await readFile(lockPath, "utf-8");
+    expect(parseInt(content, 10)).toBe(process.pid);
+
+    // Now the lock is held by us (alive PID). Second acquire should fail
+    // with "Daemon already running" because isLockStale returns false
+    await expect(acquireLock(lockPath)).rejects.toThrow(
+      `Daemon already running (PID: ${process.pid})`,
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // isLockStale returns true when file doesn't exist
+  // -----------------------------------------------------------------------
+
+  it("isLockStale returns true when lock file does not exist", async () => {
+    // lockPath doesn't exist yet (no lock acquired)
+    const stale = await isLockStale(lockPath);
+    expect(stale).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // isLockStale with non-numeric content
+  // -----------------------------------------------------------------------
+
+  it("isLockStale returns true for non-numeric content", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(lockPath, "not-a-number", "utf-8");
+
+    const stale = await isLockStale(lockPath);
+    expect(stale).toBe(true);
+  });
 });
