@@ -26,6 +26,8 @@ export class OpencodeSession implements BackendSession {
   private closed = false;
   private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
   private readonly tracer?: MessageTracer;
+  private readonly textPartsByMessage = new Map<string, Map<string, string>>();
+  private readonly reasoningPartsByMessage = new Map<string, Set<string>>();
 
   constructor(options: {
     sessionId: string;
@@ -46,14 +48,15 @@ export class OpencodeSession implements BackendSession {
       });
       const unified = translateEvent(event);
       if (unified) {
+        const normalized = this.normalizeUnifiedMessage(unified);
         this.tracer?.translate(
           "translateEvent",
           "T3",
           { format: "OpencodeEvent", body: event },
-          { format: "UnifiedMessage", body: unified },
+          { format: "UnifiedMessage", body: normalized },
           { sessionId: this.sessionId, phase: "t3" },
         );
-        this.queue.enqueue(unified);
+        this.queue.enqueue(normalized);
       } else {
         this.tracer?.error("backend", event.type, "Opencode event did not map to UnifiedMessage", {
           sessionId: this.sessionId,
@@ -63,6 +66,95 @@ export class OpencodeSession implements BackendSession {
         });
       }
     });
+  }
+
+  private normalizeUnifiedMessage(message: UnifiedMessage): UnifiedMessage {
+    if (message.type === "stream_event") {
+      this.captureStreamText(message);
+      return message;
+    }
+
+    if (message.type === "assistant") {
+      return this.materializeAssistantText(message);
+    }
+
+    if (message.type === "result") {
+      this.clearStreamState();
+    }
+
+    return message;
+  }
+
+  private captureStreamText(message: UnifiedMessage): void {
+    const metadata = message.metadata as {
+      event?: { type?: string; delta?: { type?: string; text?: string } };
+      message_id?: string;
+      part_id?: string;
+      text?: string;
+      reasoning?: boolean;
+    };
+
+    if (metadata.event?.type !== "content_block_delta") return;
+    const messageId = metadata.message_id;
+    const partId = metadata.part_id;
+    if (typeof messageId !== "string" || messageId.length === 0) return;
+    if (typeof partId !== "string" || partId.length === 0) return;
+
+    if (metadata.reasoning === true) {
+      let reasoningParts = this.reasoningPartsByMessage.get(messageId);
+      if (!reasoningParts) {
+        reasoningParts = new Set<string>();
+        this.reasoningPartsByMessage.set(messageId, reasoningParts);
+      }
+      reasoningParts.add(partId);
+      return;
+    }
+
+    const reasoningParts = this.reasoningPartsByMessage.get(messageId);
+    if (reasoningParts?.has(partId)) return;
+
+    const partText =
+      typeof metadata.text === "string"
+        ? metadata.text
+        : metadata.event.delta?.type === "text_delta" &&
+            typeof metadata.event.delta.text === "string"
+          ? metadata.event.delta.text
+          : undefined;
+    if (!partText || partText.length === 0) return;
+
+    let parts = this.textPartsByMessage.get(messageId);
+    if (!parts) {
+      parts = new Map<string, string>();
+      this.textPartsByMessage.set(messageId, parts);
+    }
+
+    if (typeof metadata.text === "string") {
+      parts.set(partId, metadata.text);
+      return;
+    }
+
+    parts.set(partId, (parts.get(partId) ?? "") + partText);
+  }
+
+  private materializeAssistantText(message: UnifiedMessage): UnifiedMessage {
+    const messageId = message.metadata.message_id;
+    if (typeof messageId !== "string" || messageId.length === 0) return message;
+
+    const parts = this.textPartsByMessage.get(messageId);
+    this.textPartsByMessage.delete(messageId);
+    this.reasoningPartsByMessage.delete(messageId);
+    const text = parts ? Array.from(parts.values()).join("") : "";
+    if (message.content.length > 0 || text.length === 0) return message;
+
+    return {
+      ...message,
+      content: [{ type: "text", text }],
+    };
+  }
+
+  private clearStreamState(): void {
+    this.textPartsByMessage.clear();
+    this.reasoningPartsByMessage.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -166,6 +258,7 @@ export class OpencodeSession implements BackendSession {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.clearStreamState();
     this.unsubscribe();
     this.queue.finish();
   }

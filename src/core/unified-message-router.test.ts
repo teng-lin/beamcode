@@ -303,6 +303,41 @@ describe("UnifiedMessageRouter", () => {
 
       expect(session.messageHistory).toHaveLength(2);
     });
+
+    it("preserves empty assistant content without stream backfill", () => {
+      const stream = msg("stream_event", {
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "stream text" },
+        },
+      });
+      router.route(session, stream);
+
+      const emptyAssistant = createUnifiedMessage({
+        type: "assistant",
+        role: "assistant",
+        content: [],
+        metadata: {
+          message_id: "msg-empty",
+          model: "claude",
+          stop_reason: "end_turn",
+          parent_tool_use_id: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+      router.route(session, emptyAssistant);
+
+      const last = session.messageHistory[session.messageHistory.length - 1];
+      expect(last.type).toBe("assistant");
+      if (last.type === "assistant") {
+        expect(last.message.content).toEqual([]);
+      }
+    });
   });
 
   // ── result ────────────────────────────────────────────────────────────

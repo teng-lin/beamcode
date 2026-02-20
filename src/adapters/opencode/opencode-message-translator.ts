@@ -33,6 +33,8 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
   switch (event.type) {
     case "message.part.updated":
       return translatePartUpdated(event.properties.part, event.properties.delta);
+    case "message.part.delta":
+      return translatePartDelta(event.properties);
     case "message.updated":
       return translateMessageUpdated(event.properties.info);
     case "session.status":
@@ -99,17 +101,25 @@ export function translateToOpencode(message: UnifiedMessage): OpencodeAction {
 // ---------------------------------------------------------------------------
 
 export function extractSessionId(event: OpencodeEvent): string | undefined {
+  const properties = event.properties as Record<string, unknown> | undefined;
+
   switch (event.type) {
     case "server.connected":
     case "server.heartbeat":
       return undefined;
     case "session.created":
     case "session.updated":
-      return event.properties.session.id;
+      return (
+        ((properties?.info as { id?: string } | undefined)?.id ??
+          (properties?.session as { id?: string } | undefined)?.id) ||
+        undefined
+      );
     case "message.updated":
-      return event.properties.info.sessionID;
+      return (properties?.info as { sessionID?: string } | undefined)?.sessionID;
     case "message.part.updated":
-      return event.properties.part.sessionID;
+      return (properties?.part as { sessionID?: string } | undefined)?.sessionID;
+    case "message.part.delta":
+      return (properties as { sessionID?: string } | undefined)?.sessionID;
     case "session.deleted":
     case "session.status":
     case "session.error":
@@ -119,7 +129,7 @@ export function extractSessionId(event: OpencodeEvent): string | undefined {
     case "message.part.removed":
     case "permission.updated":
     case "permission.replied":
-      return event.properties.sessionID;
+      return (properties as { sessionID?: string } | undefined)?.sessionID;
     default:
       return undefined;
   }
@@ -134,6 +144,7 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
     case "text":
     case "reasoning": {
       const isReasoning = part.type === "reasoning";
+      const hasDelta = typeof delta === "string" && delta.length > 0;
       const content: UnifiedContent[] =
         isReasoning && part.text ? [{ type: "thinking", thinking: part.text }] : [];
       return createUnifiedMessage({
@@ -146,6 +157,12 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
           message_id: part.messageID,
           session_id: part.sessionID,
           text: part.text,
+          ...(hasDelta && {
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: delta },
+            },
+          }),
           ...(isReasoning && { reasoning: true }),
         },
       });
@@ -167,6 +184,33 @@ function translatePartUpdated(part: OpencodePart, delta?: string): UnifiedMessag
     default:
       return null;
   }
+}
+
+function translatePartDelta(properties: {
+  sessionID: string;
+  messageID: string;
+  partID: string;
+  field: string;
+  delta: string;
+}): UnifiedMessage | null {
+  if (properties.field !== "text" || properties.delta.length === 0) {
+    return null;
+  }
+
+  return createUnifiedMessage({
+    type: "stream_event",
+    role: "assistant",
+    metadata: {
+      delta: properties.delta,
+      part_id: properties.partID,
+      message_id: properties.messageID,
+      session_id: properties.sessionID,
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: properties.delta },
+      },
+    },
+  });
 }
 
 function translateToolPart(part: OpencodeToolPart): UnifiedMessage | null {
