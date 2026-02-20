@@ -379,7 +379,7 @@ export function createUserMessage(text: string, sessionId = "e2e-session"): Unif
 }
 
 export function createPermissionResponse(
-  behavior: "allow" | "deny",
+  behavior: "allow" | "deny" | "always",
   requestId: string,
   metadata?: Record<string, unknown>,
 ): UnifiedMessage {
@@ -402,7 +402,10 @@ export function createInterruptMessage(): UnifiedMessage {
 // ---------------------------------------------------------------------------
 
 import type { OpencodeHttpClient } from "../../adapters/opencode/opencode-http-client.js";
-import type { OpencodeEvent } from "../../adapters/opencode/opencode-types.js";
+import type {
+  OpencodeEvent,
+  OpencodeMessageError,
+} from "../../adapters/opencode/opencode-types.js";
 
 export function createMockOpencodeHttpClient() {
   return {
@@ -460,6 +463,166 @@ export function buildOpencodeTextPartEvent(
   };
 }
 
+export function buildOpencodeTextDeltaEvent(
+  delta: string,
+  options?: { partId?: string; messageId?: string; sessionId?: string },
+): OpencodeEvent {
+  return {
+    type: "message.part.delta",
+    properties: {
+      sessionID: options?.sessionId ?? "opc-session-1",
+      messageID: options?.messageId ?? "m-1",
+      partID: options?.partId ?? "p-1",
+      field: "text",
+      delta,
+    },
+  };
+}
+
+export function buildOpencodeAssistantUpdatedEvent(options?: {
+  messageId?: string;
+  sessionId?: string;
+  parentId?: string;
+  created?: number;
+  completed?: number;
+  modelId?: string;
+  providerId?: string;
+  finish?: string;
+  error?: OpencodeMessageError;
+}): OpencodeEvent {
+  const created = options?.created ?? 1000;
+  const completed = options?.completed;
+  return {
+    type: "message.updated",
+    properties: {
+      info: {
+        id: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        role: "assistant",
+        time: completed === undefined ? { created } : { created, completed },
+        parentID: options?.parentId ?? "m-user-1",
+        modelID: options?.modelId ?? "gpt-5-codex",
+        providerID: options?.providerId ?? "openai",
+        agent: "build",
+        path: { cwd: "/tmp", root: "/tmp" },
+        cost: 0,
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+        finish: options?.finish ?? "stop",
+        error: options?.error,
+      },
+    },
+  };
+}
+
+export function buildOpencodeToolRunningEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+  callId?: string;
+  tool?: string;
+  input?: Record<string, unknown>;
+  title?: string;
+  start?: number;
+}): OpencodeEvent {
+  const start = options?.start ?? 1_000;
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "tool",
+        id: options?.partId ?? "tool-part-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        callID: options?.callId ?? "call-1",
+        tool: options?.tool ?? "read",
+        state: {
+          status: "running",
+          input: options?.input ?? { filePath: "README.md", limit: 50 },
+          title: options?.title,
+          time: { start },
+        },
+        time: { created: start, updated: start },
+      },
+    },
+  };
+}
+
+export function buildOpencodeToolCompletedEvent(
+  output: string,
+  options?: {
+    partId?: string;
+    messageId?: string;
+    sessionId?: string;
+    callId?: string;
+    tool?: string;
+    input?: Record<string, unknown>;
+    title?: string;
+    start?: number;
+    end?: number;
+  },
+): OpencodeEvent {
+  const start = options?.start ?? 1_000;
+  const end = options?.end ?? 2_000;
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "tool",
+        id: options?.partId ?? "tool-part-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        callID: options?.callId ?? "call-1",
+        tool: options?.tool ?? "read",
+        state: {
+          status: "completed",
+          input: options?.input ?? { filePath: "README.md", limit: 50 },
+          output,
+          title: options?.title ?? "README.md",
+          time: { start, end },
+        },
+        time: { created: start, updated: end },
+      },
+    },
+  };
+}
+
+export function buildOpencodeToolErrorEvent(
+  error: string,
+  options?: {
+    partId?: string;
+    messageId?: string;
+    sessionId?: string;
+    callId?: string;
+    tool?: string;
+    input?: Record<string, unknown>;
+    start?: number;
+    end?: number;
+  },
+): OpencodeEvent {
+  const start = options?.start ?? 1_000;
+  const end = options?.end ?? 2_000;
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "tool",
+        id: options?.partId ?? "tool-part-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        callID: options?.callId ?? "call-1",
+        tool: options?.tool ?? "read",
+        state: {
+          status: "error",
+          input: options?.input ?? { filePath: "README.md", limit: 50 },
+          error,
+          time: { start, end },
+        },
+        time: { created: start, updated: end },
+      },
+    },
+  };
+}
+
 export function buildOpencodeIdleEvent(sessionId = "opc-session-1"): OpencodeEvent {
   return {
     type: "session.status",
@@ -480,6 +643,26 @@ export function buildOpencodeBusyEvent(sessionId = "opc-session-1"): OpencodeEve
   };
 }
 
+export function buildOpencodeRetryEvent(options?: {
+  sessionId?: string;
+  attempt?: number;
+  message?: string;
+  next?: number;
+}): OpencodeEvent {
+  return {
+    type: "session.status",
+    properties: {
+      sessionID: options?.sessionId ?? "opc-session-1",
+      status: {
+        type: "retry",
+        attempt: options?.attempt ?? 1,
+        message: options?.message ?? "retrying",
+        next: options?.next ?? 1_000,
+      },
+    },
+  };
+}
+
 export function buildOpencodePermissionEvent(
   permId: string,
   permission: string,
@@ -496,9 +679,170 @@ export function buildOpencodePermissionEvent(
   };
 }
 
+export function buildOpencodeSessionErrorEvent(options?: {
+  sessionId?: string;
+  name?:
+    | "provider_auth"
+    | "unknown"
+    | "output_length"
+    | "aborted"
+    | "context_overflow"
+    | "api_error";
+  message?: string;
+  status?: number;
+}): OpencodeEvent {
+  const name = options?.name ?? "unknown";
+  return {
+    type: "session.error",
+    properties: {
+      sessionID: options?.sessionId ?? "opc-session-1",
+      error:
+        name === "api_error"
+          ? {
+              name,
+              data: {
+                message: options?.message ?? "api error",
+                status: options?.status,
+              },
+            }
+          : {
+              name,
+              data: {
+                message: options?.message ?? "error",
+              },
+            },
+    },
+  };
+}
+
 export function buildOpencodeConnectedEvent(): OpencodeEvent {
   return {
     type: "server.connected",
     properties: {} as Record<string, never>,
+  };
+}
+
+export function buildOpencodeReasoningPartEvent(
+  text: string,
+  delta: string,
+  options?: { partId?: string; messageId?: string; sessionId?: string },
+): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "reasoning",
+        id: options?.partId ?? "r-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        text,
+        time: { created: 0, updated: 0 },
+      },
+      delta,
+    },
+  };
+}
+
+export function buildOpencodeStepStartEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "step-start",
+        id: options?.partId ?? "step-start-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+      },
+    },
+  };
+}
+
+export function buildOpencodeStepFinishEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+  cost?: number;
+  tokens?: { input: number; output: number };
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "step-finish",
+        id: options?.partId ?? "step-finish-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        cost: options?.cost,
+        tokens: options?.tokens,
+      },
+    },
+  };
+}
+
+export function buildOpencodeCompactedEvent(sessionId = "opc-session-1"): OpencodeEvent {
+  return {
+    type: "session.compacted",
+    properties: { sessionID: sessionId },
+  };
+}
+
+export function buildOpencodeMessageRemovedEvent(
+  messageId: string,
+  sessionId = "opc-session-1",
+): OpencodeEvent {
+  return {
+    type: "message.removed",
+    properties: { messageID: messageId, sessionID: sessionId },
+  };
+}
+
+export function buildOpencodeUserUpdatedEvent(options?: {
+  messageId?: string;
+  sessionId?: string;
+}): OpencodeEvent {
+  return {
+    type: "message.updated",
+    properties: {
+      info: {
+        id: options?.messageId ?? "m-user-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        role: "user" as const,
+        time: { created: 1000 },
+        agent: "default",
+        model: { providerID: "openai", modelID: "gpt-5" },
+      },
+    },
+  };
+}
+
+export function buildOpencodeToolPendingEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+  callId?: string;
+  tool?: string;
+  input?: Record<string, unknown>;
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "tool",
+        id: options?.partId ?? "tool-part-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        callID: options?.callId ?? "call-1",
+        tool: options?.tool ?? "read",
+        state: {
+          status: "pending",
+          input: options?.input ?? { filePath: "README.md" },
+        },
+        time: { created: 1_000, updated: 1_000 },
+      },
+    },
   };
 }

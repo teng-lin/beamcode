@@ -114,13 +114,16 @@ export class OpencodeSession implements BackendSession {
     const reasoningParts = this.reasoningPartsByMessage.get(messageId);
     if (reasoningParts?.has(partId)) return;
 
-    const partText =
-      typeof metadata.text === "string"
-        ? metadata.text
-        : metadata.event.delta?.type === "text_delta" &&
-            typeof metadata.event.delta.text === "string"
-          ? metadata.event.delta.text
-          : undefined;
+    const partText = (() => {
+      if (typeof metadata.text === "string") return metadata.text;
+      if (
+        metadata.event.delta?.type === "text_delta" &&
+        typeof metadata.event.delta.text === "string"
+      ) {
+        return metadata.event.delta.text;
+      }
+      return undefined;
+    })();
     if (!partText || partText.length === 0) return;
 
     let parts = this.textPartsByMessage.get(messageId);
