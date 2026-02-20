@@ -30,7 +30,6 @@ export interface SessionState extends DevToolSessionState {
   permissionMode: string;
   claude_code_version: string;
   mcp_servers: { name: string; status: string }[];
-  agents: string[]; // Deprecated — populated from team.members by the state reducer
   team?: TeamState;
   /** Backend adapter name (e.g. "claude", "codex", "acp"). */
   adapterName?: string;

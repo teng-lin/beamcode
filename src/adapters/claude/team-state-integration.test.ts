@@ -85,26 +85,8 @@ describe("state-reducer team integration", () => {
     });
   });
 
-  describe("backward compatibility", () => {
-    it("populates agents[] from team.members", () => {
-      const state: SessionState = {
-        ...makeDefaultSessionState(),
-        team: { name: "my-team", role: "lead", members: [], tasks: [] },
-      };
-
-      const s1 = reduce(
-        state,
-        makeToolUseMessage("Task", "tu-2", { team_name: "my-team", name: "worker-1" }),
-        buffer,
-      );
-      const s2 = reduce(s1, makeToolResultMessage("tu-2", "{}"), buffer);
-
-      expect(s2.agents).toEqual(["worker-1"]);
-    });
-  });
-
   describe("TeamDelete", () => {
-    it("removes team and resets agents to []", () => {
+    it("removes team state", () => {
       const state: SessionState = {
         ...makeDefaultSessionState(),
         team: {
@@ -115,14 +97,12 @@ describe("state-reducer team integration", () => {
           ],
           tasks: [],
         },
-        agents: ["worker-1"],
       };
 
       const s1 = reduce(state, makeToolUseMessage("TeamDelete", "tu-del", {}), buffer);
       const s2 = reduce(s1, makeToolResultMessage("tu-del", '{"success": true}'), buffer);
 
       expect(s2.team).toBeUndefined();
-      expect(s2.agents).toEqual([]);
     });
   });
 
@@ -183,7 +163,7 @@ describe("state-reducer team integration", () => {
         buffer,
       );
       expect(state.team?.members).toHaveLength(1);
-      expect(state.agents).toEqual(["dev-1"]);
+      expect(state.team!.members[0]!.name).toBe("dev-1");
 
       // Create task — optimistic with synthetic ID
       state = reduce(
@@ -206,7 +186,7 @@ describe("state-reducer team integration", () => {
       // Delete team — optimistic
       state = reduce(state, makeToolUseMessage("TeamDelete", "tu-5", {}), buffer);
       expect(state.team).toBeUndefined();
-      expect(state.agents).toEqual([]);
+      expect(state.team).toBeUndefined();
     });
 
     it("dual-path: tool_use + tool_result — synthetic replaced by real ID", () => {
@@ -268,7 +248,8 @@ describe("state-reducer team integration", () => {
       );
       expect(state.team!.members).toHaveLength(1);
       expect(state.team!.members[0]!.name).toBe("researcher");
-      expect(state.agents).toEqual(["researcher"]);
+      expect(state.team!.members).toHaveLength(1);
+      expect(state.team!.members[0]!.name).toBe("researcher");
 
       // Second member
       state = reduce(
@@ -277,7 +258,8 @@ describe("state-reducer team integration", () => {
         buffer,
       );
       expect(state.team!.members).toHaveLength(2);
-      expect(state.agents).toEqual(["researcher", "implementer"]);
+      expect(state.team!.members).toHaveLength(2);
+      expect(state.team!.members.map((m) => m.name)).toEqual(["researcher", "implementer"]);
 
       // TaskCreate — uses synthetic ID since no tool_result
       state = reduce(

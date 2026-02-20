@@ -13,7 +13,6 @@ function arbSessionState(): fc.Arbitrary<SessionState> {
     permissionMode: fc.string(),
     claude_code_version: fc.string(),
     mcp_servers: fc.array(fc.record({ name: fc.string(), status: fc.string() })),
-    agents: fc.array(fc.string()),
     slash_commands: fc.array(fc.string()),
     skills: fc.array(fc.string()),
     is_compacting: fc.boolean(),

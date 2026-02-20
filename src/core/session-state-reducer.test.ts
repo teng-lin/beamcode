@@ -11,7 +11,6 @@ function baseState() {
     permissionMode: "default",
     claude_code_version: "1.0.0",
     mcp_servers: [],
-    agents: [],
     slash_commands: [],
     skills: [],
     is_compacting: false,

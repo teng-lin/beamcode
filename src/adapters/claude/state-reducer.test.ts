@@ -22,7 +22,6 @@ describe("state-reducer", () => {
           permissionMode: "plan",
           claude_code_version: "1.0.0",
           mcp_servers: [{ name: "local", status: "connected" }],
-          agents: ["planner"],
           slash_commands: ["/help"],
           skills: ["tdd"],
         },
@@ -37,7 +36,6 @@ describe("state-reducer", () => {
       expect(next.permissionMode).toBe("plan");
       expect(next.claude_code_version).toBe("1.0.0");
       expect(next.mcp_servers).toEqual([{ name: "local", status: "connected" }]);
-      expect(next.agents).toEqual(["planner"]);
       expect(next.slash_commands).toEqual(["/help"]);
       expect(next.skills).toEqual(["tdd"]);
     });
@@ -279,7 +277,6 @@ describe("state-reducer", () => {
       );
       expect(next.team!.members).toHaveLength(1);
       expect(next.team!.members[0]!.name).toBe("worker-1");
-      expect(next.agents).toEqual(["worker-1"]);
     });
 
     it("applies TaskCreate with synthetic ID when no tool_result", () => {

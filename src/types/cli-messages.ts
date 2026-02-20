@@ -12,7 +12,6 @@ export interface CLISystemInitMessage {
   apiKeySource: string;
   claude_code_version: string;
   slash_commands: string[];
-  agents?: string[];
   skills?: string[];
   output_style: string;
   uuid: string;

@@ -12,7 +12,6 @@ function makeState(overrides: Partial<SessionState> = {}): SessionState {
     permissionMode: "default",
     claude_code_version: "1.0.0",
     mcp_servers: [],
-    agents: [],
     slash_commands: [],
     skills: [],
     total_cost_usd: 0.1234,

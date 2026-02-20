@@ -220,7 +220,6 @@ export function makeSessionInitMsg(overrides: Record<string, unknown> = {}): Uni
       permissionMode: "default",
       claude_code_version: "1.0",
       mcp_servers: [],
-      agents: [],
       slash_commands: [],
       skills: [],
       ...overrides,

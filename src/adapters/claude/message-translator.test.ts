@@ -31,7 +31,6 @@ function makeInitMsg(overrides?: Partial<CLISystemInitMessage>): CLISystemInitMe
     apiKeySource: "env",
     claude_code_version: "1.0.0",
     slash_commands: ["/help", "/clear"],
-    agents: ["planner"],
     skills: ["tdd"],
     output_style: "streaming",
     uuid: "uuid-init-1",
@@ -120,7 +119,6 @@ describe("message-translator", () => {
       expect(result.metadata.apiKeySource).toBe("env");
       expect(result.metadata.claude_code_version).toBe("1.0.0");
       expect(result.metadata.mcp_servers).toEqual([{ name: "local", status: "connected" }]);
-      expect(result.metadata.agents).toEqual(["planner"]);
       expect(result.metadata.slash_commands).toEqual(["/help", "/clear"]);
       expect(result.metadata.skills).toEqual(["tdd"]);
       expect(result.metadata.output_style).toBe("streaming");
@@ -128,14 +126,12 @@ describe("message-translator", () => {
       expect(result.metadata.uuid).toBe("uuid-init-1");
     });
 
-    it("defaults agents/slash_commands/skills to empty arrays when undefined", () => {
+    it("defaults slash_commands/skills to empty arrays when undefined", () => {
       const msg = makeInitMsg({
-        agents: undefined,
         slash_commands: undefined as unknown as string[],
         skills: undefined,
       });
       const result = translate(msg)!;
-      expect(result.metadata.agents).toEqual([]);
       expect(result.metadata.slash_commands).toEqual([]);
       expect(result.metadata.skills).toEqual([]);
     });

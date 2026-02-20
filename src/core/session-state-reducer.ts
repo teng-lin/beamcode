@@ -64,7 +64,6 @@ function reduceSessionInit(state: SessionState, msg: UnifiedMessage): SessionSta
     permissionMode: asString(m.permissionMode, state.permissionMode),
     claude_code_version: asString(m.claude_code_version, state.claude_code_version),
     mcp_servers: asMcpServers(m.mcp_servers, state.mcp_servers),
-    agents: asStringArray(m.agents, state.agents),
     slash_commands: asStringArray(m.slash_commands, state.slash_commands),
     skills: asStringArray(m.skills, state.skills),
   };
@@ -194,7 +193,7 @@ function asMcpServers(
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a reduced TeamState to the session, updating backward-compat agents[].
+ * Apply a reduced TeamState to the session.
  * Returns the original state if the team state is unchanged (reference equality).
  */
 function applyTeamState(
@@ -204,7 +203,7 @@ function applyTeamState(
   if (newTeamState === undefined) {
     if (currentState.team === undefined) return currentState;
     const { team: _team, ...rest } = currentState;
-    return { ...rest, agents: [] } as SessionState;
+    return rest as SessionState;
   }
   if (newTeamState === currentState.team) {
     return currentState;
@@ -212,7 +211,6 @@ function applyTeamState(
   return {
     ...currentState,
     team: newTeamState,
-    agents: newTeamState.members.map((m) => m.name),
   };
 }
 
@@ -221,7 +219,7 @@ function applyTeamState(
  *
  * 1. Scans for team tool_use blocks → buffers and optimistically applies them
  * 2. Scans for tool_result blocks → correlates with buffered tool_uses
- * 3. When correlated, applies reduceTeamState and updates backward-compat agents[]
+ * 3. When correlated, applies reduceTeamState
  * 4. Flushes stale correlation buffer entries (30s TTL)
  */
 function reduceTeamTools(

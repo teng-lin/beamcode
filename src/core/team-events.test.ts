@@ -534,19 +534,7 @@ describe("team event emission (Phase 5.7)", () => {
 
       const snapshot = bridge.getSession(SESSION_ID);
       expect(snapshot?.state.team).toBeUndefined();
-      expect(snapshot?.state.agents).toEqual([]);
-    });
-
-    it("populates agents[] backward compat from team.members", async () => {
-      const backend = await connectSession();
-
-      pushTeamToolPair(backend, "TeamCreate", "tu-1", { team_name: "alpha" });
-      await tick();
-      pushTeamToolPair(backend, "Task", "tu-2", { team_name: "alpha", name: "dev-1" });
-      await tick();
-
-      const snapshot = bridge.getSession(SESSION_ID);
-      expect(snapshot?.state.agents).toEqual(["dev-1"]);
+      expect(snapshot?.state.team).toBeUndefined();
     });
   });
 });
