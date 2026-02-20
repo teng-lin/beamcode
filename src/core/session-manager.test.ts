@@ -846,7 +846,7 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "adapter-session-1";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+      launcher.register({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -893,7 +893,7 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "fallback-session";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+      launcher.register({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -962,7 +962,12 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "resolver-session";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now(), adapterName: "claude" });
+      launcher.register({
+        sessionId,
+        cwd: process.cwd(),
+        createdAt: Date.now(),
+        adapterName: "claude",
+      });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -1193,7 +1198,7 @@ describe("SessionManager", () => {
 
       try {
         // Register an external session (no PID — simulates Codex/ACP)
-        nonClaudeMgr.launcher.registerExternalSession({
+        nonClaudeMgr.launcher.register({
           sessionId: "ext-sess",
           cwd: "/tmp",
           createdAt: Date.now(),

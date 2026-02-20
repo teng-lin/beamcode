@@ -523,11 +523,8 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
     }
   }
 
-  /**
-   * Register a session created by an external adapter (no process to manage).
-   * Transitional: will be removed when per-backend launchers own their session maps.
-   */
-  registerExternalSession(info: {
+  /** Register a session entry (no process spawned). */
+  register(info: {
     sessionId: string;
     cwd: string;
     createdAt: number;

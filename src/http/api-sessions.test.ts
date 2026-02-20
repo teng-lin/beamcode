@@ -54,14 +54,19 @@ function mockSessionManager(
   overrides: Partial<{
     listSessions: () => unknown[];
     getSession: (id: string) => unknown;
-    bridgeGetAllSessions: () => Array<{ session_id: string }>;
-    bridgeGetSession: (id: string) => unknown;
     launch: (opts: unknown) => unknown;
     kill: (id: string) => Promise<boolean>;
     deleteSession: (id: string) => Promise<boolean>;
     createSession: (opts: unknown) => Promise<unknown>;
   }> = {},
 ): SessionManager {
+  const registry = {
+    listSessions: vi.fn(overrides.listSessions ?? (() => [])),
+    getSession: vi.fn(overrides.getSession ?? (() => undefined)),
+    setSessionName: vi.fn(),
+    setArchived: vi.fn(),
+    removeSession: vi.fn(),
+  };
   return {
     deleteSession: vi.fn(overrides.deleteSession ?? (async () => true)),
     createSession: vi.fn(
@@ -75,19 +80,13 @@ function mockSessionManager(
         })),
     ),
     launcher: {
-      listSessions: vi.fn(overrides.listSessions ?? (() => [])),
-      getSession: vi.fn(overrides.getSession ?? (() => undefined)),
       launch: vi.fn(overrides.launch ?? (() => ({ sessionId: "new-id", status: "running" }))),
       kill: vi.fn(overrides.kill ?? (async () => true)),
-      setSessionName: vi.fn(),
-      setArchived: vi.fn(),
-      removeSession: vi.fn(),
     },
+    registry,
     bridge: {
       broadcastNameUpdate: vi.fn(),
       seedSessionState: vi.fn(),
-      getAllSessions: vi.fn(overrides.bridgeGetAllSessions ?? (() => [])),
-      getSession: vi.fn(overrides.bridgeGetSession ?? (() => undefined)),
     },
   } as unknown as SessionManager;
 }
@@ -130,39 +129,19 @@ describe("handleApiSessions", () => {
     expect(parseBody(res)).toEqual(sessions);
   });
 
-  it("GET /api/sessions includes bridge-only sessions", () => {
-    const sm = mockSessionManager({
-      listSessions: () => [],
-      bridgeGetAllSessions: () => [{ session_id: "bridge-1" }],
-      bridgeGetSession: () => ({
-        id: "bridge-1",
-        cliConnected: true,
-        lastActivity: 123,
-        state: {
-          cwd: "/tmp",
-          model: "m1",
-          permissionMode: "default",
-          session_id: "backend-1",
-        },
-      }),
-    });
+  it("GET /api/sessions returns registry sessions directly", () => {
+    const sessions = [
+      { sessionId: "s1", state: "connected", cwd: "/tmp" },
+      { sessionId: "s2", state: "starting", cwd: "/home" },
+    ];
+    const sm = mockSessionManager({ listSessions: () => sessions });
     const req = mockReq("GET");
     const res = mockRes();
 
     handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
 
     expect(res._status).toBe(200);
-    expect(parseBody(res)).toEqual([
-      {
-        sessionId: "bridge-1",
-        state: "connected",
-        cwd: "/tmp",
-        model: "m1",
-        permissionMode: "default",
-        backendSessionId: "backend-1",
-        createdAt: 123,
-      },
-    ]);
+    expect(parseBody(res)).toEqual(sessions);
   });
 
   // ---- POST /api/sessions ----
@@ -291,35 +270,15 @@ describe("handleApiSessions", () => {
     expect(parseBody(res)).toEqual(session);
   });
 
-  it("GET /api/sessions/:id falls back to bridge snapshot when launcher misses", () => {
-    const sm = mockSessionManager({
-      getSession: () => undefined,
-      bridgeGetSession: () => ({
-        id: "abc",
-        cliConnected: false,
-        lastActivity: 456,
-        state: {
-          cwd: "/repo",
-          model: "",
-          permissionMode: "default",
-          session_id: "backend-2",
-        },
-      }),
-    });
+  it("GET /api/sessions/:id returns 404 when registry has no match", () => {
+    const sm = mockSessionManager({ getSession: () => undefined });
     const req = mockReq("GET");
     const res = mockRes();
 
     handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
 
-    expect(res._status).toBe(200);
-    expect(parseBody(res)).toEqual({
-      sessionId: "abc",
-      state: "starting",
-      cwd: "/repo",
-      permissionMode: "default",
-      backendSessionId: "backend-2",
-      createdAt: 456,
-    });
+    expect(res._status).toBe(404);
+    expect(parseBody(res)).toEqual({ error: "Session not found" });
   });
 
   it("GET /api/sessions/:id returns 404 when not found", () => {
@@ -394,7 +353,7 @@ describe("handleApiSessions", () => {
       expect(res._status).toBe(200);
     });
     expect(parseBody(res)).toEqual({ ...session, name: "new-name" });
-    expect(sm.launcher.setSessionName).toHaveBeenCalledWith("abc", "new-name");
+    expect(sm.registry.setSessionName).toHaveBeenCalledWith("abc", "new-name");
     expect(sm.bridge.broadcastNameUpdate).toHaveBeenCalledWith("abc", "new-name");
   });
 
@@ -473,7 +432,7 @@ describe("handleApiSessions", () => {
     });
     const body = parseBody(res) as { name: string };
     expect(body.name).toHaveLength(100);
-    expect(sm.launcher.setSessionName).toHaveBeenCalledWith("abc", "a".repeat(100));
+    expect(sm.registry.setSessionName).toHaveBeenCalledWith("abc", "a".repeat(100));
   });
 
   // ---- Unknown method ----

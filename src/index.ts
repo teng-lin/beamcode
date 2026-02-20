@@ -34,10 +34,12 @@ export type {
   Reconnectable,
   TeamObserver,
 } from "./core/interfaces/extensions.js";
+export type { SessionRegistry } from "./core/interfaces/session-registry.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
 export { SessionBridge } from "./core/session-bridge.js";
 export { SessionManager } from "./core/session-manager.js";
+export { SimpleSessionRegistry } from "./core/simple-session-registry.js";
 export type { SlashCommandResult } from "./core/slash-command-executor.js";
 export { SlashCommandExecutor } from "./core/slash-command-executor.js";
 export { TypedEventEmitter } from "./core/typed-emitter.js";
