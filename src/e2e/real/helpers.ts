@@ -10,7 +10,7 @@ import { createServer } from "node:net";
 import { expect } from "vitest";
 import { WebSocket } from "ws";
 import type { SessionManager } from "../../core/session-manager.js";
-import { collectMessages, waitForMessageType } from "../helpers/test-utils.js";
+import { attachPrebuffer, collectMessages, waitForMessageType } from "../helpers/test-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -257,6 +257,7 @@ export async function connectConsumerAndWaitReady(
   const requireCliConnected = options?.requireCliConnected ?? true;
   const timeoutMs = options?.timeoutMs ?? 20_000;
   const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}`);
+  attachPrebuffer(consumer);
   const initialMessagesPromise = collectMessages(consumer, 4, timeoutMs);
   await new Promise<void>((resolve, reject) => {
     consumer.once("open", () => resolve());
@@ -287,6 +288,7 @@ export async function connectConsumerWithQuery(
 ): Promise<WebSocket> {
   const q = new URLSearchParams(query).toString();
   const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?${q}`);
+  attachPrebuffer(consumer);
   await new Promise<void>((resolve, reject) => {
     consumer.once("open", () => resolve());
     consumer.once("error", (err) => reject(err));
@@ -302,6 +304,7 @@ export async function connectConsumerWithQueryAndWaitReady(
 ): Promise<WebSocket> {
   const q = new URLSearchParams(query).toString();
   const consumer = new WebSocket(`ws://localhost:${port}/ws/consumer/${sessionId}?${q}`);
+  attachPrebuffer(consumer);
   const initialMessagesPromise = collectMessages(consumer, 4, 20_000);
   await new Promise<void>((resolve, reject) => {
     consumer.once("open", () => resolve());

@@ -11,6 +11,12 @@ import type { CliAdapterName } from "../../adapters/create-adapter.js";
 import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
+import {
+  MessageTracerImpl,
+  noopTracer,
+  type MessageTracer,
+  type TraceLevel,
+} from "../../core/message-tracer.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import type { SessionStorage } from "../../interfaces/storage.js";
@@ -27,6 +33,27 @@ export interface RealSessionContext {
   server: NodeWebSocketServer;
   sessionId: string;
   port: number;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const lower = value.toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes" || lower === "on";
+}
+
+function resolveTraceLevel(value: string | undefined): TraceLevel {
+  return value === "headers" || value === "full" || value === "smart" ? value : "smart";
+}
+
+function createEnvTracer(): MessageTracer {
+  if (!isTruthyEnv(process.env.BEAMCODE_TRACE)) {
+    return noopTracer;
+  }
+
+  return new MessageTracerImpl({
+    level: resolveTraceLevel(process.env.BEAMCODE_TRACE_LEVEL),
+    allowSensitive: isTruthyEnv(process.env.BEAMCODE_TRACE_ALLOW_SENSITIVE),
+  });
 }
 
 /**
@@ -46,6 +73,7 @@ export async function setupRealSession(
     initializeTimeoutMs: options?.config?.initializeTimeoutMs ?? 20_000,
     reconnectGracePeriodMs: options?.config?.reconnectGracePeriodMs ?? 10_000,
   };
+  const tracer = createEnvTracer();
   const memStorage = new MemoryStorage();
   const storage = options?.storage ?? memStorage;
 
@@ -58,6 +86,7 @@ export async function setupRealSession(
     adapterResolver,
     authenticator: options?.authenticator,
     launcher: new ClaudeLauncher({ processManager, config, storage: memStorage }),
+    tracer,
   });
 
   attachTrace(manager);
