@@ -25,14 +25,14 @@ export const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   switch (message.type) {
     case "user_message":
-      return <UserMessageBubble content={message.content} sessionId={sessionId} />;
+      return <UserMessageBubble content={message.content} />;
 
     case "assistant":
       return <AssistantMessage message={message.message} sessionId={sessionId} />;
 
     case "error":
       return (
-        <div className="animate-fadeSlideIn flex items-start gap-2 rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
+        <div className="flex items-start gap-2 rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
           <svg
             width="14"
             height="14"
@@ -49,7 +49,7 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "slash_command_result":
       return (
-        <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+        <div className="rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
             {message.command}
           </span>
@@ -61,7 +61,7 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "slash_command_error":
       return (
-        <div className="animate-fadeSlideIn rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
+        <div className="rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-error/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-error">
             {message.command} failed
           </span>
@@ -76,7 +76,7 @@ export const MessageBubble = memo(function MessageBubble({
       const errorText = renderToolPayload(message.error);
 
       return (
-        <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+        <div className="rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
           <div className="mb-1.5 flex items-center gap-2">
             <span className="rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
               {message.tool_name ?? "tool"}

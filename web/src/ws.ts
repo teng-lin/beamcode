@@ -166,24 +166,10 @@ function handleMessage(sessionId: string, data: string): void {
       store.setEditingQueue(sessionId, false);
       break;
 
-    case "queued_message_sent": {
-      // Capture position of the queued message element for FLIP animation
-      const queuedEl = document.querySelector("[data-queued-message]");
-      if (queuedEl) {
-        const rect = queuedEl.getBoundingClientRect();
-        store.setFlipOrigin(sessionId, { top: rect.top, left: rect.left, width: rect.width });
-        // Safety: clear flipOrigin if the echo user_message never arrives
-        setTimeout(() => {
-          const currentStore = useStore.getState();
-          if (currentStore.sessionData[sessionId]?.flipOrigin) {
-            currentStore.setFlipOrigin(sessionId, null);
-          }
-        }, 2000);
-      }
+    case "queued_message_sent":
       store.setQueuedMessage(sessionId, null);
       store.setEditingQueue(sessionId, false);
       break;
-    }
 
     case "stream_event": {
       const { event, parent_tool_use_id } = msg;
