@@ -4,6 +4,13 @@
  * When enabled via `--trace`, emits NDJSON trace events to stderr showing every
  * send, receive, and translation boundary crossing. When disabled, the `noopTracer`
  * has zero overhead.
+ *
+ * Translation boundaries (traced via the `boundary` field):
+ *
+ *   T1: InboundMessage → UnifiedMessage   (consumer input,  session-bridge)
+ *   T2: UnifiedMessage → native format    (outbound to backend, adapter sessions)
+ *   T3: native format  → UnifiedMessage   (inbound from backend, adapter sessions)
+ *   T4: UnifiedMessage → ConsumerMessage  (outbound to consumer, unified-message-router)
  */
 
 import { randomUUID } from "node:crypto";
