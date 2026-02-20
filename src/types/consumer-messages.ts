@@ -160,6 +160,7 @@ export type ConsumerMessage =
   | {
       type: "status_change";
       status: "compacting" | "idle" | "running" | null;
+      metadata?: Record<string, unknown>;
     }
   | {
       type: "auth_status";

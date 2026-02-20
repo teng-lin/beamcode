@@ -139,6 +139,11 @@ describe("SessionBridge Characterization - Backend → Consumer Message Shapes",
     expect(msgs[0]).toEqual({
       type: "status_change",
       status: "compacting",
+      metadata: {
+        permissionMode: undefined,
+        uuid: "uuid-status",
+        session_id: "cli-abc",
+      },
     });
   });
 
@@ -161,6 +166,11 @@ describe("SessionBridge Characterization - Backend → Consumer Message Shapes",
     expect(msgs[0]).toEqual({
       type: "status_change",
       status: null,
+      metadata: {
+        permissionMode: undefined,
+        uuid: "uuid-status",
+        session_id: "cli-abc",
+      },
     });
   });
 

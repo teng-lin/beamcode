@@ -392,6 +392,43 @@ describe("SessionBridge — CLI message routing", () => {
     );
   });
 
+  it("status_change preserves step metadata for consumers", async () => {
+    backendSession.pushMessage(
+      createUnifiedMessage({
+        type: "status_change",
+        role: "system",
+        metadata: {
+          status: "running",
+          step: "start",
+          step_id: "step-1",
+          message_id: "msg-1",
+        },
+      }),
+    );
+    await tick();
+
+    const parsed = consumerSocket.sentMessages.map((m) => JSON.parse(m));
+    const statusMsg = parsed.find((m: any) => m.type === "status_change");
+    expect(statusMsg).toBeDefined();
+    expect(statusMsg.status).toBe("running");
+    expect(statusMsg.metadata.step).toBe("start");
+    expect(statusMsg.metadata.step_id).toBe("step-1");
+  });
+
+  it("handles fabricated message type via default case", async () => {
+    const msg = createUnifiedMessage({
+      type: "unknown",
+      role: "system",
+      metadata: { raw: "fabricated" },
+    });
+    // Override type to something not in the union to test default branch
+    (msg as any).type = "fabricated_future_type";
+    backendSession.pushMessage(msg);
+    await tick();
+    // Should not throw
+    expect(consumerSocket.sentMessages).toHaveLength(0);
+  });
+
   it("keep_alive is silently consumed (no broadcast)", async () => {
     // In the adapter path, keep_alive maps to "unknown" type which is not
     // handled by routeUnifiedMessage's switch, so nothing is broadcast.

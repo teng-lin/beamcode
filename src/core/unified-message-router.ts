@@ -148,6 +148,9 @@ export class UnifiedMessageRouter {
       case "session_lifecycle":
         this.handleSessionLifecycle(session, msg, trace);
         break;
+      default:
+        this.tracer.recv("bridge", `unhandled:${msg.type}`, msg, trace);
+        break;
     }
   }
 
@@ -237,7 +240,12 @@ export class UnifiedMessageRouter {
   private handleStatusChange(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
-    const statusMsg = { type: "status_change" as const, status: session.lastStatus };
+    const { status: _s, ...rest } = msg.metadata;
+    const statusMsg = {
+      type: "status_change" as const,
+      status: session.lastStatus,
+      ...(Object.keys(rest).length > 0 && { metadata: rest }),
+    };
     this.traceT4("handleStatusChange", session, msg, statusMsg, trace);
     this.broadcaster.broadcast(session, statusMsg);
 
