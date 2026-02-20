@@ -15,6 +15,7 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "./interfaces/backend-adapter.js";
+import { MessageTracerImpl, type TraceEvent } from "./message-tracer.js";
 import type { Session } from "./session-store.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 import { createUnifiedMessage } from "./types/unified-message.js";
@@ -172,6 +173,18 @@ function createDeps(overrides?: Partial<BackendLifecycleDeps>): BackendLifecycle
     emitEvent: vi.fn(),
     ...overrides,
   };
+}
+
+function createTraceCollector() {
+  const lines: string[] = [];
+  const tracer = new MessageTracerImpl({
+    level: "smart",
+    allowSensitive: false,
+    write: (line) => lines.push(line),
+    staleTimeoutMs: 60_000,
+  });
+  const events = () => lines.map((line) => JSON.parse(line) as TraceEvent);
+  return { tracer, events };
 }
 
 // ---------------------------------------------------------------------------
@@ -614,6 +627,87 @@ describe("BackendLifecycleManager", () => {
         }),
       );
       expect(session.pendingPassthroughs).toHaveLength(0);
+    });
+
+    it("golden: empty /context result emits empty_result summary", async () => {
+      const trace = createTraceCollector();
+      const testSession = new TestBackendSession("sess-1");
+      const adapter = new TestAdapter();
+      adapter.nextSession = testSession;
+
+      const deps = createDeps({ adapter, tracer: trace.tracer });
+      const mgr = new BackendLifecycleManager(deps);
+      const session = createSession({
+        pendingPassthroughs: [
+          {
+            command: "/context",
+            requestId: "req-ctx",
+            slashRequestId: "req-ctx",
+            traceId: "t_ctx",
+            startedAtMs: Date.now(),
+          },
+        ],
+      });
+
+      await mgr.connectBackend(session);
+
+      testSession.pushMessage(
+        createUnifiedMessage({
+          type: "result",
+          role: "system",
+          metadata: { result: "" },
+        }),
+      );
+
+      await tick();
+
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
+        session,
+        expect.objectContaining({
+          type: "slash_command_error",
+          command: "/context",
+          request_id: "req-ctx",
+        }),
+      );
+      expect(session.pendingPassthroughs).toHaveLength(0);
+
+      const golden = trace
+        .events()
+        .filter(
+          (e) =>
+            e.messageType === "slash_command_error" || e.messageType === "slash_decision_summary",
+        )
+        .map((e) => ({
+          messageType: e.messageType,
+          requestId: e.requestId,
+          command: e.command,
+          phase: e.phase,
+          outcome: e.outcome,
+          matched_path:
+            e.messageType === "slash_decision_summary"
+              ? ((e.body as { matched_path?: string } | undefined)?.matched_path ?? null)
+              : null,
+        }));
+      expect(golden).toMatchInlineSnapshot(`
+        [
+          {
+            "command": "/context",
+            "matched_path": null,
+            "messageType": "slash_command_error",
+            "outcome": "empty_result",
+            "phase": "finalize_passthrough",
+            "requestId": "req-ctx",
+          },
+          {
+            "command": "/context",
+            "matched_path": "none",
+            "messageType": "slash_decision_summary",
+            "outcome": "empty_result",
+            "phase": "summary",
+            "requestId": "req-ctx",
+          },
+        ]
+      `);
     });
 
     it("broadcasts cli_disconnected when stream ends unexpectedly", async () => {

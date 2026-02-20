@@ -14,7 +14,7 @@ import type { CLIMessage } from "../types/cli-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import type { BackendAdapter, BackendSession } from "./interfaces/backend-adapter.js";
-import type { MessageTracer } from "./message-tracer.js";
+import { type MessageTracer, noopTracer, type TraceOutcome } from "./message-tracer.js";
 import type { Session } from "./session-store.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
 
@@ -33,7 +33,7 @@ export interface BackendLifecycleDeps {
   broadcaster: ConsumerBroadcaster;
   routeUnifiedMessage: (session: Session, msg: UnifiedMessage) => void;
   emitEvent: EmitEvent;
-  tracer: MessageTracer;
+  tracer?: MessageTracer;
 }
 
 // -- BackendLifecycleManager -------------------------------------------------
@@ -57,7 +57,7 @@ export class BackendLifecycleManager {
     this.broadcaster = deps.broadcaster;
     this.routeUnifiedMessage = deps.routeUnifiedMessage;
     this.emitEvent = deps.emitEvent;
-    this.tracer = deps.tracer;
+    this.tracer = deps.tracer ?? noopTracer;
   }
 
   private supportsPassthroughHandler(session: BackendSession): session is BackendSession & {
@@ -143,11 +143,61 @@ export class BackendLifecycleManager {
     return "";
   }
 
+  private annotateSlashTrace(
+    msg: UnifiedMessage,
+    pending: {
+      slashRequestId: string;
+      traceId: string;
+      command: string;
+    },
+  ): void {
+    msg.metadata.trace_id = pending.traceId;
+    msg.metadata.slash_request_id = pending.slashRequestId;
+    msg.metadata.slash_command = pending.command;
+  }
+
+  private emitSlashSummary(
+    sessionId: string,
+    pending: { slashRequestId: string; traceId: string; command: string; startedAtMs: number },
+    outcome: TraceOutcome,
+    matchedPath: "assistant_text" | "result_field" | "stream_buffer" | "none",
+    reasons: string[] = [],
+  ): void {
+    this.tracer.send(
+      "bridge",
+      "slash_decision_summary",
+      {
+        matched_path: matchedPath,
+        drop_or_consume_reasons: reasons,
+        timings: {
+          total_ms: Math.max(0, Date.now() - pending.startedAtMs),
+        },
+      },
+      {
+        sessionId,
+        traceId: pending.traceId,
+        requestId: pending.slashRequestId,
+        command: pending.command,
+        phase: "summary",
+        outcome,
+      },
+    );
+  }
+
   private maybeEmitPendingPassthroughFromUnified(session: Session, msg: UnifiedMessage): void {
     const pending = session.pendingPassthroughs[0];
     if (!pending) {
       this.passthroughTextBuffers.delete(session.id);
       return;
+    }
+
+    // Only annotate messages that are part of the passthrough response flow
+    // (stream chunks, assistant, result). Other messages (e.g., concurrent
+    // permission requests) should not be contaminated with slash trace context.
+    const isPassthroughRelevant =
+      msg.type === "stream_event" || msg.type === "assistant" || msg.type === "result";
+    if (isPassthroughRelevant) {
+      this.annotateSlashTrace(msg, pending);
     }
 
     const streamChunk = this.streamEventTextChunk(msg);
@@ -159,20 +209,41 @@ export class BackendLifecycleManager {
     }
 
     let content = this.unifiedSlashOutputToText(msg);
+    let matchedPath: "assistant_text" | "result_field" | "stream_buffer" | "none" = "none";
+    if (msg.type === "assistant" && content) matchedPath = "assistant_text";
+    if (msg.type === "result" && content) matchedPath = "result_field";
     if (!content && msg.type === "result") {
       content = this.passthroughTextBuffers.get(session.id) ?? "";
+      if (content) matchedPath = "stream_buffer";
     }
     if (!content) {
       if (msg.type === "result") {
-        this.tracer.error(
-          "bridge",
-          "slash_command_result",
-          `Pending passthrough "${pending.command}" produced empty output`,
-          {
-            sessionId: session.id,
-            action: "pending_passthrough_empty_result",
-          },
-        );
+        session.pendingPassthroughs.shift();
+        this.passthroughTextBuffers.delete(session.id);
+        const error = `Pending passthrough "${pending.command}" produced empty output`;
+        this.broadcaster.broadcast(session, {
+          type: "slash_command_error",
+          command: pending.command,
+          request_id: pending.requestId,
+          error,
+        });
+        this.emitEvent("slash_command:failed", {
+          sessionId: session.id,
+          command: pending.command,
+          error,
+        });
+        this.tracer.error("bridge", "slash_command_error", error, {
+          sessionId: session.id,
+          traceId: pending.traceId,
+          requestId: pending.slashRequestId,
+          command: pending.command,
+          action: "pending_passthrough_empty_result",
+          phase: "finalize_passthrough",
+          outcome: "empty_result",
+        });
+        this.emitSlashSummary(session.id, pending, "empty_result", "none", [
+          "pending_passthrough_empty_result",
+        ]);
       }
       return;
     }
@@ -186,12 +257,26 @@ export class BackendLifecycleManager {
       content,
       source: "cli",
     });
+    this.tracer.send(
+      "bridge",
+      "slash_command_result",
+      { command: pending.command },
+      {
+        sessionId: session.id,
+        traceId: pending.traceId,
+        requestId: pending.slashRequestId,
+        command: pending.command,
+        phase: "finalize_passthrough",
+        outcome: "success",
+      },
+    );
     this.emitEvent("slash_command:executed", {
       sessionId: session.id,
       command: pending.command,
       source: "cli",
       durationMs: 0,
     });
+    this.emitSlashSummary(session.id, pending, "success", matchedPath);
   }
 
   /** Whether a BackendAdapter is configured. */
@@ -270,12 +355,26 @@ export class BackendLifecycleManager {
           content,
           source: "cli",
         });
+        this.tracer.send(
+          "bridge",
+          "slash_command_result",
+          { command: pending.command },
+          {
+            sessionId: session.id,
+            traceId: pending.traceId,
+            requestId: pending.slashRequestId,
+            command: pending.command,
+            phase: "intercept_user_echo",
+            outcome: "intercepted_user_echo",
+          },
+        );
         this.emitEvent("slash_command:executed", {
           sessionId: session.id,
           command: pending.command,
           source: "cli",
           durationMs: 0,
         });
+        this.emitSlashSummary(session.id, pending, "intercepted_user_echo", "assistant_text");
         return true;
       });
     }
@@ -394,6 +493,22 @@ export class BackendLifecycleManager {
       } catch (err) {
         if (signal.aborted) return; // expected shutdown
         this.logger.error(`Backend message stream error for session ${sessionId}`, { error: err });
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        while (session.pendingPassthroughs.length > 0) {
+          const pending = session.pendingPassthroughs.shift()!;
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_error",
+            command: pending.command,
+            request_id: pending.requestId,
+            error: errorMsg,
+          });
+          this.emitEvent("slash_command:failed", {
+            sessionId,
+            command: pending.command,
+            error: errorMsg,
+          });
+          this.emitSlashSummary(sessionId, pending, "backend_error", "none", [errorMsg]);
+        }
         this.emitEvent("error", {
           source: "backendConsumption",
           error: err instanceof Error ? err : new Error(String(err)),
@@ -403,6 +518,21 @@ export class BackendLifecycleManager {
 
       // Stream ended -- backend disconnected (unless we aborted intentionally)
       if (!signal.aborted) {
+        while (session.pendingPassthroughs.length > 0) {
+          const pending = session.pendingPassthroughs.shift()!;
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_error",
+            command: pending.command,
+            request_id: pending.requestId,
+            error: "Backend stream ended unexpectedly",
+          });
+          this.emitEvent("slash_command:failed", {
+            sessionId,
+            command: pending.command,
+            error: "Backend stream ended unexpectedly",
+          });
+          this.emitSlashSummary(sessionId, pending, "backend_error", "none", ["stream ended"]);
+        }
         session.backendSession = null;
         session.backendAbort = null;
         this.passthroughTextBuffers.delete(session.id);

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import { noopLogger } from "../adapters/noop-logger.js";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
@@ -112,16 +113,27 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.sendUserMessage(sessionId, content, opts),
     );
     const executor = new SlashCommandExecutor();
-    this.localHandler = new LocalHandler({ executor, broadcaster: this.broadcaster, emitEvent });
+    this.localHandler = new LocalHandler({
+      executor,
+      broadcaster: this.broadcaster,
+      emitEvent,
+      tracer: this.tracer,
+    });
     this.commandChain = new SlashCommandChain([
       this.localHandler,
-      new AdapterNativeHandler({ broadcaster: this.broadcaster, emitEvent }),
+      new AdapterNativeHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
       new PassthroughHandler({
         broadcaster: this.broadcaster,
         emitEvent,
-        sendUserMessage: (sessionId, content) => this.sendUserMessage(sessionId, content),
+        sendUserMessage: (sessionId, content, trace) =>
+          this.sendUserMessage(sessionId, content, {
+            traceId: trace?.traceId,
+            slashRequestId: trace?.requestId,
+            slashCommand: trace?.command,
+          }),
+        tracer: this.tracer,
       }),
-      new UnsupportedHandler({ broadcaster: this.broadcaster, emitEvent }),
+      new UnsupportedHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
     ]);
     this.messageRouter = new UnifiedMessageRouter({
       broadcaster: this.broadcaster,
@@ -318,6 +330,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     options?: {
       sessionIdOverride?: string;
       images?: { media_type: string; data: string }[];
+      traceId?: string;
+      slashRequestId?: string;
+      slashCommand?: string;
     },
   ): void {
     const session = this.store.get(sessionId);
@@ -342,6 +357,11 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         images: options?.images,
       },
       sessionId,
+      {
+        traceId: options?.traceId,
+        requestId: options?.slashRequestId,
+        command: options?.slashCommand,
+      },
     );
     if (!unified) return;
 
@@ -477,11 +497,25 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.broadcaster.broadcastPresence(session);
         break;
       case "slash_command":
-        this.commandChain.dispatch({
-          command: msg.command,
-          requestId: msg.request_id,
-          session,
-        });
+        {
+          const slashRequestId = msg.request_id ?? this.generateSlashRequestId();
+          const traceId = this.generateTraceId();
+          this.tracer.recv("bridge", "slash_command", msg, {
+            sessionId: session.id,
+            traceId,
+            requestId: slashRequestId,
+            command: msg.command,
+            phase: "recv",
+          });
+          this.commandChain.dispatch({
+            command: msg.command,
+            requestId: msg.request_id,
+            slashRequestId,
+            traceId,
+            startedAtMs: Date.now(),
+            session,
+          });
+        }
         break;
       case "queue_message":
         this.queueHandler.handleQueueMessage(session, msg, ws);
@@ -549,7 +583,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   ): Promise<{ content: string; source: "emulated" } | null> {
     const session = this.store.get(sessionId);
     if (!session) return null;
-    const ctx = { command, requestId: undefined, session };
+    const ctx = {
+      command,
+      requestId: undefined,
+      slashRequestId: this.generateSlashRequestId(),
+      traceId: this.generateTraceId(),
+      startedAtMs: Date.now(),
+      session,
+    };
     if (this.localHandler.handles(ctx)) {
       return this.localHandler.executeLocal(ctx);
     }
@@ -604,24 +645,47 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private tracedNormalizeInbound(
     msg: InboundMessage,
     sessionId: string,
-    traceId?: string,
+    trace?: { traceId?: string; requestId?: string; command?: string },
   ): UnifiedMessage | null {
     const unified = normalizeInbound(msg);
+    if (unified && trace) {
+      if (trace.traceId) unified.metadata.trace_id = trace.traceId;
+      if (trace.requestId) unified.metadata.slash_request_id = trace.requestId;
+      if (trace.command) unified.metadata.slash_command = trace.command;
+    }
     this.tracer.translate(
       "normalizeInbound",
       "T1",
       { format: "InboundMessage", body: msg },
       { format: "UnifiedMessage", body: unified },
-      { sessionId, traceId },
+      {
+        sessionId,
+        traceId: trace?.traceId,
+        requestId: trace?.requestId,
+        command: trace?.command,
+        phase: "t1",
+      },
     );
     if (!unified) {
       this.tracer.error("bridge", msg.type, "normalizeInbound returned null", {
         sessionId,
-        traceId,
+        traceId: trace?.traceId,
+        requestId: trace?.requestId,
+        command: trace?.command,
         action: "dropped",
+        phase: "t1",
+        outcome: "unmapped_type",
       });
     }
     return unified;
+  }
+
+  private generateTraceId(): string {
+    return `t_${randomUUID().slice(0, 8)}`;
+  }
+
+  private generateSlashRequestId(): string {
+    return `sr_${randomUUID().slice(0, 8)}`;
   }
 
   // ── Message history management ───────────────────────────────────────────

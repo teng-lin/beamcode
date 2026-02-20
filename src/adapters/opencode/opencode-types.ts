@@ -155,8 +155,14 @@ export type OpencodePart =
 
 export type OpencodeEvent =
   | { type: "server.connected"; properties: Record<string, never> }
-  | { type: "session.created"; properties: { session: OpencodeSession } }
-  | { type: "session.updated"; properties: { session: OpencodeSession } }
+  | {
+      type: "session.created";
+      properties: { info: OpencodeSession } | { session: OpencodeSession };
+    }
+  | {
+      type: "session.updated";
+      properties: { info: OpencodeSession } | { session: OpencodeSession };
+    }
   | { type: "session.deleted"; properties: { sessionID: string } }
   | { type: "session.status"; properties: { sessionID: string; status: OpencodeSessionStatus } }
   | { type: "session.error"; properties: { sessionID: string; error: OpencodeMessageError } }
@@ -167,6 +173,16 @@ export type OpencodeEvent =
   | {
       type: "message.part.updated";
       properties: { part: OpencodePart; delta?: string };
+    }
+  | {
+      type: "message.part.delta";
+      properties: {
+        sessionID: string;
+        messageID: string;
+        partID: string;
+        field: string;
+        delta: string;
+      };
     }
   | {
       type: "message.part.removed";

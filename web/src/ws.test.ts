@@ -333,6 +333,26 @@ describe("handleMessage", () => {
     expect(getSessionData()?.streaming).toBeNull();
   });
 
+  it("assistant with empty content: preserves empty content and clears streaming", () => {
+    const ws = openSession();
+    useStore.getState().setStreaming("s1", "streamed reply");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: makeAssistantContent([]),
+      }),
+    );
+
+    const assistant = getSessionData()?.messages[0];
+    expect(assistant?.type).toBe("assistant");
+    if (assistant?.type === "assistant") {
+      expect(assistant.message.content).toEqual([]);
+    }
+    expect(getSessionData()?.streaming).toBeNull();
+  });
+
   it("assistant with parent_tool_use_id: clears agent streaming", () => {
     const ws = openSession();
     useStore.getState().initAgentStreaming("s1", "agent-1");
@@ -347,6 +367,27 @@ describe("handleMessage", () => {
 
     expect(getSessionData()?.messages).toHaveLength(1);
     // Agent streaming should be cleared
+    expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
+  });
+
+  it("assistant with empty content and parent_tool_use_id: keeps empty content", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+    useStore.getState().appendAgentStreaming("s1", "agent-1", "agent streamed reply");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: "agent-1",
+        message: makeAssistantContent([]),
+      }),
+    );
+
+    const assistant = getSessionData()?.messages[0];
+    expect(assistant?.type).toBe("assistant");
+    if (assistant?.type === "assistant") {
+      expect(assistant.message.content).toEqual([]);
+    }
     expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
   });
 

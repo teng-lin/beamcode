@@ -12,6 +12,13 @@ import { diffObjects } from "./trace-differ.js";
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 export type TraceLevel = "smart" | "headers" | "full";
+export type TraceOutcome =
+  | "success"
+  | "empty_result"
+  | "unmapped_type"
+  | "parse_error"
+  | "intercepted_user_echo"
+  | "backend_error";
 
 export interface TraceEvent {
   trace: true;
@@ -34,6 +41,10 @@ export interface TraceEvent {
   error?: string;
   zodErrors?: unknown[];
   action?: string;
+  requestId?: string;
+  command?: string;
+  phase?: string;
+  outcome?: TraceOutcome;
 }
 
 export interface TraceSummary {
@@ -48,11 +59,36 @@ export interface TraceOpts {
   sessionId?: string;
   traceId?: string;
   parentTraceId?: string;
+  requestId?: string;
+  command?: string;
+  phase?: string;
+  outcome?: TraceOutcome;
 }
 
 export interface TraceErrorOpts extends TraceOpts {
   zodErrors?: unknown[];
   action?: string;
+}
+
+/** Lightweight context bag carried through a single message flow. */
+export interface TraceContext {
+  traceId?: string;
+  requestId?: string;
+  command?: string;
+}
+
+/**
+ * Extract trace correlation fields from a UnifiedMessage's metadata.
+ * Shared across all adapter session classes to avoid duplicating
+ * the same typeof-guarded extraction logic.
+ */
+export function extractTraceContext(metadata: Record<string, unknown>): TraceContext {
+  return {
+    traceId: typeof metadata.trace_id === "string" ? metadata.trace_id : undefined,
+    requestId:
+      typeof metadata.slash_request_id === "string" ? metadata.slash_request_id : undefined,
+    command: typeof metadata.slash_command === "string" ? metadata.slash_command : undefined,
+  };
 }
 
 // ─── Sensitive key redaction ────────────────────────────────────────────────────
@@ -294,6 +330,10 @@ export class MessageTracerImpl implements MessageTracer {
       traceId,
       parentTraceId: opts?.parentTraceId,
       sessionId: opts?.sessionId,
+      requestId: opts?.requestId,
+      command: opts?.command,
+      phase: opts?.phase,
+      outcome: opts?.outcome,
       translator,
       boundary,
       from: { format: from.format, body: sanitizedFrom },
@@ -327,6 +367,10 @@ export class MessageTracerImpl implements MessageTracer {
       error: errorStr,
       zodErrors: opts?.zodErrors,
       action: opts?.action,
+      requestId: opts?.requestId,
+      command: opts?.command,
+      phase: opts?.phase,
+      outcome: opts?.outcome,
     });
   }
 
@@ -379,6 +423,10 @@ export class MessageTracerImpl implements MessageTracer {
       traceId,
       parentTraceId: opts?.parentTraceId,
       sessionId: opts?.sessionId,
+      requestId: opts?.requestId,
+      command: opts?.command,
+      phase: opts?.phase,
+      outcome: opts?.outcome,
     });
   }
 
@@ -417,6 +465,10 @@ export class MessageTracerImpl implements MessageTracer {
     error?: string;
     zodErrors?: unknown[];
     action?: string;
+    requestId?: string;
+    command?: string;
+    phase?: string;
+    outcome?: TraceOutcome;
     /** When true, from/to bodies are already sanitized — skip redundant processing. */
     preSanitized?: boolean;
   }): void {
@@ -463,6 +515,10 @@ export class MessageTracerImpl implements MessageTracer {
     if (params.error) event.error = params.error;
     if (params.zodErrors) event.zodErrors = params.zodErrors;
     if (params.action) event.action = params.action;
+    if (params.requestId) event.requestId = params.requestId;
+    if (params.command) event.command = params.command;
+    if (params.phase) event.phase = params.phase;
+    if (params.outcome) event.outcome = params.outcome;
 
     // Body handling based on trace level
     if (params.body !== undefined) {
@@ -485,7 +541,24 @@ export class MessageTracerImpl implements MessageTracer {
     }
     if (params.diff) event.diff = params.diff;
 
-    this.writeLine(JSON.stringify(event));
+    try {
+      this.writeLine(JSON.stringify(event));
+    } catch {
+      // Circular references or other stringify failures — emit a minimal fallback
+      // to avoid crashing the session's message processing loop.
+      this.writeLine(
+        JSON.stringify({
+          trace: true,
+          traceId: params.traceId,
+          layer: params.layer,
+          direction: params.direction,
+          messageType: params.messageType,
+          ts: new Date().toISOString(),
+          elapsed_ms: elapsedMs,
+          error: "Failed to serialize trace event (possible circular reference)",
+        }),
+      );
+    }
 
     // Mark traces as complete when they hit a "send" at bridge/frontend layer
     // (response going back out to consumer)

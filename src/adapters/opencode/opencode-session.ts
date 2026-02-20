@@ -7,6 +7,7 @@
 
 import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
+import { extractTraceContext, type MessageTracer } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { OpencodeHttpClient } from "./opencode-http-client.js";
@@ -24,21 +25,136 @@ export class OpencodeSession implements BackendSession {
   private readonly unsubscribe: () => void;
   private closed = false;
   private readonly queue = new AsyncMessageQueue<UnifiedMessage>();
+  private readonly tracer?: MessageTracer;
+  private readonly textPartsByMessage = new Map<string, Map<string, string>>();
+  private readonly reasoningPartsByMessage = new Map<string, Set<string>>();
 
   constructor(options: {
     sessionId: string;
     opcSessionId: string;
     httpClient: OpencodeHttpClient;
     subscribe: (handler: (event: OpencodeEvent) => void) => () => void;
+    tracer?: MessageTracer;
   }) {
     this.sessionId = options.sessionId;
     this.opcSessionId = options.opcSessionId;
     this.httpClient = options.httpClient;
+    this.tracer = options.tracer;
 
     this.unsubscribe = options.subscribe((event) => {
+      this.tracer?.recv("backend", "native_inbound", event, {
+        sessionId: this.sessionId,
+        phase: "t3_recv_native",
+      });
       const unified = translateEvent(event);
-      if (unified) this.queue.enqueue(unified);
+      if (unified) {
+        const normalized = this.normalizeUnifiedMessage(unified);
+        this.tracer?.translate(
+          "translateEvent",
+          "T3",
+          { format: "OpencodeEvent", body: event },
+          { format: "UnifiedMessage", body: normalized },
+          { sessionId: this.sessionId, phase: "t3" },
+        );
+        this.queue.enqueue(normalized);
+      } else {
+        this.tracer?.error("backend", event.type, "Opencode event did not map to UnifiedMessage", {
+          sessionId: this.sessionId,
+          action: "dropped",
+          phase: "t3",
+          outcome: "unmapped_type",
+        });
+      }
     });
+  }
+
+  private normalizeUnifiedMessage(message: UnifiedMessage): UnifiedMessage {
+    if (message.type === "stream_event") {
+      this.captureStreamText(message);
+      return message;
+    }
+
+    if (message.type === "assistant") {
+      return this.materializeAssistantText(message);
+    }
+
+    if (message.type === "result") {
+      this.clearStreamState();
+    }
+
+    return message;
+  }
+
+  private captureStreamText(message: UnifiedMessage): void {
+    const metadata = message.metadata as {
+      event?: { type?: string; delta?: { type?: string; text?: string } };
+      message_id?: string;
+      part_id?: string;
+      text?: string;
+      reasoning?: boolean;
+    };
+
+    if (metadata.event?.type !== "content_block_delta") return;
+    const messageId = metadata.message_id;
+    const partId = metadata.part_id;
+    if (typeof messageId !== "string" || messageId.length === 0) return;
+    if (typeof partId !== "string" || partId.length === 0) return;
+
+    if (metadata.reasoning === true) {
+      let reasoningParts = this.reasoningPartsByMessage.get(messageId);
+      if (!reasoningParts) {
+        reasoningParts = new Set<string>();
+        this.reasoningPartsByMessage.set(messageId, reasoningParts);
+      }
+      reasoningParts.add(partId);
+      return;
+    }
+
+    const reasoningParts = this.reasoningPartsByMessage.get(messageId);
+    if (reasoningParts?.has(partId)) return;
+
+    const partText =
+      typeof metadata.text === "string"
+        ? metadata.text
+        : metadata.event.delta?.type === "text_delta" &&
+            typeof metadata.event.delta.text === "string"
+          ? metadata.event.delta.text
+          : undefined;
+    if (!partText || partText.length === 0) return;
+
+    let parts = this.textPartsByMessage.get(messageId);
+    if (!parts) {
+      parts = new Map<string, string>();
+      this.textPartsByMessage.set(messageId, parts);
+    }
+
+    if (typeof metadata.text === "string") {
+      parts.set(partId, metadata.text);
+      return;
+    }
+
+    parts.set(partId, (parts.get(partId) ?? "") + partText);
+  }
+
+  private materializeAssistantText(message: UnifiedMessage): UnifiedMessage {
+    const messageId = message.metadata.message_id;
+    if (typeof messageId !== "string" || messageId.length === 0) return message;
+
+    const parts = this.textPartsByMessage.get(messageId);
+    this.textPartsByMessage.delete(messageId);
+    this.reasoningPartsByMessage.delete(messageId);
+    const text = parts ? Array.from(parts.values()).join("") : "";
+    if (message.content.length > 0 || text.length === 0) return message;
+
+    return {
+      ...message,
+      content: [{ type: "text", text }],
+    };
+  }
+
+  private clearStreamState(): void {
+    this.textPartsByMessage.clear();
+    this.reasoningPartsByMessage.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -48,7 +164,31 @@ export class OpencodeSession implements BackendSession {
   send(message: UnifiedMessage): void {
     if (this.closed) throw new Error("Session is closed");
 
+    const trace = extractTraceContext(message.metadata);
     const action = translateToOpencode(message);
+    this.tracer?.translate(
+      "translateToOpencode",
+      "T2",
+      { format: "UnifiedMessage", body: message },
+      { format: "OpencodeAction", body: action },
+      {
+        sessionId: this.sessionId,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t2",
+      },
+    );
+
+    if (action.type !== "noop") {
+      this.tracer?.send("backend", "native_outbound", action, {
+        sessionId: this.sessionId,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t2_send_native",
+      });
+    }
 
     switch (action.type) {
       case "prompt":
@@ -76,6 +216,12 @@ export class OpencodeSession implements BackendSession {
 
   private sendAction(promise: Promise<unknown>): void {
     promise.catch((err: unknown) => {
+      this.tracer?.error("backend", "native_outbound", "Opencode action failed", {
+        sessionId: this.sessionId,
+        action: "failed",
+        phase: "t2_send_native",
+        outcome: "backend_error",
+      });
       this.queue.enqueue(
         createUnifiedMessage({
           type: "result",
@@ -112,6 +258,7 @@ export class OpencodeSession implements BackendSession {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.clearStreamState();
     this.unsubscribe();
     this.queue.finish();
   }

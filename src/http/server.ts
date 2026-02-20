@@ -5,15 +5,19 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import type { PrometheusMetricsCollector } from "../adapters/prometheus-metrics-collector.js";
 import type { SessionManager } from "../core/session-manager.js";
 import { handleApiSessions } from "./api-sessions.js";
 import { handleConsumerHtml } from "./consumer-html.js";
-import { handleHealth } from "./health.js";
+import { type HealthContext, handleHealth } from "./health.js";
+import { handleMetrics } from "./metrics-endpoint.js";
 
 export interface HttpServerOptions {
   sessionManager: SessionManager;
   activeSessionId: string;
   apiKey?: string;
+  healthContext?: HealthContext;
+  prometheusCollector?: PrometheusMetricsCollector;
 }
 
 /** Timing-safe string comparison using SHA-256 to normalize lengths. */
@@ -32,11 +36,13 @@ export function createBeamcodeServer(
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-    // Security: API key gate for /api/* endpoints.
-    // When configured, all /api requests must include Authorization: Bearer <key>.
+    // Security: API key gate for sensitive endpoints.
+    // When configured, /api/*, /health, and /metrics require Authorization: Bearer <key>.
     // This prevents unauthenticated access both from LAN and through tunnels
     // (cloudflared forwards requests as localhost, making IP-based checks unreliable).
-    if (apiKey && url.pathname.startsWith("/api/")) {
+    const isProtected =
+      url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/metrics";
+    if (apiKey && isProtected) {
       const auth = req.headers.authorization ?? "";
       if (!timingSafeCompare(auth, `Bearer ${apiKey}`)) {
         res.writeHead(401, { "Content-Type": "application/json" });
@@ -47,7 +53,12 @@ export function createBeamcodeServer(
 
     // Route dispatch
     if (url.pathname === "/health") {
-      handleHealth(req, res);
+      handleHealth(req, res, options.healthContext);
+      return;
+    }
+
+    if (url.pathname === "/metrics" && options.prometheusCollector) {
+      handleMetrics(req, res, options.prometheusCollector);
       return;
     }
 

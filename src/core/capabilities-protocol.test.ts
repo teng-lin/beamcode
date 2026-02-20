@@ -375,6 +375,51 @@ describe("CapabilitiesProtocol", () => {
       expect(emitEvent).toHaveBeenCalledWith("capabilities:ready", expect.anything());
     });
 
+    it("golden: Already initialized synthesizes capabilities from slash_commands", () => {
+      const { protocol } = createDeps();
+      const session = createMockSession();
+      session.state.slash_commands = ["/help", "/compact"];
+
+      protocol.sendInitializeRequest(session);
+      const requestId = session.pendingInitialize!.requestId;
+
+      const msg = createUnifiedMessage({
+        type: "control_response",
+        role: "system",
+        metadata: {
+          subtype: "error",
+          request_id: requestId,
+          error: "Already initialized",
+        },
+      });
+
+      protocol.handleControlResponse(session, msg);
+
+      const golden = {
+        error: msg.metadata.error,
+        commands: session.state.capabilities?.commands ?? [],
+        models: session.state.capabilities?.models ?? [],
+        account: session.state.capabilities?.account ?? null,
+      };
+      expect(golden).toMatchInlineSnapshot(`
+        {
+          "account": null,
+          "commands": [
+            {
+              "description": "",
+              "name": "/help",
+            },
+            {
+              "description": "",
+              "name": "/compact",
+            },
+          ],
+          "error": "Already initialized",
+          "models": [],
+        }
+      `);
+    });
+
     it("does not synthesize on error if capabilities already exist", () => {
       const { protocol, broadcaster } = createDeps();
       const session = createMockSession();

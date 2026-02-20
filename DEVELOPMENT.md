@@ -363,6 +363,26 @@ beamcode --trace --trace-level headers
 
 # Full payloads: every message logged as-is (requires explicit opt-in)
 beamcode --trace --trace-level full --trace-allow-sensitive
+
+# Environment-variable controls (CLI flags override env)
+BEAMCODE_TRACE=1 beamcode
+BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=headers beamcode
+BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=full BEAMCODE_TRACE_ALLOW_SENSITIVE=1 beamcode
+```
+
+### Trace Inspect
+
+Use `trace-inspect` for common operator queries on NDJSON trace logs:
+
+```bash
+# Show failed /context attempts
+pnpm trace:inspect failed-context trace.ndjson
+
+# Show dropped/unmapped backend message types
+pnpm trace:inspect dropped-backend-types trace.ndjson
+
+# Show empty slash-command results grouped by backend version
+pnpm trace:inspect empty-results-by-version trace.ndjson
 ```
 
 ### Translation Boundaries

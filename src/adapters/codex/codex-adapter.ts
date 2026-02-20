@@ -13,6 +13,7 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
 import { resolvePackageVersion } from "../../utils/resolve-package-version.js";
@@ -72,7 +73,9 @@ export class CodexAdapter implements BackendAdapter {
       cwd?: string;
       port?: number;
       codexBinary?: string;
+      tracer?: MessageTracer;
     };
+    const tracer = adapterOptions.tracer;
 
     const launcher = new CodexLauncher({
       processManager: this.processManager,
@@ -95,7 +98,7 @@ export class CodexAdapter implements BackendAdapter {
     const ws = await this.connectWebSocket(url);
 
     // 3. Initialize handshake
-    const initResponse = await this.performHandshake(ws);
+    const initResponse = await this.performHandshake(ws, tracer, options.sessionId);
 
     // 4. Return session
     return new CodexSession({
@@ -103,6 +106,7 @@ export class CodexAdapter implements BackendAdapter {
       ws,
       launcher,
       initResponse,
+      tracer,
     });
   }
 
@@ -162,7 +166,11 @@ export class CodexAdapter implements BackendAdapter {
     });
   }
 
-  private performHandshake(ws: WebSocket): Promise<CodexInitResponse> {
+  private performHandshake(
+    ws: WebSocket,
+    tracer: MessageTracer | undefined,
+    sessionId: string,
+  ): Promise<CodexInitResponse> {
     return new Promise<CodexInitResponse>((resolve, reject) => {
       const rpcId = 1;
       const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -175,11 +183,16 @@ export class CodexAdapter implements BackendAdapter {
 
       const onMessage = (data: WebSocket.RawData) => {
         try {
-          const msg = JSON.parse(data.toString()) as {
+          const raw = data.toString();
+          const msg = JSON.parse(raw) as {
             id?: number;
             result?: CodexInitResponse;
             error?: { message: string };
           };
+          tracer?.recv("backend", "native_inbound", msg, {
+            sessionId,
+            phase: "handshake_recv",
+          });
           if (msg.id === rpcId) {
             cleanup();
             if (msg.error) {
@@ -214,16 +227,19 @@ export class CodexAdapter implements BackendAdapter {
       ws.on("error", onError);
 
       // Send initialize request
-      ws.send(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: rpcId,
-          method: "initialize",
-          params: {
-            clientInfo: { name: "beamcode", version },
-          },
-        }),
-      );
+      const initializeReq = {
+        jsonrpc: "2.0",
+        id: rpcId,
+        method: "initialize",
+        params: {
+          clientInfo: { name: "beamcode", version },
+        },
+      };
+      tracer?.send("backend", "native_outbound", initializeReq, {
+        sessionId,
+        phase: "handshake_send",
+      });
+      ws.send(JSON.stringify(initializeReq));
     });
   }
 }

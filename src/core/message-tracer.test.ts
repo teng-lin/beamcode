@@ -39,6 +39,10 @@ describe("MessageTracerImpl", () => {
         {
           sessionId: "s1",
           traceId: "t_fixed",
+          requestId: "sr-1",
+          command: "/context",
+          phase: "recv",
+          outcome: "success",
         },
       );
       const evts = events();
@@ -53,6 +57,10 @@ describe("MessageTracerImpl", () => {
       expect(e.seq).toBe(1);
       expect(e.elapsed_ms).toBe(0);
       expect(e.ts).toBeDefined();
+      expect(e.requestId).toBe("sr-1");
+      expect(e.command).toBe("/context");
+      expect(e.phase).toBe("recv");
+      expect(e.outcome).toBe("success");
       tracer.destroy();
     });
 

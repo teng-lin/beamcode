@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
+import { MessageTracerImpl, type TraceEvent } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import { tick } from "../../testing/adapter-test-helpers.js";
@@ -581,5 +582,50 @@ describe("ClaudeSession", () => {
 
     // Socket should have been closed since session was already closed
     expect(ws.readyState).toBe(3); // CLOSED
+  });
+
+  it("golden: unmapped backend type emits unmapped_type trace outcome", async () => {
+    const lines: string[] = [];
+    const tracer = new MessageTracerImpl({
+      level: "smart",
+      allowSensitive: false,
+      write: (line) => lines.push(line),
+      staleTimeoutMs: 60_000,
+    });
+
+    const ws = new MockWebSocket();
+    const session = new ClaudeSession({
+      sessionId: "trace-1",
+      socketPromise: Promise.resolve(ws) as any,
+      tracer,
+    });
+
+    await tick();
+
+    ws.emit("message", JSON.stringify({ type: "unknown_backend_event", foo: "bar" }));
+    await tick();
+    await session.close();
+    tracer.destroy();
+
+    const events = lines
+      .map((line) => JSON.parse(line) as TraceEvent)
+      .filter((e) => e.outcome === "unmapped_type")
+      .map((e) => ({
+        messageType: e.messageType,
+        phase: e.phase,
+        outcome: e.outcome,
+        action: e.action,
+      }));
+
+    expect(events).toMatchInlineSnapshot(`
+      [
+        {
+          "action": "dropped",
+          "messageType": "unknown_backend_event",
+          "outcome": "unmapped_type",
+          "phase": "t3",
+        },
+      ]
+    `);
   });
 });
