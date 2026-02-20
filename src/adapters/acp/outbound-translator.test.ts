@@ -6,6 +6,7 @@ import type {
   AcpSessionUpdate,
 } from "./outbound-translator.js";
 import {
+  translateAuthStatus,
   translateInitializeResult,
   translatePermissionRequest,
   translatePromptError,
@@ -384,6 +385,23 @@ describe("translatePromptError", () => {
       message: "Internal error",
     });
     expect(msg.metadata.error_data).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// translateAuthStatus
+// ---------------------------------------------------------------------------
+
+describe("translateAuthStatus", () => {
+  it("creates auth_status message with error", () => {
+    const msg = translateAuthStatus("sess-1", "Verify your account to continue.");
+
+    expect(msg.type).toBe("auth_status");
+    expect(msg.role).toBe("system");
+    expect(msg.metadata.sessionId).toBe("sess-1");
+    expect(msg.metadata.isAuthenticating).toBe(false);
+    expect(msg.metadata.output).toEqual([]);
+    expect(msg.metadata.error).toBe("Verify your account to continue.");
   });
 });
 

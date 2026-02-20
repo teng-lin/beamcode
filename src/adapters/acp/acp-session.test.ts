@@ -497,7 +497,6 @@ describe("AcpSession", () => {
     });
 
     it("defaults to api_error when no error classifier is provided", async () => {
-      // First send a user_message to create a pending request
       const userMsg = createUnifiedMessage({
         type: "user_message",
         role: "user",
@@ -509,7 +508,7 @@ describe("AcpSession", () => {
       const errorResponse = {
         jsonrpc: "2.0",
         id: 1,
-        error: { code: 500, message: "Verify your account to continue." },
+        error: { code: 500, message: "Something went wrong" },
       };
       mockDecode(codec).mockReturnValueOnce(errorResponse);
 
@@ -522,10 +521,10 @@ describe("AcpSession", () => {
       expect(msg.value.type).toBe("result");
       expect(msg.value.metadata.stopReason).toBe("error");
       expect(msg.value.metadata.error_code).toBe("api_error");
-      expect(msg.value.metadata.error_message).toBe("Verify your account to continue.");
+      expect(msg.value.metadata.error_message).toBe("Something went wrong");
     });
 
-    it("uses injected error classifier when provided", async () => {
+    it("emits auth_status before result for provider_auth errors", async () => {
       const classifier = (_code: number, msg: string) =>
         msg.includes("Verify") ? "provider_auth" : "api_error";
       const classifiedSession = new AcpSession(
@@ -557,8 +556,43 @@ describe("AcpSession", () => {
 
       emitStdout(child, errorResponse);
 
+      // First: auth_status
+      const authMsg = await iter.next();
+      expect(authMsg.value.type).toBe("auth_status");
+      expect(authMsg.value.metadata.isAuthenticating).toBe(false);
+      expect(authMsg.value.metadata.error).toBe("Verify your account to continue.");
+
+      // Second: result with provider_auth
+      const resultMsg = await iter.next();
+      expect(resultMsg.value.type).toBe("result");
+      expect(resultMsg.value.metadata.error_code).toBe("provider_auth");
+    });
+
+    it("does not emit auth_status for non-auth errors", async () => {
+      const userMsg = createUnifiedMessage({
+        type: "user_message",
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        metadata: { sessionId: "sess-1" },
+      });
+      session.send(userMsg);
+
+      const errorResponse = {
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32603, message: "Internal error" },
+      };
+      mockDecode(codec).mockReturnValueOnce(errorResponse);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, errorResponse);
+
+      // Only a result, no auth_status
       const msg = await iter.next();
-      expect(msg.value.metadata.error_code).toBe("provider_auth");
+      expect(msg.value.type).toBe("result");
+      expect(msg.value.metadata.error_code).toBe("api_error");
     });
 
     it("preserves error_data from JSON-RPC error response", async () => {

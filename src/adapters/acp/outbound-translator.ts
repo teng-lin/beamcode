@@ -124,6 +124,20 @@ export function translatePromptError(
   });
 }
 
+/** Translate an auth error into an auth_status UnifiedMessage. */
+export function translateAuthStatus(sessionId: string, error: string): UnifiedMessage {
+  return createUnifiedMessage({
+    type: "auth_status",
+    role: "system",
+    metadata: {
+      sessionId,
+      isAuthenticating: false,
+      output: [],
+      error,
+    },
+  });
+}
+
 /** Translate an initialize response into a UnifiedMessage. */
 export function translateInitializeResult(result: AcpInitializeResult): UnifiedMessage {
   return createUnifiedMessage({

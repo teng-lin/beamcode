@@ -19,6 +19,7 @@ import {
 } from "./json-rpc.js";
 import type { AcpInitializeResult, ErrorClassifier } from "./outbound-translator.js";
 import {
+  translateAuthStatus,
   translateInitializeResult,
   translatePermissionRequest,
   translatePromptError,
@@ -199,25 +200,27 @@ export class AcpSession implements BackendSession {
             phase: "t3_recv_native",
           });
 
-          const unified = session.routeMessage(msg);
-          if (!unified) return;
-          session.tracer?.translate(
-            "routeMessage",
-            "T3",
-            { format: "AcpJsonRpc", body: msg },
-            { format: "UnifiedMessage", body: unified },
-            {
-              sessionId: session.sessionId,
-              phase: "t3",
-            },
-          );
+          const results = session.routeMessage(msg);
+          if (results.length === 0) return;
+          for (const unified of results) {
+            session.tracer?.translate(
+              "routeMessage",
+              "T3",
+              { format: "AcpJsonRpc", body: msg },
+              { format: "UnifiedMessage", body: unified },
+              {
+                sessionId: session.sessionId,
+                phase: "t3",
+              },
+            );
 
-          if (resolve) {
-            const r = resolve;
-            resolve = null;
-            r({ value: unified, done: false });
-          } else {
-            queue.push(unified);
+            if (resolve) {
+              const r = resolve;
+              resolve = null;
+              r({ value: unified, done: false });
+            } else {
+              queue.push(unified);
+            }
           }
         };
 
@@ -279,11 +282,11 @@ export class AcpSession implements BackendSession {
     };
   }
 
-  /** Route a JSON-RPC message to the appropriate translator. Returns null for handled responses. */
-  private routeMessage(msg: JsonRpcMessage): UnifiedMessage | null {
+  /** Route a JSON-RPC message to the appropriate translator(s). */
+  private routeMessage(msg: JsonRpcMessage): UnifiedMessage[] {
     if (isJsonRpcNotification(msg)) {
       if (msg.method === "session/update") {
-        return translateSessionUpdate(msg.params as Parameters<typeof translateSessionUpdate>[0]);
+        return [translateSessionUpdate(msg.params as Parameters<typeof translateSessionUpdate>[0])];
       }
       this.tracer?.error("backend", msg.method, "ACP notification not mapped to UnifiedMessage", {
         sessionId: this.sessionId,
@@ -291,25 +294,27 @@ export class AcpSession implements BackendSession {
         phase: "t3",
         outcome: "unmapped_type",
       });
-      return null;
+      return [];
     }
 
     if (isJsonRpcRequest(msg)) {
       if (msg.method === "session/request_permission") {
         this.pendingPermissionRequestId = msg.id;
-        return translatePermissionRequest(
-          msg.params as Parameters<typeof translatePermissionRequest>[0],
-        );
+        return [
+          translatePermissionRequest(
+            msg.params as Parameters<typeof translatePermissionRequest>[0],
+          ),
+        ];
       }
 
       // Agent-initiated fs/terminal requests — stub with error for now
       if (msg.method?.startsWith("fs/") || msg.method?.startsWith("terminal/")) {
         const errResp = this.codec.createErrorResponse(msg.id, -32601, "Method not supported");
         this.child.stdin?.write(this.codec.encode(errResp));
-        return null;
+        return [];
       }
 
-      return null;
+      return [];
     }
 
     if (isJsonRpcResponse(msg)) {
@@ -318,18 +323,25 @@ export class AcpSession implements BackendSession {
       if (pending) {
         this.pendingRequests.delete(msg.id);
         if (msg.error) {
-          return translatePromptError(this.sessionId, msg.error, this.errorClassifier);
+          const result = translatePromptError(this.sessionId, msg.error, this.errorClassifier);
+
+          // Emit auth_status before result so the frontend can show auth state
+          if (result.metadata.error_code === "provider_auth") {
+            return [translateAuthStatus(this.sessionId, msg.error.message), result];
+          }
+
+          return [result];
         }
       }
 
       // If no pending request matches, treat as a prompt result
       if (msg.result && typeof msg.result === "object" && "stopReason" in msg.result) {
-        return translatePromptResult(msg.result as Parameters<typeof translatePromptResult>[0]);
+        return [translatePromptResult(msg.result as Parameters<typeof translatePromptResult>[0])];
       }
 
-      return null;
+      return [];
     }
 
-    return null;
+    return [];
   }
 }
