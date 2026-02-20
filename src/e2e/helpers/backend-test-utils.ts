@@ -8,10 +8,6 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { vi } from "vitest";
-import type {
-  SDKMessage,
-  SDKUserMessage,
-} from "../../adapters/agent-sdk/sdk-message-translator.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import type { UnifiedMessage, UnifiedMessageType } from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
@@ -99,7 +95,7 @@ export class MessageReader {
 /**
  * Collect N UnifiedMessages from a BackendSession's message stream.
  * Creates a new iterator — suitable for sessions with shared queues
- * (AgentSdkSession, CodexSession) but NOT for AcpSession (use MessageReader).
+ * (CodexSession) but NOT for AcpSession (use MessageReader).
  */
 export function collectUnifiedMessages(
   session: BackendSession,
@@ -113,7 +109,7 @@ export function collectUnifiedMessages(
 /**
  * Wait for a specific UnifiedMessage type from a BackendSession's message stream.
  * Creates a new iterator — suitable for sessions with shared queues
- * (AgentSdkSession, CodexSession) but NOT for AcpSession (use MessageReader).
+ * (CodexSession) but NOT for AcpSession (use MessageReader).
  */
 export function waitForUnifiedMessageType(
   session: BackendSession,
@@ -281,88 +277,6 @@ export function sendCodexErrorResponse(
 
 export function sendCodexRequest(ws: MockWebSocket, id: number, method: string, params: unknown) {
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params })));
-}
-
-// ---------------------------------------------------------------------------
-// Agent SDK mock helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Create a query function that yields scripted SDK messages.
- * Each call to the query function consumes the next batch from the script.
- */
-export function createScriptedQueryFn(batches: SDKMessage[][]): {
-  queryFn: (options: {
-    prompt: string | AsyncIterable<SDKUserMessage>;
-    options?: Record<string, unknown>;
-  }) => AsyncIterable<SDKMessage>;
-  calls: Array<{
-    prompt: string | AsyncIterable<SDKUserMessage>;
-    options?: Record<string, unknown>;
-  }>;
-} {
-  let batchIndex = 0;
-  const calls: Array<{
-    prompt: string | AsyncIterable<SDKUserMessage>;
-    options?: Record<string, unknown>;
-  }> = [];
-
-  const queryFn = (options: {
-    prompt: string | AsyncIterable<SDKUserMessage>;
-    options?: Record<string, unknown>;
-  }) => {
-    calls.push(options);
-    const messages = batches[batchIndex++] ?? [];
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        // Consume the prompt to avoid hanging the input stream
-        if (typeof options.prompt !== "string") {
-          const iter = (options.prompt as AsyncIterable<SDKUserMessage>)[Symbol.asyncIterator]();
-          await iter.next();
-        }
-        for (const msg of messages) {
-          yield msg;
-        }
-      },
-    };
-  };
-
-  return { queryFn, calls };
-}
-
-/**
- * Create a query function that calls canUseTool for permission testing.
- */
-export function createPermissionQueryFn(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  onResult: (decision: { behavior: string }) => SDKMessage[],
-): (options: {
-  prompt: string | AsyncIterable<SDKUserMessage>;
-  options?: Record<string, unknown>;
-}) => AsyncIterable<SDKMessage> {
-  return (options) => ({
-    async *[Symbol.asyncIterator]() {
-      // Consume the prompt
-      if (typeof options.prompt !== "string") {
-        const iter = (options.prompt as AsyncIterable<SDKUserMessage>)[Symbol.asyncIterator]();
-        await iter.next();
-      }
-
-      const canUseTool = options.options?.canUseTool as
-        | ((name: string, input: Record<string, unknown>) => Promise<{ behavior: string }>)
-        | undefined;
-
-      if (canUseTool) {
-        const decision = await canUseTool(toolName, toolInput);
-        const messages = onResult(decision);
-        for (const msg of messages) {
-          yield msg;
-        }
-      }
-    },
-  });
 }
 
 // ---------------------------------------------------------------------------

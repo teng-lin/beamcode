@@ -24,11 +24,6 @@
       "import": "./dist/adapters/codex.js",
       "require": "./dist/adapters/codex.cjs"
     },
-    "./adapters/agent-sdk": {
-      "types": "./dist/adapters/agent-sdk.d.ts",
-      "import": "./dist/adapters/agent-sdk.js",
-      "require": "./dist/adapters/agent-sdk.cjs"
-    },
     "./adapters/claude": {
       "types": "./dist/adapters/claude.d.ts",
       "import": "./dist/adapters/claude.js",

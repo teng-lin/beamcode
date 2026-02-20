@@ -7,16 +7,16 @@
 ## 1. Protocol Architecture
 
 ```
-┌──────────────┐   ┌─────────────┐    ┌─────────────┐   ┌──────────┐   ┌─────────┐   ┌───────────┐
-│   Claude     │   │   Codex     │    │  OpenCode   │   │   ACP    │   │ Gemini  │   │ Agent SDK │
-│  (CLI/NDJSON)│   │ (JSON-RPC)  │    │   (SSE)     │   │(JSON-RPC)│   │ (→ACP)  │   │ (in-proc) │
-└──────┬───────┘   └──────┬──────┘    └──────┬──────┘   └────┬─────┘   └────┬────┘   └─────┬─────┘
-       │                  │                  │               │              │              │
-       ▼                  ▼                  ▼               ▼              ▼              ▼
-   message-          codex-message-     opencode-message-  outbound-     (delegates      sdk-message-
-   translator.ts     translator.ts      translator.ts      translator.ts  to ACP)        translator.ts
-       │                  │                  │               │                             │
-       └──────────────────┴──────────────────┴───────────────┴─────────────────────────────┘
+┌──────────────┐   ┌─────────────┐    ┌─────────────┐   ┌──────────┐   ┌─────────┐
+│   Claude     │   │   Codex     │    │  OpenCode   │   │   ACP    │   │ Gemini  │
+│  (CLI/NDJSON)│   │ (JSON-RPC)  │    │   (SSE)     │   │(JSON-RPC)│   │ (→ACP)  │
+└──────┬───────┘   └──────┬──────┘    └──────┬──────┘   └────┬─────┘   └────┬────┘
+       │                  │                  │               │              │
+       ▼                  ▼                  ▼               ▼              ▼
+   message-          codex-message-     opencode-message-  outbound-     (delegates
+   translator.ts     translator.ts      translator.ts      translator.ts  to ACP)
+       │                  │                  │               │
+       └──────────────────┴──────────────────┴───────────────┘
                                              │
                                     ┌────────▼────────┐
                                     │  UnifiedMessage  │  ← 18 types, 5 content types
@@ -220,9 +220,7 @@ Both exist in `UnifiedContent` union but consumer mapper default case converts t
 | 18 | OpenCode adapter | `opencode-message-translator.ts:189` | Tool `pending` state → `null` |
 | 19 | ACP adapter | `outbound-translator.ts:60` | Unknown session updates → `unknown` type |
 | 20 | ACP adapter | `acp-session.ts:246` | `fs/*`, `terminal/*` requests → error stub |
-| 21 | Agent SDK adapter | `sdk-message-translator.ts:148` | Unknown content blocks → empty text |
-| 22 | Agent SDK adapter | `sdk-message-translator.ts:108` | All non-`user_message` types → `null` |
-| 23 | Router | `unified-message-router.ts:118` | `configuration_change` — no case |
+| 21 | Router | `unified-message-router.ts:118` | `configuration_change` — no case |
 | 24 | Router | `unified-message-router.ts:118` | `unknown` — no case |
 | 25 | Consumer mapper | `consumer-message-mapper.ts:46` | `code`/`image` content → empty text |
 
@@ -274,7 +272,6 @@ The consumer types already define `{ type: "thinking"; thinking: string; budget_
 | `src/adapters/claude/message-translator.ts` | `case "thinking"` → produce `ThinkingContent` instead of `{ type: "text", text: block.thinking }` |
 | `src/adapters/opencode/opencode-message-translator.ts` | `"reasoning"` parts → produce `ThinkingContent` in content array (keep `reasoning: true` metadata for compat) |
 | `src/adapters/acp/outbound-translator.ts` | `agent_thought_chunk` → produce `ThinkingContent` in content array (keep `thought: true` metadata for compat) |
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Add `case "thinking"` to content block switch |
 | `src/core/consumer-message-mapper.ts` | Add `case "thinking"` in `mapAssistantMessage` → `{ type: "thinking", thinking: block.thinking, budget_tokens: block.budget_tokens }` |
 
 **Dependency order:** `unified-message.ts` → adapters (parallel) → `consumer-message-mapper.ts`
@@ -326,7 +323,6 @@ Define a canonical `UnifiedErrorMeta` interface. Normalize each adapter's error 
 | `src/adapters/codex/codex-message-translator.ts` | Map `response.failed` → `error_code: "execution_error"` |
 | `src/adapters/codex/codex-session.ts` | Map `codex/event/error` → canonical error codes |
 | `src/adapters/claude/message-translator.ts` | Map 5 `error_*` subtypes → canonical `error_code` values |
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Extract error details from result metadata |
 | `src/core/consumer-message-mapper.ts` | Update `mapResultMessage` to surface `error_code`/`error_message` |
 | `src/types/consumer-messages.ts` | Add optional `error_code`/`error_message` fields to `ResultData` |
 | `shared/consumer-types.ts` | Mirror the same fields |
@@ -346,15 +342,6 @@ aborted | rate_limit | max_turns | max_budget | execution_error | unknown
 | File | Change |
 |------|--------|
 | `src/adapters/codex/codex-session.ts` | Extend loop to handle `function_call` → `tool_progress` and `function_call_output` → `tool_use_summary` |
-
-### 2.3 Expand Agent SDK Coverage
-
-**Files to modify:**
-
-| File | Change |
-|------|--------|
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Add `SDKStreamEvent` type + `case "stream"` in dispatcher. Thinking block handling comes from Tier 1.1. |
-| `src/adapters/agent-sdk/sdk-session.ts` | Wire intermediate events from SDK query stream into `stream_event` messages |
 
 ---
 
