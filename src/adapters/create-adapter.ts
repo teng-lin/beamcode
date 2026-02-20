@@ -7,16 +7,9 @@ import { CodexAdapter } from "./codex/codex-adapter.js";
 import { GeminiAdapter } from "./gemini/gemini-adapter.js";
 import { OpencodeAdapter } from "./opencode/opencode-adapter.js";
 
-export type CliAdapterName = "claude" | "codex" | "acp" | "gemini" | "opencode";
-export type AdapterName = CliAdapterName | "agent-sdk";
-
-export const CLI_ADAPTER_NAMES: readonly CliAdapterName[] = [
-  "claude",
-  "codex",
-  "acp",
-  "gemini",
-  "opencode",
-];
+export type { CliAdapterName, AdapterName } from "../core/interfaces/adapter-names.js";
+export { CLI_ADAPTER_NAMES } from "../core/interfaces/adapter-names.js";
+import type { AdapterName } from "../core/interfaces/adapter-names.js";
 
 export interface CreateAdapterDeps {
   processManager: ProcessManager;

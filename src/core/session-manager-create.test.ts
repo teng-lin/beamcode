@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 
-import type { AdapterResolver } from "../adapters/adapter-resolver.js";
 import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
-import type { CliAdapterName } from "../adapters/create-adapter.js";
+import type { CliAdapterName } from "./interfaces/adapter-names.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
 import { MockBackendAdapter } from "../testing/adapter-test-helpers.js";
@@ -76,7 +76,6 @@ function mockResolver(
   adapters: Record<string, BackendAdapter>,
   defaultName: CliAdapterName = "claude",
 ): AdapterResolver {
-  const claude = adapters.claude ?? new MockBackendAdapter();
   return {
     resolve: vi.fn((name?: CliAdapterName) => {
       const resolved = name ?? defaultName;
@@ -84,7 +83,6 @@ function mockResolver(
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    claudeAdapter: claude as any,
     defaultName,
     availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"],
   };

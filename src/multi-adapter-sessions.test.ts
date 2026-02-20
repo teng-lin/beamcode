@@ -72,11 +72,19 @@ function createLauncher(pm: ProcessManager, storage?: MemoryStorage) {
   });
 }
 
+/** Mock adapter that implements InvertedConnectionAdapter (for Claude). */
+class MockInvertedAdapter extends MockBackendAdapter {
+  override readonly name = "claude";
+  deliverSocket(_sessionId: string, _ws: unknown): boolean {
+    return true;
+  }
+  cancelPending(_sessionId: string): void {}
+}
+
 function mockResolver(
   adapters: Record<string, BackendAdapter>,
   defaultName: CliAdapterName = "claude",
 ): AdapterResolver {
-  const claude = adapters["claude"] ?? new MockBackendAdapter();
   return {
     resolve: vi.fn((name?: CliAdapterName) => {
       const resolved = name ?? defaultName;
@@ -84,7 +92,6 @@ function mockResolver(
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    claudeAdapter: claude as any,
     defaultName,
     availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"],
   };
@@ -100,7 +107,7 @@ describe("multi-adapter session lifecycle", () => {
     const storage = new MemoryStorage();
     const codexAdapter = new MockBackendAdapter();
     const resolver = mockResolver({
-      claude: new MockBackendAdapter(),
+      claude: new MockInvertedAdapter(),
       codex: codexAdapter,
     });
 
@@ -208,13 +215,13 @@ describe("multi-adapter session lifecycle", () => {
     await mgr.stop();
   });
 
-  it("resolver.claudeAdapter is accessible via SessionManager for WS handler", async () => {
+  it("resolver.resolve('claude') returns claude adapter even when default is different", async () => {
     const pm = new TestProcessManager();
     const storage = new MemoryStorage();
     const claudeAdapter = new MockBackendAdapter();
     const resolver = mockResolver(
       { claude: claudeAdapter, codex: new MockBackendAdapter() },
-      "codex", // default is codex, but claude adapter is still accessible
+      "codex", // default is codex, but claude adapter is still resolvable
     );
 
     const mgr = new SessionManager({
@@ -226,8 +233,8 @@ describe("multi-adapter session lifecycle", () => {
     });
     await mgr.start();
 
-    // Even with codex as default, claudeAdapter exists for CLI WS connections
-    expect(resolver.claudeAdapter).toBe(claudeAdapter);
+    // Even with codex as default, resolve("claude") returns the claude adapter
+    expect(resolver.resolve("claude")).toBe(claudeAdapter);
 
     await mgr.stop();
   });

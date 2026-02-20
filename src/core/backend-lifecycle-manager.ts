@@ -6,8 +6,8 @@
  * to this class while retaining the public API surface.
  */
 
-import type { AdapterResolver } from "../adapters/adapter-resolver.js";
-import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
+import { CLI_ADAPTER_NAMES, type CliAdapterName } from "./interfaces/adapter-names.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { MetricsCollector } from "../interfaces/metrics.js";
 import type { CLIMessage } from "../types/cli-messages.js";

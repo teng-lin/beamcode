@@ -1,4 +1,4 @@
-import { noopLogger } from "../adapters/noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import type { Logger } from "../interfaces/logger.js";
 import { updateHeartbeat } from "./state-file.js";
 

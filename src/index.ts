@@ -13,11 +13,11 @@ export { MemoryStorage } from "./adapters/memory-storage.js";
 export { NodeProcessManager } from "./adapters/node-process-manager.js";
 export type { NodeWebSocketServerOptions } from "./adapters/node-ws-server.js";
 export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
-export { NoopLogger, noopLogger } from "./adapters/noop-logger.js";
+export { NoopLogger, noopLogger } from "./utils/noop-logger.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";
-export { CLILauncher } from "./core/cli-launcher.js";
+export { ClaudeLauncher as CLILauncher } from "./adapters/claude/claude-launcher.js";
 export type {
   BackendAdapter,
   BackendCapabilities,

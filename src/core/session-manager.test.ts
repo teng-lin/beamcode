@@ -935,13 +935,11 @@ describe("SessionManager", () => {
       await legacyMgr.stop();
     });
 
-    it("uses adapterResolver.claudeAdapter for CLI WS when no global adapter", async () => {
+    it("uses adapterResolver.resolve() for CLI WS when no global adapter", async () => {
       const resolverAdapter = new MockInvertedAdapter();
       resolverAdapter.deliverSocketResult = true;
-      // Cast to ClaudeAdapter shape for the resolver mock
       const mockResolver = {
         resolve: vi.fn(() => resolverAdapter),
-        claudeAdapter: resolverAdapter,
         defaultName: "codex" as const,
         availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"] as const,
       };
@@ -954,7 +952,6 @@ describe("SessionManager", () => {
         storage,
         logger: noopLogger,
         server,
-        // No global adapter — but adapterResolver provides claudeAdapter
         adapterResolver: mockResolver as any,
         launcher,
       });
@@ -965,7 +962,7 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "resolver-session";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now(), adapterName: "claude" });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -987,7 +984,6 @@ describe("SessionManager", () => {
     it("defaultAdapterName returns resolver default when provided", () => {
       const mockResolver = {
         resolve: vi.fn(),
-        claudeAdapter: {} as any,
         defaultName: "codex" as const,
         availableAdapters: ["claude", "codex", "acp"] as const,
       };

@@ -1,4 +1,4 @@
-import { noopLogger } from "../adapters/noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";

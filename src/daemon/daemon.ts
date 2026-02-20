@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { noopLogger } from "../adapters/noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import type { Logger } from "../interfaces/logger.js";
 import { startHealthCheck } from "./health-check.js";
 import { acquireLock, releaseLock } from "./lock-file.js";

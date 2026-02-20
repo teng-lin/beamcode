@@ -32,7 +32,6 @@ function mockResolver(adapters: Record<string, BackendAdapter>): AdapterResolver
       if (!adapter) throw new Error(`Unknown adapter: ${resolved}`);
       return adapter;
     }),
-    claudeAdapter: claude as any,
     defaultName: "claude" as any,
     availableAdapters: ["claude", "codex", "acp", "gemini", "opencode"] as any,
   };

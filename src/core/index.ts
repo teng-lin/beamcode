@@ -1,7 +1,6 @@
 // Interfaces
 
 // Core modules
-export { CLILauncher } from "./cli-launcher.js";
 export type {
   BackendAdapter,
   BackendCapabilities,

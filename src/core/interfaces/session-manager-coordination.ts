@@ -1,6 +1,5 @@
 import type WebSocket from "ws";
-import type { AdapterResolver } from "../../adapters/adapter-resolver.js";
-import type { CliAdapterName } from "../../adapters/create-adapter.js";
+import type { AdapterResolver } from "./adapter-resolver.js";
 import type { AuthContext } from "../../interfaces/auth.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { WebSocketLike } from "../../interfaces/transport.js";
@@ -13,7 +12,7 @@ export interface BridgeTransportPort {
   handleConsumerOpen(socket: WebSocketLike, context: AuthContext): void;
   handleConsumerMessage(socket: WebSocketLike, sessionId: string, data: string | Buffer): void;
   handleConsumerClose(socket: WebSocketLike, sessionId: string): void;
-  setAdapterName(sessionId: string, name: CliAdapterName): void;
+  setAdapterName(sessionId: string, name: string): void;
   connectBackend(
     sessionId: string,
     options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
-import type { AdapterResolver } from "../adapters/adapter-resolver.js";
-import type { CliAdapterName } from "../adapters/create-adapter.js";
-import { noopLogger } from "../adapters/noop-logger.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
+import type { CliAdapterName } from "./interfaces/adapter-names.js";
+import { noopLogger } from "../utils/noop-logger.js";
+import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -48,6 +49,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly launcher: SessionLauncher;
 
   private adapterResolver: AdapterResolver | null;
+  private _defaultAdapterName: string;
   private config: ResolvedConfig;
   private logger: Logger;
   private transportHub: SessionTransportHub;
@@ -71,12 +73,14 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     launcher: SessionLauncher;
     rateLimiterFactory?: RateLimiterFactory;
     tracer?: MessageTracer;
+    defaultAdapterName?: string;
   }) {
     super();
 
     this.config = resolveConfig(options.config);
     this.logger = options.logger ?? noopLogger;
     this.adapterResolver = options.adapterResolver ?? null;
+    this._defaultAdapterName = options.defaultAdapterName ?? "claude";
 
     this.bridge = new SessionBridge({
       storage: options.storage,
@@ -115,8 +119,8 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     });
   }
 
-  get defaultAdapterName(): CliAdapterName {
-    return this.adapterResolver?.defaultName ?? "claude";
+  get defaultAdapterName(): string {
+    return this.adapterResolver?.defaultName ?? this._defaultAdapterName;
   }
 
   /** Create a new session, routing to the correct adapter. */
@@ -131,10 +135,13 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     state: string;
     createdAt: number;
   }> {
-    const adapterName = options.adapterName ?? this.defaultAdapterName;
+    const adapterName = options.adapterName ?? (this.defaultAdapterName as CliAdapterName);
     const cwd = options.cwd ?? process.cwd();
 
-    if (adapterName === "claude") {
+    // Check if the resolved adapter uses an inverted connection model
+    const adapter = this.adapterResolver?.resolve(adapterName);
+    if (adapter && isInvertedConnectionAdapter(adapter)) {
+      // Inverted connection: launcher spawns process, CLI connects back
       const launchResult = this.launcher.launch({ cwd, model: options.model });
       this.bridge.seedSessionState(launchResult.sessionId, {
         cwd: launchResult.cwd,
@@ -150,7 +157,24 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       };
     }
 
-    // Direct-connection path (Codex, ACP)
+    if (!adapter) {
+      // No resolver configured (legacy mode) — fall back to inverted path via launcher
+      const launchResult = this.launcher.launch({ cwd, model: options.model });
+      this.bridge.seedSessionState(launchResult.sessionId, {
+        cwd: launchResult.cwd,
+        model: options.model,
+      });
+      this.bridge.setAdapterName(launchResult.sessionId, adapterName);
+      return {
+        sessionId: launchResult.sessionId,
+        cwd: launchResult.cwd,
+        adapterName,
+        state: launchResult.state,
+        createdAt: launchResult.createdAt,
+      };
+    }
+
+    // Direct connection: connect via adapter
     const sessionId = randomUUID();
     const createdAt = Date.now();
 
@@ -290,7 +314,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         cwd: info.cwd,
         model: info.model,
       });
-      this.bridge.setAdapterName(sessionId, (info.adapterName ?? "claude") as CliAdapterName);
+      this.bridge.setAdapterName(sessionId, info.adapterName ?? this.defaultAdapterName);
     });
 
     // When the backend reports its session_id, store it for --resume on relaunch
@@ -367,7 +391,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       const info = this.launcher.getSession(sessionId);
       if (!info || info.archived) return;
 
-      // Claude sessions with a PID use the inverted connection model:
+      // Inverted-connection sessions have a PID (launched process connects back):
       // the spawned CLI connects back to us via WebSocket.
       if (info.pid) {
         if (info.state === "starting") {
@@ -375,7 +399,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           return;
         }
         this.relaunchingSet.add(sessionId);
-        this.logger.info(`Auto-relaunching Claude backend for session ${sessionId}`);
+        this.logger.info(`Auto-relaunching backend for session ${sessionId}`);
         try {
           await this.launcher.relaunch(sessionId);
         } finally {
@@ -389,7 +413,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         return;
       }
 
-      // Non-Claude sessions (no PID) — reconnect via bridge
+      // Direct-connection sessions (no PID) — reconnect via bridge
       if (!this.bridge.isBackendConnected(sessionId)) {
         this.relaunchingSet.add(sessionId);
         this.logger.info(
@@ -496,13 +520,14 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       );
     }
 
-    // Mark non-Claude sessions as "exited" so the reconnect watchdog / relaunch
-    // handler will re-establish their backend connection when a consumer connects.
+    // Mark direct-connection sessions (no PID) as "exited" so the reconnect
+    // watchdog / relaunch handler will re-establish their backend connection
+    // when a consumer connects.
     for (const info of this.launcher.listSessions()) {
-      if (!info.pid && !info.archived && info.adapterName && info.adapterName !== "claude") {
+      if (!info.pid && !info.archived && info.adapterName) {
         info.state = "exited";
         this.logger.info(
-          `Restored non-Claude session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
+          `Restored direct-connection session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
         );
       }
     }
