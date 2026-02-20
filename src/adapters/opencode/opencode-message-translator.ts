@@ -90,6 +90,7 @@ export function translateToOpencode(message: UnifiedMessage): OpencodeAction {
     case "interrupt":
       return { type: "abort" };
     case "session_init":
+    case "configuration_change":
       return { type: "noop" };
     default:
       throw new Error(`Unsupported message type for opencode: ${message.type}`);
