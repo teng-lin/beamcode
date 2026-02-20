@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { normalizeInbound } from "../../core/inbound-normalizer.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { InboundMessage } from "../../types/inbound-messages.js";
-import { normalizeInbound, toNDJSON } from "./inbound-translator.js";
+import { toNDJSON } from "./inbound-translator.js";
 
 // ---------------------------------------------------------------------------
 // normalizeInbound

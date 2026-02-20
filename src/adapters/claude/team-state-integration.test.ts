@@ -6,6 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { reduce } from "../../core/session-state-reducer.js";
 import { TeamToolCorrelationBuffer } from "../../core/team-tool-correlation.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import {
@@ -14,7 +15,6 @@ import {
   makeToolUseMessage,
 } from "../../testing/fixtures.js";
 import type { SessionState } from "../../types/session-state.js";
-import { reduce } from "./state-reducer.js";
 
 // ---------------------------------------------------------------------------
 // Tests

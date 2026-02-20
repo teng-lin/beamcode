@@ -1,15 +1,10 @@
 /**
  * Claude Inbound Translator
  *
- * Two responsibilities:
- * 1. normalizeInbound: Re-exported from core (generic InboundMessage → UnifiedMessage)
- * 2. toNDJSON: UnifiedMessage → NDJSON string (Claude-specific wire format)
+ * Converts UnifiedMessage → NDJSON string (Claude-specific wire format).
  */
 
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
-
-// Re-export normalizeInbound from core for backward compatibility
-export { normalizeInbound } from "../../core/inbound-normalizer.js";
 
 // ---------------------------------------------------------------------------
 // UnifiedMessage → NDJSON string (for CLI)

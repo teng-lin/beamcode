@@ -1,8 +1,8 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { reduce } from "../../core/session-state-reducer.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { SessionState } from "../../types/session-state.js";
-import { reduce } from "./state-reducer.js";
 
 function arbSessionState(): fc.Arbitrary<SessionState> {
   return fc.record({
