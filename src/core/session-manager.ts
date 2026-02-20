@@ -1,9 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
-import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
-import type { CliAdapterName } from "./interfaces/adapter-names.js";
-import { noopLogger } from "../utils/noop-logger.js";
-import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type { Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -18,10 +14,14 @@ import type {
 import type { ProviderConfig, ResolvedConfig } from "../types/config.js";
 import { resolveConfig } from "../types/config.js";
 import type { SessionManagerEventMap } from "../types/events.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
 import { IdleSessionReaper } from "./idle-session-reaper.js";
+import type { CliAdapterName } from "./interfaces/adapter-names.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
+import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import type {
   IdleSessionReaper as IIdleSessionReaper,
@@ -138,28 +138,12 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     const adapterName = options.adapterName ?? (this.defaultAdapterName as CliAdapterName);
     const cwd = options.cwd ?? process.cwd();
 
-    // Check if the resolved adapter uses an inverted connection model
+    // Inverted connection (e.g. Claude --sdk-url) or no resolver (legacy mode):
+    // launcher spawns process, CLI connects back via WebSocket.
     const adapter = this.adapterResolver?.resolve(adapterName);
-    if (adapter && isInvertedConnectionAdapter(adapter)) {
-      // Inverted connection: launcher spawns process, CLI connects back
+    if (!adapter || isInvertedConnectionAdapter(adapter)) {
       const launchResult = this.launcher.launch({ cwd, model: options.model });
-      this.bridge.seedSessionState(launchResult.sessionId, {
-        cwd: launchResult.cwd,
-        model: options.model,
-      });
-      this.bridge.setAdapterName(launchResult.sessionId, adapterName);
-      return {
-        sessionId: launchResult.sessionId,
-        cwd: launchResult.cwd,
-        adapterName,
-        state: launchResult.state,
-        createdAt: launchResult.createdAt,
-      };
-    }
-
-    if (!adapter) {
-      // No resolver configured (legacy mode) — fall back to inverted path via launcher
-      const launchResult = this.launcher.launch({ cwd, model: options.model });
+      launchResult.adapterName = adapterName;
       this.bridge.seedSessionState(launchResult.sessionId, {
         cwd: launchResult.cwd,
         model: options.model,
