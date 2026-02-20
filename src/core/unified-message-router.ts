@@ -503,6 +503,13 @@ export class UnifiedMessageRouter {
     a: Extract<ConsumerMessage, { type: "tool_use_summary" }>,
     b: Extract<ConsumerMessage, { type: "tool_use_summary" }>,
   ): boolean {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return (
+      a.summary === b.summary &&
+      a.status === b.status &&
+      a.is_error === b.is_error &&
+      JSON.stringify(a.tool_use_ids) === JSON.stringify(b.tool_use_ids) &&
+      JSON.stringify(a.output) === JSON.stringify(b.output) &&
+      JSON.stringify(a.error) === JSON.stringify(b.error)
+    );
   }
 }
