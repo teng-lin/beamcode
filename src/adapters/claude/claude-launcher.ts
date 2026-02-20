@@ -1,16 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { SessionLauncher } from "../../core/interfaces/session-launcher.js";
+import type { RegisterSessionInput } from "../../core/interfaces/session-registry.js";
 import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js";
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager, SpawnOptions } from "../../interfaces/process-manager.js";
-import { SlidingWindowBreaker } from "../sliding-window-breaker.js";
 import type { LauncherStateStorage } from "../../interfaces/storage.js";
 import type { ProviderConfig, ResolvedConfig } from "../../types/config.js";
 import { resolveConfig } from "../../types/config.js";
 import type { LauncherEventMap } from "../../types/events.js";
-import type { LaunchOptions, SdkSessionInfo } from "../../types/session-state.js";
+import type { LaunchOptions, SessionInfo } from "../../types/session-state.js";
+import { SlidingWindowBreaker } from "../sliding-window-breaker.js";
 
 /**
  * Regex to validate CLI binary names before passing to execFileSync.
@@ -54,7 +55,7 @@ interface InternalSpawnPayload {
  * - Session state tracking (starting/connected/running/exited)
  */
 export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implements SessionLauncher {
-  private sessions = new Map<string, SdkSessionInfo>();
+  private sessions = new Map<string, SessionInfo>();
   /** Track which sessions were launched with --resume (for resume failure detection). */
   private pendingResumes = new Map<string, string>();
   private storage: LauncherStateStorage | null;
@@ -145,7 +146,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
    */
   restoreFromStorage(): number {
     if (!this.storage) return 0;
-    const data = this.storage.loadLauncherState<SdkSessionInfo[]>();
+    const data = this.storage.loadLauncherState<SessionInfo[]>();
     if (!data || !Array.isArray(data)) return 0;
 
     let recovered = 0;
@@ -182,7 +183,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
    * Launch a new Claude Code CLI session.
    * Throws if maxConcurrentSessions would be exceeded.
    */
-  launch(options: LaunchOptions = {}): SdkSessionInfo {
+  launch(options: LaunchOptions = {}): SessionInfo {
     // Enforce max concurrent sessions
     const activeSessions = Array.from(this.sessions.values()).filter((s) => s.state !== "exited");
     if (activeSessions.length >= this.config.maxConcurrentSessions) {
@@ -195,7 +196,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
     const sessionId = randomUUID();
     const cwd = options.cwd || process.cwd();
 
-    const info: SdkSessionInfo = {
+    const info: SessionInfo = {
       sessionId,
       state: "starting",
       model: options.model,
@@ -264,7 +265,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
 
   private spawnCLI(
     sessionId: string,
-    info: SdkSessionInfo,
+    info: SessionInfo,
     options: LaunchOptions & { resumeSessionId?: string },
   ): void {
     let binary = options.claudeBinary || this.config.defaultClaudeBinary;
@@ -388,12 +389,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   }
 
   /** Emit an error event and mark the session as exited due to a spawn failure. */
-  private emitSpawnError(
-    sessionId: string,
-    info: SdkSessionInfo,
-    source: string,
-    error: Error,
-  ): void {
+  private emitSpawnError(sessionId: string, info: SessionInfo, source: string, error: Error): void {
     this.emitError(sessionId, source, error);
     info.state = "exited";
     info.exitCode = -1;
@@ -490,12 +486,12 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   // ---------------------------------------------------------------------------
 
   /** List all sessions (active + recently exited). */
-  listSessions(): SdkSessionInfo[] {
+  listSessions(): SessionInfo[] {
     return Array.from(this.sessions.values());
   }
 
   /** Get a specific session. */
-  getSession(sessionId: string): SdkSessionInfo | undefined {
+  getSession(sessionId: string): SessionInfo | undefined {
     return this.sessions.get(sessionId);
   }
 
@@ -506,7 +502,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   }
 
   /** Get all sessions in "starting" state (awaiting CLI WebSocket connection). */
-  getStartingSessions(): SdkSessionInfo[] {
+  getStartingSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).filter((s) => s.state === "starting");
   }
 
@@ -528,18 +524,9 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
     }
   }
 
-  /**
-   * Register a session created by an external adapter (no process to manage).
-   * Transitional: will be removed when per-backend launchers own their session maps.
-   */
-  registerExternalSession(info: {
-    sessionId: string;
-    cwd: string;
-    createdAt: number;
-    model?: string;
-    adapterName?: string;
-  }): SdkSessionInfo {
-    const entry: SdkSessionInfo = {
+  /** Register a session entry (no process spawned). */
+  register(info: RegisterSessionInput): SessionInfo {
+    const entry: SessionInfo = {
       sessionId: info.sessionId,
       cwd: info.cwd,
       createdAt: info.createdAt,

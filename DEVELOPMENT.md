@@ -746,6 +746,97 @@ Tests are auto-skipped when prerequisites are not met. Detection logic is in `sr
 - PR: `E2E Real CLI Smoke` runs when `ANTHROPIC_API_KEY` secret is configured
 - Nightly: full deterministic + full real CLI (secret-gated)
 
+### Debugging real E2E test failures
+
+Real backend e2e tests spawn actual CLI processes (claude, gemini, codex, opencode) and communicate over WebSockets. When a test fails, the error message alone is rarely enough — you need to see what the backend process did. BeamCode's e2e infrastructure captures a per-manager trace of events, stdout, and stderr that is automatically dumped on test failure.
+
+#### Built-in trace dump (automatic)
+
+Every real e2e test file calls `dumpTraceOnFailure()` in its `afterEach` hook. When a test fails, this prints to stderr:
+
+- **Session state** — launcher state, exit code, PID, consumer count, message history length
+- **Recent events** (last 20) — `process:spawned`, `backend:connected`, `backend:disconnected`, `error`, etc.
+- **Recent stderr** (last 15 lines) — CLI error output, stack traces, auth failures
+- **Recent stdout** (last 10 lines) — CLI startup messages, version info
+
+This output appears in the vitest console automatically — no flags needed.
+
+#### Enabling message-level tracing
+
+For deeper inspection of the message translation pipeline (T1–T4 boundaries), pass `BEAMCODE_TRACE=1` to the test run. This activates the `MessageTracer` inside the `SessionManager`, logging every message crossing a translation boundary as NDJSON.
+
+```bash
+# Run a single backend's e2e tests with full message tracing
+BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=full BEAMCODE_TRACE_ALLOW_SENSITIVE=1 \
+  pnpm test:e2e:real:gemini 2>trace.ndjson
+
+# Then analyze with trace-inspect or manual grep
+pnpm trace:inspect dropped-backend-types trace.ndjson
+```
+
+Trace levels:
+- `smart` (default) — message bodies included, large fields truncated, sensitive keys redacted
+- `headers` — traceId, type, direction, timing, size only (no body)
+- `full` — every message logged as-is (requires `BEAMCODE_TRACE_ALLOW_SENSITIVE=1`)
+
+#### Step-by-step debugging walkthrough
+
+1. **Run the failing test in isolation** with verbose output:
+
+   ```bash
+   pnpm vitest run src/e2e/real/session-manager-gemini.e2e.test.ts \
+     --reporter=verbose 2>&1 | tee test-output.log
+   ```
+
+   Look for the `[gemini-e2e-debug]` (or `[claude-e2e-debug]`, etc.) prefix in the output — that's the trace dump.
+
+2. **Check the trace dump for clues:**
+
+   | Symptom in trace | Likely cause |
+   |-----------------|--------------|
+   | `process:exited code=1` shortly after spawn | Binary not found, auth failure, or bad CLI args |
+   | `backend:disconnected` before any messages | CLI crashed during initialization |
+   | `error source=bridge` | Message translation or routing failure |
+   | stderr shows `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` errors | Missing credentials |
+   | No `backend:connected` event | CLI never connected back to beamcode's WS server |
+   | `capabilities:ready` missing | CLI connected but handshake timed out |
+
+3. **If the trace dump isn't enough**, re-run with message tracing to see what crossed each boundary:
+
+   ```bash
+   BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=smart \
+     pnpm vitest run src/e2e/real/session-manager-gemini.e2e.test.ts 2>trace.ndjson
+
+   # Show translation events with drops
+   grep '"boundary"' trace.ndjson | python3 -c "
+   import sys, json
+   for line in sys.stdin:
+       obj = json.loads(line.strip())
+       diff = obj.get('diff', [])
+       drops = [d for d in diff if d.startswith('-')]
+       if drops:
+           print(f'[{obj[\"boundary\"]}] {obj.get(\"messageType\",\"?\")} DROPPED: {drops}')
+   "
+   ```
+
+4. **For timeout-related failures**, check timing between events:
+
+   ```bash
+   # Extract event timestamps from the trace dump
+   grep 'e2e-debug' test-output.log | grep -E 'process:|backend:|capabilities:'
+   ```
+
+   Large gaps between `process:spawned` and `backend:connected` suggest the CLI is slow to initialize. Adjust `connectTimeoutMs` in the test config if needed.
+
+#### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/e2e/real/helpers.ts` | `attachTrace()`, `dumpTraceOnFailure()`, `getTrace()` |
+| `src/e2e/real/session-manager-setup.ts` | `setupRealSession()` — creates manager with trace attached |
+| `src/e2e/real/prereqs.ts` | Binary/auth detection, auto-skip logic |
+| `src/core/message-tracer.ts` | `MessageTracerImpl` for T1–T4 boundary tracing |
+
 ### Shared test helpers
 
 `src/e2e/helpers/test-utils.ts`:

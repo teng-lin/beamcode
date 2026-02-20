@@ -3,7 +3,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { SessionManager } from "../core/session-manager.js";
-import type { SdkSessionInfo } from "../types/session-state.js";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
@@ -40,40 +39,6 @@ function json(res: ServerResponse, status: number, data: unknown): void {
   res.end(body);
 }
 
-function toSyntheticSessionInfo(
-  snapshot: ReturnType<SessionManager["bridge"]["getSession"]>,
-): SdkSessionInfo | null {
-  if (!snapshot) return null;
-  return {
-    sessionId: snapshot.id,
-    state: snapshot.cliConnected ? "connected" : "starting",
-    cwd: snapshot.state.cwd || process.cwd(),
-    model: snapshot.state.model || undefined,
-    permissionMode: snapshot.state.permissionMode || undefined,
-    backendSessionId: snapshot.state.session_id || undefined,
-    createdAt: snapshot.lastActivity || Date.now(),
-  };
-}
-
-function listAllSessionInfos(sessionManager: SessionManager): SdkSessionInfo[] {
-  const launcherSessions = sessionManager.launcher.listSessions();
-  const byId = new Map<string, SdkSessionInfo>();
-  for (const session of launcherSessions) {
-    byId.set(session.sessionId, session);
-  }
-
-  for (const state of sessionManager.bridge.getAllSessions()) {
-    const sessionId = state.session_id;
-    if (!sessionId || byId.has(sessionId)) continue;
-    const synthetic = toSyntheticSessionInfo(sessionManager.bridge.getSession(sessionId));
-    if (synthetic) {
-      byId.set(sessionId, synthetic);
-    }
-  }
-
-  return Array.from(byId.values());
-}
-
 export function handleApiSessions(
   req: IncomingMessage,
   res: ServerResponse,
@@ -85,7 +50,7 @@ export function handleApiSessions(
 
   // GET /api/sessions — list all sessions
   if (segments.length === 2 && method === "GET") {
-    const sessions = listAllSessionInfos(sessionManager);
+    const sessions = sessionManager.registry.listSessions();
     json(res, 200, sessions);
     return;
   }
@@ -150,9 +115,7 @@ export function handleApiSessions(
 
   // GET /api/sessions/:id — get session info
   if (method === "GET") {
-    const session =
-      sessionManager.launcher.getSession(sessionId) ??
-      toSyntheticSessionInfo(sessionManager.bridge.getSession(sessionId));
+    const session = sessionManager.registry.getSession(sessionId);
     if (!session) {
       json(res, 404, { error: "Session not found" });
       return;
@@ -182,12 +145,12 @@ export function handleApiSessions(
   // PUT /api/sessions/:id/unarchive — unarchive a session
   const action = segments[3];
   if (method === "PUT" && (action === "archive" || action === "unarchive")) {
-    const session = sessionManager.launcher.getSession(sessionId);
+    const session = sessionManager.registry.getSession(sessionId);
     if (!session) {
       json(res, 404, { error: "Session not found" });
       return;
     }
-    sessionManager.launcher.setArchived(sessionId, action === "archive");
+    sessionManager.registry.setArchived(sessionId, action === "archive");
     json(res, 200, { ...session, archived: action === "archive" });
     return;
   }
@@ -211,13 +174,13 @@ export function handleApiSessions(
 
         const name = parsed.name.trim().slice(0, 100);
 
-        const session = sessionManager.launcher.getSession(sessionId);
+        const session = sessionManager.registry.getSession(sessionId);
         if (!session) {
           json(res, 404, { error: "Session not found" });
           return;
         }
 
-        sessionManager.launcher.setSessionName(sessionId, name);
+        sessionManager.registry.setSessionName(sessionId, name);
         sessionManager.bridge.broadcastNameUpdate(sessionId, name);
         json(res, 200, { ...session, name });
       })

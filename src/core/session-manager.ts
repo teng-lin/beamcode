@@ -27,6 +27,7 @@ import type {
   IdleSessionReaper as IIdleSessionReaper,
   ReconnectController as IReconnectController,
 } from "./interfaces/session-manager-coordination.js";
+import type { SessionRegistry } from "./interfaces/session-registry.js";
 import type { MessageTracer } from "./message-tracer.js";
 import { ReconnectController } from "./reconnect-controller.js";
 import { SessionBridge } from "./session-bridge.js";
@@ -38,15 +39,16 @@ import { TypedEventEmitter } from "./typed-emitter.js";
  * Replaces the manual wiring in the Vibe Companion's index.ts:34-68.
  *
  * Auto-wires:
- * - backend:session_id → launcher.setBackendSessionId
+ * - backend:session_id → registry.setBackendSessionId
  * - backend:relaunch_needed → launcher.relaunch (with dedup — A5)
- * - backend:connected → launcher.markConnected
+ * - backend:connected → registry.markConnected
  * - Reconnection watchdog (I4)
  * - Restore order: launcher before bridge (I6)
  */
 export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   readonly bridge: SessionBridge;
   readonly launcher: SessionLauncher;
+  readonly registry: SessionRegistry;
 
   private adapterResolver: AdapterResolver | null;
   private _defaultAdapterName: string;
@@ -71,6 +73,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     adapter?: BackendAdapter;
     adapterResolver?: AdapterResolver;
     launcher: SessionLauncher;
+    registry?: SessionRegistry;
     rateLimiterFactory?: RateLimiterFactory;
     tracer?: MessageTracer;
     defaultAdapterName?: string;
@@ -96,6 +99,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     });
 
     this.launcher = options.launcher;
+    this.registry = options.registry ?? options.launcher;
     this.transportHub = new SessionTransportHub({
       bridge: this.bridge,
       launcher: this.launcher,
@@ -162,7 +166,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     const sessionId = randomUUID();
     const createdAt = Date.now();
 
-    this.launcher.registerExternalSession({
+    this.registry.register({
       sessionId,
       cwd,
       createdAt,
@@ -177,9 +181,9 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       await this.bridge.connectBackend(sessionId, {
         adapterOptions: { cwd },
       });
-      this.launcher.markConnected(sessionId);
+      this.registry.markConnected(sessionId);
     } catch (err) {
-      this.launcher.removeSession(sessionId);
+      this.registry.removeSession(sessionId);
       void this.bridge.closeSession(sessionId);
       throw err;
     }
@@ -240,10 +244,10 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   /**
    * Fully delete a session: kill CLI process, clean up dedup state,
-   * close WS connections + remove persisted JSON, remove from launcher map.
+   * close WS connections + remove persisted JSON, remove from registry.
    */
   async deleteSession(sessionId: string): Promise<boolean> {
-    const info = this.launcher.getSession(sessionId);
+    const info = this.registry.getSession(sessionId);
     if (!info) return false;
 
     // Kill process if one exists (Claude sessions have PIDs, external sessions don't)
@@ -262,8 +266,8 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     // Close WS connections and remove per-session JSON from storage
     await this.bridge.closeSession(sessionId);
 
-    // Remove from launcher's in-memory map and re-persist launcher.json
-    this.launcher.removeSession(sessionId);
+    // Remove from registry's in-memory map and re-persist
+    this.registry.removeSession(sessionId);
 
     return true;
   }
@@ -292,7 +296,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     // Keep bridge session state in sync for legacy launcher.launch() callers.
     // SessionManager.createSession already seeds bridge state directly.
     this.trackListener(this.launcher, "process:spawned", ({ sessionId }) => {
-      const info = this.launcher.getSession(sessionId);
+      const info = this.registry.getSession(sessionId);
       if (!info) return;
       this.bridge.seedSessionState(sessionId, {
         cwd: info.cwd,
@@ -303,12 +307,12 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
     // When the backend reports its session_id, store it for --resume on relaunch
     this.trackListener(this.bridge, "backend:session_id", ({ sessionId, backendSessionId }) => {
-      this.launcher.setBackendSessionId(sessionId, backendSessionId);
+      this.registry.setBackendSessionId(sessionId, backendSessionId);
     });
 
-    // When backend connects, mark it in the launcher
+    // When backend connects, mark it in the registry
     this.trackListener(this.bridge, "backend:connected", ({ sessionId }) => {
-      this.launcher.markConnected(sessionId);
+      this.registry.markConnected(sessionId);
     });
 
     // ── Resume failure → broadcast to consumers (Step 3) ──
@@ -349,7 +353,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       this.bridge,
       "session:first_turn_completed",
       ({ sessionId, firstUserMessage }) => {
-        const session = this.launcher.getSession(sessionId);
+        const session = this.registry.getSession(sessionId);
         if (session?.name) return; // Already named
 
         // Derive name: first line, truncated, redacted
@@ -359,7 +363,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
         if (!name) return;
 
         this.bridge.broadcastNameUpdate(sessionId, name);
-        this.launcher.setSessionName(sessionId, name);
+        this.registry.setSessionName(sessionId, name);
       },
     );
 
@@ -372,7 +376,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     this.trackListener(this.bridge, "backend:relaunch_needed", async ({ sessionId }) => {
       if (this.relaunchingSet.has(sessionId)) return;
 
-      const info = this.launcher.getSession(sessionId);
+      const info = this.registry.getSession(sessionId);
       if (!info || info.archived) return;
 
       // Inverted-connection sessions have a PID (launched process connects back):
@@ -407,7 +411,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
           await this.bridge.connectBackend(sessionId, {
             adapterOptions: { cwd: info.cwd },
           });
-          this.launcher.markConnected(sessionId);
+          this.registry.markConnected(sessionId);
         } catch (err) {
           this.logger.error(`Failed to reconnect backend for session ${sessionId}: ${err}`);
         } finally {
@@ -496,18 +500,26 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
   private restoreFromStorage(): void {
     // Launcher must restore BEFORE bridge (I6)
     const launcherCount = this.launcher.restoreFromStorage();
+
+    // If registry is separate from launcher, restore it too
+    let registryCount = 0;
+    if (this.registry !== this.launcher) {
+      registryCount = this.registry.restoreFromStorage?.() ?? 0;
+    }
+
     const bridgeCount = this.bridge.restoreFromStorage();
 
-    if (launcherCount > 0 || bridgeCount > 0) {
+    const totalRestored = launcherCount + registryCount + bridgeCount;
+    if (totalRestored > 0) {
       this.logger.info(
-        `Restored ${launcherCount} launcher session(s) and ${bridgeCount} bridge session(s) from storage`,
+        `Restored ${launcherCount} launcher, ${registryCount} registry, and ${bridgeCount} bridge session(s) from storage`,
       );
     }
 
     // Mark direct-connection sessions (no PID) as "exited" so the reconnect
     // watchdog / relaunch handler will re-establish their backend connection
     // when a consumer connects.
-    for (const info of this.launcher.listSessions()) {
+    for (const info of this.registry.listSessions()) {
       if (!info.pid && !info.archived && info.adapterName) {
         info.state = "exited";
         this.logger.info(

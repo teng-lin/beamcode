@@ -1,7 +1,10 @@
 // Core interfaces
 
 export type { ClaudeLauncherOptions } from "./adapters/claude/claude-launcher.js";
-export { ClaudeLauncher } from "./adapters/claude/claude-launcher.js";
+export {
+  ClaudeLauncher,
+  ClaudeLauncher as CLILauncher,
+} from "./adapters/claude/claude-launcher.js";
 // Adapters
 export { CompositeMetricsCollector } from "./adapters/composite-metrics-collector.js";
 export { ConsoleLogger } from "./adapters/console-logger.js";
@@ -13,11 +16,9 @@ export { MemoryStorage } from "./adapters/memory-storage.js";
 export { NodeProcessManager } from "./adapters/node-process-manager.js";
 export type { NodeWebSocketServerOptions } from "./adapters/node-ws-server.js";
 export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
-export { NoopLogger, noopLogger } from "./utils/noop-logger.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";
-export { ClaudeLauncher as CLILauncher } from "./adapters/claude/claude-launcher.js";
 export type {
   BackendAdapter,
   BackendCapabilities,
@@ -33,10 +34,12 @@ export type {
   Reconnectable,
   TeamObserver,
 } from "./core/interfaces/extensions.js";
+export type { RegisterSessionInput, SessionRegistry } from "./core/interfaces/session-registry.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
 export { SessionBridge } from "./core/session-bridge.js";
 export { SessionManager } from "./core/session-manager.js";
+export { SimpleSessionRegistry } from "./core/simple-session-registry.js";
 export type { SlashCommandResult } from "./core/slash-command-executor.js";
 export { SlashCommandExecutor } from "./core/slash-command-executor.js";
 export { TypedEventEmitter } from "./core/typed-emitter.js";
@@ -183,11 +186,12 @@ export type {
   InitializeCapabilities,
   LaunchOptions,
   PersistedSession,
-  SdkSessionInfo,
+  SessionInfo,
   SessionSnapshot,
   SessionState,
 } from "./types/session-state.js";
 export { stripAnsi } from "./utils/ansi-strip.js";
 export { NDJSONLineBuffer, parseNDJSON, serializeNDJSON } from "./utils/ndjson.js";
+export { NoopLogger, noopLogger } from "./utils/noop-logger.js";
 // Utilities
 export { RingBuffer } from "./utils/ring-buffer.js";

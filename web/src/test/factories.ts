@@ -7,7 +7,7 @@ import type {
   ConsumerTeamState,
   ConsumerTeamTask,
 } from "../../../shared/consumer-types";
-import type { SdkSessionInfo } from "../store";
+import type { SessionInfo } from "../store";
 import { useStore } from "../store";
 
 // ── Store helpers ────────────────────────────────────────────────────────────
@@ -50,8 +50,8 @@ export function makePermission(
 }
 
 export function makeSessionInfo(
-  overrides: Partial<SdkSessionInfo> & { sessionId: string },
-): SdkSessionInfo {
+  overrides: Partial<SessionInfo> & { sessionId: string },
+): SessionInfo {
   return { cwd: "/tmp", state: "connected", createdAt: Date.now(), ...overrides };
 }
 

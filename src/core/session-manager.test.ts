@@ -846,7 +846,7 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "adapter-session-1";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+      launcher.register({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -893,7 +893,7 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "fallback-session";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
+      launcher.register({ sessionId, cwd: process.cwd(), createdAt: Date.now() });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -962,7 +962,12 @@ describe("SessionManager", () => {
 
       // Pre-register the session in "starting" state so the CLI handler's validation passes
       const sessionId = "resolver-session";
-      launcher.registerExternalSession({ sessionId, cwd: process.cwd(), createdAt: Date.now(), adapterName: "claude" });
+      launcher.register({
+        sessionId,
+        cwd: process.cwd(),
+        createdAt: Date.now(),
+        adapterName: "claude",
+      });
 
       const { socket } = createMockSocket();
       onCLI!(socket as any, sessionId);
@@ -1193,7 +1198,7 @@ describe("SessionManager", () => {
 
       try {
         // Register an external session (no PID — simulates Codex/ACP)
-        nonClaudeMgr.launcher.registerExternalSession({
+        nonClaudeMgr.launcher.register({
           sessionId: "ext-sess",
           cwd: "/tmp",
           createdAt: Date.now(),
@@ -1308,6 +1313,184 @@ describe("SessionManager", () => {
         expect(sess?.state).toBe("exited");
       } finally {
         testMgr.stop();
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // restoreFromStorage: dual-registry path (registry !== launcher)
+  // -----------------------------------------------------------------------
+
+  describe("restoreFromStorage: dual-registry path", () => {
+    it("restores from both launcher and separate registry", async () => {
+      const { SimpleSessionRegistry } = await import("./simple-session-registry.js");
+
+      const launcherStorage = new MemoryStorage();
+      const registryStorage = new MemoryStorage();
+
+      // Save a direct-connection session in registry storage
+      registryStorage.saveLauncherState([
+        {
+          sessionId: "acp-sess",
+          state: "connected",
+          cwd: "/tmp",
+          adapterName: "acp",
+          createdAt: 1000,
+        },
+      ]);
+
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const registry = new SimpleSessionRegistry(registryStorage);
+
+      const testMgr = new SessionManager({
+        config: { port: 3456 },
+        storage: launcherStorage,
+        logger,
+        launcher: createLauncher(pm, { storage: launcherStorage, logger }),
+        registry,
+      });
+
+      testMgr.start();
+
+      try {
+        // Registry should have restored the session
+        const sess = registry.getSession("acp-sess");
+        expect(sess).toBeDefined();
+        // Direct-connection session (no PID) should be marked "exited" for reconnect
+        expect(sess?.state).toBe("exited");
+
+        // Logger should mention registry restoration
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("1 registry"));
+      } finally {
+        await testMgr.stop();
+      }
+    });
+
+    it("skips registry restore when registry === launcher", async () => {
+      const testStorage = new MemoryStorage();
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const launcher = createLauncher(pm, { storage: testStorage, logger });
+
+      const testMgr = new SessionManager({
+        config: { port: 3456 },
+        storage: testStorage,
+        logger,
+        launcher,
+        // No separate registry — defaults to launcher
+      });
+
+      testMgr.start();
+
+      try {
+        // With no sessions to restore, logger.info should not be called
+        // with registry count (no "registry" in log when nothing restored)
+        const infoCalls = logger.info.mock.calls.map((c: unknown[]) => c[0]);
+        const restoreLog = infoCalls.find(
+          (msg: string) => typeof msg === "string" && msg.includes("registry"),
+        );
+        expect(restoreLog).toBeUndefined();
+      } finally {
+        await testMgr.stop();
+      }
+    });
+
+    it("marks direct-connection sessions from registry as exited", async () => {
+      const { SimpleSessionRegistry } = await import("./simple-session-registry.js");
+
+      const registryStorage = new MemoryStorage();
+
+      // Save sessions with different characteristics
+      registryStorage.saveLauncherState([
+        {
+          sessionId: "direct-sess",
+          state: "connected",
+          cwd: "/tmp",
+          adapterName: "gemini",
+          createdAt: 1000,
+        },
+        {
+          sessionId: "archived-sess",
+          state: "connected",
+          cwd: "/tmp",
+          adapterName: "acp",
+          archived: true,
+          createdAt: 2000,
+        },
+        {
+          sessionId: "no-adapter-sess",
+          state: "connected",
+          cwd: "/tmp",
+          createdAt: 3000,
+        },
+      ]);
+
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const registry = new SimpleSessionRegistry(registryStorage);
+
+      const testMgr = new SessionManager({
+        config: { port: 3456 },
+        storage: new MemoryStorage(),
+        logger,
+        launcher: createLauncher(pm, { storage: new MemoryStorage(), logger }),
+        registry,
+      });
+
+      testMgr.start();
+
+      try {
+        // Direct-connection with adapter: should be marked "exited"
+        expect(registry.getSession("direct-sess")?.state).toBe("exited");
+
+        // Archived session: should NOT be marked "exited"
+        expect(registry.getSession("archived-sess")?.state).toBe("connected");
+
+        // No adapter name: should NOT be marked "exited"
+        expect(registry.getSession("no-adapter-sess")?.state).toBe("connected");
+      } finally {
+        await testMgr.stop();
+      }
+    });
+
+    it("registry.deleteSession removes from registry, not launcher", async () => {
+      const { SimpleSessionRegistry } = await import("./simple-session-registry.js");
+
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const registry = new SimpleSessionRegistry();
+
+      const launcher = createLauncher(pm, { storage: new MemoryStorage(), logger });
+
+      const testMgr = new SessionManager({
+        config: { port: 3456 },
+        storage: new MemoryStorage(),
+        logger,
+        launcher,
+        registry,
+      });
+
+      // Register a session directly in the registry (simulates forward-connection adapter)
+      registry.register({
+        sessionId: "forward-sess",
+        cwd: "/tmp",
+        createdAt: Date.now(),
+        adapterName: "acp",
+      });
+
+      testMgr.start();
+
+      try {
+        // Session exists in registry
+        expect(registry.getSession("forward-sess")).toBeDefined();
+        // Session does NOT exist in launcher
+        expect(launcher.getSession("forward-sess")).toBeUndefined();
+
+        // Delete via session manager
+        const deleted = await testMgr.deleteSession("forward-sess");
+        expect(deleted).toBe(true);
+
+        // Session removed from registry
+        expect(registry.getSession("forward-sess")).toBeUndefined();
+      } finally {
+        await testMgr.stop();
       }
     });
   });

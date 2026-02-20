@@ -1,12 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SdkSessionInfo } from "./store";
+import type { SessionInfo } from "./store";
 import { makeSessionInfo, resetStore, store } from "./test/factories";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-const listSessionsMock = vi.fn<() => Promise<SdkSessionInfo[]>>(() => Promise.resolve([]));
+const listSessionsMock = vi.fn<() => Promise<SessionInfo[]>>(() => Promise.resolve([]));
 vi.mock("./api", () => ({ listSessions: () => listSessionsMock() }));
 
 const connectToSessionMock = vi.fn();
