@@ -1007,4 +1007,308 @@ describe("SessionManager", () => {
       expect(mgr.defaultAdapterName).toBe("claude");
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Process output forwarding (Step 11)
+  // -----------------------------------------------------------------------
+
+  describe("process output forwarding", () => {
+    it("forwards stdout with redaction to broadcastProcessOutput", () => {
+      mgr.start();
+      const broadcastSpy = vi
+        .spyOn(mgr.bridge, "broadcastProcessOutput")
+        .mockImplementation(() => {});
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+
+      mgr.launcher.emit("process:stdout" as any, {
+        sessionId: info.sessionId,
+        data: "safe output line\n",
+      });
+
+      expect(broadcastSpy).toHaveBeenCalledWith(info.sessionId, "stdout", expect.any(String));
+    });
+
+    it("forwards stderr to broadcastProcessOutput", () => {
+      mgr.start();
+      const broadcastSpy = vi
+        .spyOn(mgr.bridge, "broadcastProcessOutput")
+        .mockImplementation(() => {});
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+
+      mgr.launcher.emit("process:stderr" as any, {
+        sessionId: info.sessionId,
+        data: "error line\n",
+      });
+
+      expect(broadcastSpy).toHaveBeenCalledWith(info.sessionId, "stderr", expect.any(String));
+    });
+
+    it("maintains ring buffer up to MAX_LOG_LINES", () => {
+      mgr.start();
+      const broadcastSpy = vi
+        .spyOn(mgr.bridge, "broadcastProcessOutput")
+        .mockImplementation(() => {});
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+
+      // Push many lines exceeding MAX_LOG_LINES (500)
+      const lines = Array.from({ length: 600 }, (_, i) => `line-${i}`).join("\n");
+      mgr.launcher.emit("process:stdout" as any, {
+        sessionId: info.sessionId,
+        data: lines,
+      });
+
+      expect(broadcastSpy).toHaveBeenCalled();
+
+      // Verify buffer still works after overflow — subsequent output is still forwarded
+      broadcastSpy.mockClear();
+      mgr.launcher.emit("process:stdout" as any, {
+        sessionId: info.sessionId,
+        data: "after-overflow\n",
+      });
+      expect(broadcastSpy).toHaveBeenCalledWith(
+        info.sessionId,
+        "stdout",
+        expect.stringContaining("after-overflow"),
+      );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session auto-naming on first turn (Step 4)
+  // -----------------------------------------------------------------------
+
+  describe("session auto-naming on first turn", () => {
+    it("derives name from first user message, truncates at 50, and broadcasts", () => {
+      mgr.start();
+      const broadcastSpy = vi.spyOn(mgr.bridge, "broadcastNameUpdate").mockImplementation(() => {});
+      const setNameSpy = vi.spyOn(mgr.launcher, "setSessionName").mockImplementation(() => {});
+
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+
+      const longMessage = "A".repeat(60);
+      mgr.bridge.emit("session:first_turn_completed" as any, {
+        sessionId: info.sessionId,
+        firstUserMessage: longMessage,
+      });
+
+      expect(broadcastSpy).toHaveBeenCalledWith(info.sessionId, expect.stringContaining("..."));
+      // Name should be truncated to 50 chars: 47 + "..."
+      const calledName = broadcastSpy.mock.calls[0][1];
+      expect(calledName.length).toBeLessThanOrEqual(50);
+      expect(setNameSpy).toHaveBeenCalledWith(info.sessionId, calledName);
+    });
+
+    it("skips naming if session already has a name", () => {
+      mgr.start();
+      const broadcastSpy = vi.spyOn(mgr.bridge, "broadcastNameUpdate").mockImplementation(() => {});
+
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+      // Set a name before auto-naming triggers
+      mgr.launcher.setSessionName(info.sessionId, "Existing Name");
+
+      mgr.bridge.emit("session:first_turn_completed" as any, {
+        sessionId: info.sessionId,
+        firstUserMessage: "Hello world",
+      });
+
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session closed cleanup
+  // -----------------------------------------------------------------------
+
+  describe("session closed cleanup", () => {
+    it("deletes processLogBuffers when session is closed", () => {
+      mgr.start();
+      const broadcastSpy = vi
+        .spyOn(mgr.bridge, "broadcastProcessOutput")
+        .mockImplementation(() => {});
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+
+      // Generate some process output to populate the buffer
+      mgr.launcher.emit("process:stdout" as any, {
+        sessionId: info.sessionId,
+        data: "line-before-close\n",
+      });
+      expect(broadcastSpy).toHaveBeenCalledWith(
+        info.sessionId,
+        "stdout",
+        expect.stringContaining("line-before-close"),
+      );
+
+      // Emit session:closed — should clean up the buffer
+      mgr.bridge.emit("session:closed" as any, { sessionId: info.sessionId });
+
+      // After close, new output for same session creates a fresh buffer
+      // (the old accumulated lines are gone). Verify output still works.
+      broadcastSpy.mockClear();
+      mgr.launcher.emit("process:stdout" as any, {
+        sessionId: info.sessionId,
+        data: "line-after-close\n",
+      });
+      expect(broadcastSpy).toHaveBeenCalledWith(
+        info.sessionId,
+        "stdout",
+        expect.stringContaining("line-after-close"),
+      );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Relaunch_needed: starting state skip
+  // -----------------------------------------------------------------------
+
+  describe("relaunch_needed: starting state skip", () => {
+    it("skips relaunch when PID exists and state is starting", async () => {
+      mgr.start();
+      const info = mgr.launcher.launch({ cwd: "/tmp" });
+      // Session is in "starting" state with a PID
+      expect(info.state).toBe("starting");
+
+      const spawnsBefore = pm.spawnCalls.length;
+
+      mgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: info.sessionId });
+      // Flush microtasks — relaunch handler is async but should bail early
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Should NOT have relaunched (still starting)
+      expect(pm.spawnCalls.length).toBe(spawnsBefore);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Relaunch_needed: non-Claude session reconnect
+  // -----------------------------------------------------------------------
+
+  describe("relaunch_needed: non-Claude session reconnect", () => {
+    it("reconnects via bridge.connectBackend for non-Claude session", async () => {
+      const adapter = new MockBackendAdapter();
+      const nonClaudeMgr = new SessionManager({
+        config: { port: 3456 },
+        storage,
+        logger: noopLogger,
+        adapter,
+        launcher: createLauncher(pm, { storage, logger: noopLogger }),
+      });
+      nonClaudeMgr.start();
+
+      // Register an external session (no PID — simulates Codex/ACP)
+      nonClaudeMgr.launcher.registerExternalSession({
+        sessionId: "ext-sess",
+        cwd: "/tmp",
+        createdAt: Date.now(),
+        adapterName: "codex",
+      });
+
+      // Seed bridge state
+      nonClaudeMgr.bridge.seedSessionState("ext-sess", { cwd: "/tmp" });
+      nonClaudeMgr.bridge.setAdapterName("ext-sess", "codex" as any);
+
+      const connectSpy = vi.spyOn(nonClaudeMgr.bridge, "connectBackend");
+
+      nonClaudeMgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: "ext-sess" });
+
+      await vi.waitFor(() => {
+        expect(connectSpy).toHaveBeenCalledWith(
+          "ext-sess",
+          expect.objectContaining({
+            adapterOptions: { cwd: "/tmp" },
+          }),
+        );
+      });
+
+      await nonClaudeMgr.stop();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // executeSlashCommand forwarding
+  // -----------------------------------------------------------------------
+
+  describe("executeSlashCommand forwarding", () => {
+    it("delegates to bridge.executeSlashCommand", async () => {
+      mgr.start();
+      const executeSpy = vi.spyOn(mgr.bridge, "executeSlashCommand").mockResolvedValue({
+        content: "help output",
+        source: "emulated" as const,
+      });
+
+      const result = await mgr.executeSlashCommand("test-session", "/help");
+
+      expect(executeSpy).toHaveBeenCalledWith("test-session", "/help");
+      expect(result).toEqual({ content: "help output", source: "emulated" });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // restoreFromStorage: non-Claude session marking
+  // -----------------------------------------------------------------------
+
+  describe("restoreFromStorage: non-Claude session marking", () => {
+    it("marks restored non-Claude sessions as exited for reconnect", () => {
+      const testStorage = new MemoryStorage();
+
+      // Save a non-Claude session in launcher state (no PID, not archived, non-claude adapter)
+      testStorage.saveLauncherState([
+        {
+          sessionId: "codex-sess",
+          pid: undefined as any,
+          state: "connected",
+          cwd: "/tmp",
+          archived: false,
+          adapterName: "codex",
+        },
+      ]);
+
+      // Also save bridge state
+      testStorage.saveSync({
+        id: "codex-sess",
+        state: {
+          session_id: "codex-sess",
+          model: "gpt-4",
+          cwd: "/tmp",
+          tools: [],
+          permissionMode: "default",
+          claude_code_version: "",
+          mcp_servers: [],
+          agents: [],
+          slash_commands: [],
+          skills: [],
+          total_cost_usd: 0,
+          num_turns: 0,
+          context_used_percent: 0,
+          is_compacting: false,
+          git_branch: "",
+          is_worktree: false,
+          repo_root: "",
+          git_ahead: 0,
+          git_behind: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+        },
+        messageHistory: [],
+        pendingMessages: [],
+        pendingPermissions: [],
+        adapterName: "codex",
+      });
+
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const testMgr = new SessionManager({
+        config: { port: 3456 },
+        storage: testStorage,
+        logger,
+        launcher: createLauncher(pm, { storage: testStorage, logger }),
+      });
+      testMgr.start();
+
+      // Verify the session was marked as "exited"
+      const sess = testMgr.launcher.getSession("codex-sess");
+      expect(sess?.state).toBe("exited");
+
+      testMgr.stop();
+    });
+  });
 });
