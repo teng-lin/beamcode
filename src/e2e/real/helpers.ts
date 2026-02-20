@@ -364,6 +364,16 @@ export function dumpTraceOnFailure(
     `[${prefix}] failed test: ${context.task?.name ?? "unknown"} managers=${managers.length}`,
   );
   for (const manager of managers) {
+    // Dump session state for each active session
+    for (const info of manager.launcher.listSessions()) {
+      const connected = manager.bridge.isBackendConnected(info.sessionId);
+      console.error(
+        `[${prefix}] session=${info.sessionId} backendConnected=${connected} ` +
+          `launcherState=${info.state} exitCode=${info.exitCode ?? "n/a"} ` +
+          `pid=${info.pid ?? "n/a"}`,
+      );
+    }
+
     const trace = getTrace(manager);
     if (!trace) continue;
     const recentEvents = trace.events.slice(-20);
