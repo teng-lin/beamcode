@@ -84,6 +84,7 @@ export interface ResultData {
   total_lines_removed?: number;
   error_code?: string;
   error_message?: string;
+  error_data?: Record<string, unknown>;
 }
 
 /** Permission request surfaced to consumers (adapter-agnostic). */
@@ -165,6 +166,7 @@ export type ConsumerMessage =
       isAuthenticating: boolean;
       output: string[];
       error?: string;
+      validationLink?: string;
     }
   | { type: "error"; message: string }
   | { type: "cli_disconnected" }

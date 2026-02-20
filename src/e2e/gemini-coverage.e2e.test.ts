@@ -70,8 +70,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
           const sid = params.sessionId ?? "unknown";
           sendNotification(stdout, "session/update", {
             sessionId: sid,
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: `Reply to ${sid}` },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: `Reply to ${sid}` },
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: sid,
@@ -132,7 +134,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     const { target: resultMsg } = await reader.waitFor("result");
     expect(resultMsg.metadata.stopReason).toBe("error");
-    expect(resultMsg.metadata.error).toContain("Internal Gemini error");
+    expect(resultMsg.metadata.error_message).toContain("Internal Gemini error");
   });
 
   // -------------------------------------------------------------------------
@@ -243,7 +245,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("dangerous command"));
     const { target: permReq } = await reader.waitFor("permission_request");
-    expect(permReq.metadata.toolCall).toBeDefined();
+    expect(permReq.metadata.tool_use_id).toBe("tc-deny");
 
     session.send(createPermissionResponse("deny", permReq.id, { optionId: "reject-once" }));
 
@@ -309,13 +311,17 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "thought-sess",
-            sessionUpdate: "agent_thought_chunk",
-            content: { type: "text", text: "Thinking about this..." },
+            update: {
+              sessionUpdate: "agent_thought_chunk",
+              content: { type: "text", text: "Thinking about this..." },
+            },
           });
           sendNotification(stdout, "session/update", {
             sessionId: "thought-sess",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Here's my answer" },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Here's my answer" },
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "thought-sess",
@@ -332,7 +338,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("think about this"));
 
-    const msgs = await reader.collect(3);
+    const msgs = await reader.collect(4);
     // First: thought chunk
     expect(msgs[0].type).toBe("stream_event");
     expect(msgs[0].metadata.thought).toBe(true);
@@ -343,8 +349,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     // Second: regular message chunk
     expect(msgs[1].type).toBe("stream_event");
     expect(msgs[1].metadata.thought).toBeUndefined();
-    // Third: result
-    expect(msgs[2].type).toBe("result");
+    // Third: synthesized assistant message
+    expect(msgs[2].type).toBe("assistant");
+    // Fourth: result
+    expect(msgs[3].type).toBe("result");
   });
 
   // -------------------------------------------------------------------------
@@ -357,11 +365,13 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "tool-sess",
-            sessionUpdate: "tool_call",
-            toolCallId: "tc-1",
-            title: "Running bash",
-            kind: "bash",
-            status: "in_progress",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: "tc-1",
+              title: "Running bash",
+              kind: "bash",
+              status: "in_progress",
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "tool-sess",
@@ -391,10 +401,12 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "tool-update-sess",
-            sessionUpdate: "tool_call_update",
-            toolCallId: "tc-2",
-            status: "completed",
-            content: "File written successfully",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "tc-2",
+              status: "completed",
+              content: "File written successfully",
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "tool-update-sess",
@@ -425,10 +437,12 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "tool-fail-sess",
-            sessionUpdate: "tool_call_update",
-            toolCallId: "tc-3",
-            status: "failed",
-            content: "Permission denied",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "tc-3",
+              status: "failed",
+              content: "Permission denied",
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "tool-fail-sess",
@@ -457,10 +471,12 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "tool-prog-sess",
-            sessionUpdate: "tool_call_update",
-            toolCallId: "tc-4",
-            status: "in_progress",
-            content: "50% complete",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "tc-4",
+              status: "in_progress",
+              content: "50% complete",
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "tool-prog-sess",
@@ -577,11 +593,13 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "plan-sess",
-            sessionUpdate: "plan",
-            planEntries: [
-              { step: 1, description: "Read file" },
-              { step: 2, description: "Edit code" },
-            ],
+            update: {
+              sessionUpdate: "plan",
+              planEntries: [
+                { step: 1, description: "Read file" },
+                { step: 2, description: "Edit code" },
+              ],
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "plan-sess",
@@ -617,8 +635,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "mode-update-sess",
-            sessionUpdate: "current_mode_update",
-            modeId: "plan",
+            update: {
+              sessionUpdate: "current_mode_update",
+              modeId: "plan",
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "mode-update-sess",
@@ -651,8 +671,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "unknown-sess",
-            sessionUpdate: "some_future_event",
-            data: { foo: "bar" },
+            update: {
+              sessionUpdate: "some_future_event",
+              data: { foo: "bar" },
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "unknown-sess",
@@ -889,11 +911,13 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "cmds-sess",
-            sessionUpdate: "available_commands_update",
-            availableCommands: [
-              { name: "/help", description: "Show help" },
-              { name: "/clear", description: "Clear screen" },
-            ],
+            update: {
+              sessionUpdate: "available_commands_update",
+              availableCommands: [
+                { name: "/help", description: "Show help" },
+                { name: "/clear", description: "Clear screen" },
+              ],
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "cmds-sess",
@@ -933,8 +957,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
             method: "session/update",
             params: {
               sessionId: "split-sess",
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Split message" },
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Split message" },
+              },
             },
           });
           const mid = Math.floor(fullMsg.length / 2);
@@ -956,10 +982,11 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("split test"));
 
-    const msgs = await reader.collect(2);
+    const msgs = await reader.collect(3);
     expect(msgs[0].type).toBe("stream_event");
     expect(msgs[0].content[0]).toEqual({ type: "text", text: "Split message" });
-    expect(msgs[1].type).toBe("result");
+    expect(msgs[1].type).toBe("assistant");
+    expect(msgs[2].type).toBe("result");
   });
 
   // -------------------------------------------------------------------------
@@ -972,8 +999,10 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
         onPrompt: () => {
           sendNotification(stdout, "session/update", {
             sessionId: "crash-sess",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "partial..." },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "partial..." },
+            },
           });
           setTimeout(() => stdout.emit("close"), 10);
         },
