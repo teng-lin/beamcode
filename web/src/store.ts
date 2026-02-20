@@ -69,8 +69,6 @@ export interface SessionData {
     queuedAt: number;
   } | null;
   isEditingQueue: boolean;
-  /** FLIP animation origin: captured bounding rect of the queued message before it's removed. */
-  flipOrigin: { top: number; left: number; width: number } | null;
   authStatus: { isAuthenticating: boolean; output: string[]; error?: string } | null;
 }
 
@@ -163,7 +161,6 @@ export interface AppState {
   clearAgentStreaming: (sessionId: string, agentId: string) => void;
   setQueuedMessage: (sessionId: string, msg: SessionData["queuedMessage"]) => void;
   setEditingQueue: (sessionId: string, editing: boolean) => void;
-  setFlipOrigin: (sessionId: string, origin: SessionData["flipOrigin"]) => void;
   setAuthStatus: (sessionId: string, status: SessionData["authStatus"]) => void;
 
   // Session list actions
@@ -201,7 +198,6 @@ function emptySessionData(): SessionData {
     presence: [],
     queuedMessage: null,
     isEditingQueue: false,
-    flipOrigin: null,
     authStatus: null,
   };
 }
@@ -222,6 +218,31 @@ function patchSession(
 }
 
 const MAX_MESSAGES_PER_SESSION = 2000;
+
+function messageIdentityKey(message: ConsumerMessage): string | null {
+  switch (message.type) {
+    case "assistant":
+      return `assistant:${message.message.id}`;
+    case "tool_use_summary":
+      return message.tool_use_id ? `tool_use_summary:${message.tool_use_id}` : null;
+    default:
+      return null;
+  }
+}
+
+function upsertMessage(messages: ConsumerMessage[], message: ConsumerMessage): ConsumerMessage[] {
+  const key = messageIdentityKey(message);
+  if (!key) return [...messages, message];
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messageIdentityKey(messages[i]) === key) {
+      const next = messages.slice();
+      next[i] = message;
+      return next;
+    }
+  }
+  return [...messages, message];
+}
 
 function readBool(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -331,7 +352,7 @@ export const useStore = create<AppState>()((set, get) => ({
   addMessage: (sessionId, message) =>
     set((s) => {
       const data = s.sessionData[sessionId] ?? emptySessionData();
-      const messages = [...data.messages, message];
+      const messages = upsertMessage(data.messages, message);
       return patchSession(s, sessionId, {
         messages:
           messages.length > MAX_MESSAGES_PER_SESSION
@@ -340,7 +361,14 @@ export const useStore = create<AppState>()((set, get) => ({
       });
     }),
 
-  setMessages: (sessionId, messages) => set((s) => patchSession(s, sessionId, { messages })),
+  setMessages: (sessionId, messages) =>
+    set((s) => {
+      let normalized: ConsumerMessage[] = [];
+      for (const message of messages) {
+        normalized = upsertMessage(normalized, message);
+      }
+      return patchSession(s, sessionId, { messages: normalized });
+    }),
 
   setStreaming: (sessionId, text) => set((s) => patchSession(s, sessionId, { streaming: text })),
 
@@ -477,9 +505,6 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setEditingQueue: (sessionId, editing) =>
     set((s) => patchSession(s, sessionId, { isEditingQueue: editing })),
-
-  setFlipOrigin: (sessionId, origin) =>
-    set((s) => patchSession(s, sessionId, { flipOrigin: origin })),
 
   setAuthStatus: (sessionId, status) =>
     set((s) => patchSession(s, sessionId, { authStatus: status })),

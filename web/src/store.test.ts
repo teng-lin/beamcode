@@ -77,6 +77,77 @@ describe("store", () => {
       expect(store().sessionData[SESSION_ID].messages).toHaveLength(2);
     });
 
+    it("addMessage upserts assistant messages by message id", () => {
+      store().addMessage(SESSION_ID, {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          id: "msg-1",
+          type: "message",
+          role: "assistant",
+          model: "",
+          content: [{ type: "text", text: "first" }],
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+      store().addMessage(SESSION_ID, {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          id: "msg-1",
+          type: "message",
+          role: "assistant",
+          model: "",
+          content: [{ type: "text", text: "second" }],
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+
+      const messages = store().sessionData[SESSION_ID].messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        type: "assistant",
+        message: { id: "msg-1", content: [{ type: "text", text: "second" }] },
+      });
+    });
+
+    it("addMessage upserts tool_use_summary by tool_use_id", () => {
+      store().addMessage(SESSION_ID, {
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        output: "first",
+      });
+      store().addMessage(SESSION_ID, {
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        output: "second",
+      });
+
+      const messages = store().sessionData[SESSION_ID].messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        type: "tool_use_summary",
+        tool_use_id: "call-1",
+        output: "second",
+      });
+    });
+
     it("addMessage truncates at 2000 messages", () => {
       const msg = { type: "user_message" as const, content: "x", timestamp: Date.now() };
       for (let i = 0; i < 2001; i++) {
@@ -93,6 +164,54 @@ describe("store", () => {
       });
       store().setMessages(SESSION_ID, []);
       expect(store().sessionData[SESSION_ID].messages).toHaveLength(0);
+    });
+
+    it("setMessages normalizes duplicate assistant message ids", () => {
+      store().setMessages(SESSION_ID, [
+        {
+          type: "assistant",
+          parent_tool_use_id: null,
+          message: {
+            id: "msg-dup",
+            type: "message",
+            role: "assistant",
+            model: "",
+            content: [{ type: "text", text: "first" }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        },
+        {
+          type: "assistant",
+          parent_tool_use_id: null,
+          message: {
+            id: "msg-dup",
+            type: "message",
+            role: "assistant",
+            model: "",
+            content: [{ type: "text", text: "second" }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        },
+      ]);
+
+      const messages = store().sessionData[SESSION_ID].messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        type: "assistant",
+        message: { id: "msg-dup", content: [{ type: "text", text: "second" }] },
+      });
     });
   });
 

@@ -133,12 +133,17 @@ describe("translateEvent: message.part.updated with text part", () => {
     expect(msg!.metadata.reasoning).toBeUndefined();
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
     expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
+    expect(msg!.metadata.event).toEqual({
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " world" },
+    });
   });
 
   it("uses empty string for delta when delta is missing", () => {
     const event = makeTextPartEvent({ text: "Hi" });
     const msg = translateEvent(event);
     expect(msg!.metadata.delta).toBe("");
+    expect(msg!.metadata.event).toBeUndefined();
   });
 
   it("sets id, timestamp on returned message", () => {
@@ -169,12 +174,59 @@ describe("translateEvent: message.part.updated with reasoning part", () => {
     expect(msg!.role).toBe("assistant");
     expect(msg!.metadata.reasoning).toBe(true);
     expect(msg!.metadata.delta).toBe(" think");
+    expect(msg!.metadata.event).toEqual({
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " think" },
+    });
   });
 
   it("handles empty reasoning delta", () => {
     const event = makeReasoningPartEvent({ text: "Start" });
     const msg = translateEvent(event);
     expect(msg!.metadata.delta).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// translateEvent — message.part.delta
+// ---------------------------------------------------------------------------
+
+describe("translateEvent: message.part.delta", () => {
+  it("maps text delta to stream_event content_block_delta", () => {
+    const event: OpencodeEvent = {
+      type: "message.part.delta",
+      properties: {
+        sessionID: SESSION_ID,
+        messageID: MESSAGE_ID,
+        partID: PART_ID,
+        field: "text",
+        delta: "hello",
+      },
+    };
+
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("stream_event");
+    expect(msg!.metadata.delta).toBe("hello");
+    expect(msg!.metadata.event).toEqual({
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "hello" },
+    });
+  });
+
+  it("returns null for non-text field deltas", () => {
+    const event: OpencodeEvent = {
+      type: "message.part.delta",
+      properties: {
+        sessionID: SESSION_ID,
+        messageID: MESSAGE_ID,
+        partID: PART_ID,
+        field: "metadata",
+        delta: "ignored",
+      },
+    };
+
+    expect(translateEvent(event)).toBeNull();
   });
 });
 
@@ -879,6 +931,20 @@ describe("extractSessionId", () => {
     expect(extractSessionId(event)).toBe(SESSION_ID);
   });
 
+  it("extracts sessionID from message.part.delta", () => {
+    const event: OpencodeEvent = {
+      type: "message.part.delta",
+      properties: {
+        sessionID: SESSION_ID,
+        messageID: MESSAGE_ID,
+        partID: PART_ID,
+        field: "text",
+        delta: "a",
+      },
+    };
+    expect(extractSessionId(event)).toBe(SESSION_ID);
+  });
+
   it("extracts sessionID from message.updated (via info.sessionID)", () => {
     const event: OpencodeEvent = {
       type: "message.updated",
@@ -924,6 +990,42 @@ describe("extractSessionId", () => {
           title: "Test",
           version: "1.0.0",
           time: { created: 1000, updated: 1001 },
+        },
+      },
+    };
+    expect(extractSessionId(event)).toBe(SESSION_ID);
+  });
+
+  it("extracts session id from session.created via info.id", () => {
+    const event: OpencodeEvent = {
+      type: "session.created",
+      properties: {
+        info: {
+          id: SESSION_ID,
+          slug: "test",
+          projectID: "proj-1",
+          directory: "/tmp",
+          title: "Test",
+          version: "1.0.0",
+          time: { created: 1000, updated: 1001 },
+        },
+      },
+    };
+    expect(extractSessionId(event)).toBe(SESSION_ID);
+  });
+
+  it("extracts session id from session.updated via info.id", () => {
+    const event: OpencodeEvent = {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: SESSION_ID,
+          slug: "test",
+          projectID: "proj-1",
+          directory: "/tmp",
+          title: "Test",
+          version: "1.0.0",
+          time: { created: 1000, updated: 1002 },
         },
       },
     };

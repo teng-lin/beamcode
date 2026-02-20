@@ -333,6 +333,26 @@ describe("handleMessage", () => {
     expect(getSessionData()?.streaming).toBeNull();
   });
 
+  it("assistant with empty content: preserves empty content and clears streaming", () => {
+    const ws = openSession();
+    useStore.getState().setStreaming("s1", "streamed reply");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: makeAssistantContent([]),
+      }),
+    );
+
+    const assistant = getSessionData()?.messages[0];
+    expect(assistant?.type).toBe("assistant");
+    if (assistant?.type === "assistant") {
+      expect(assistant.message.content).toEqual([]);
+    }
+    expect(getSessionData()?.streaming).toBeNull();
+  });
+
   it("assistant with parent_tool_use_id: clears agent streaming", () => {
     const ws = openSession();
     useStore.getState().initAgentStreaming("s1", "agent-1");
@@ -348,6 +368,60 @@ describe("handleMessage", () => {
     expect(getSessionData()?.messages).toHaveLength(1);
     // Agent streaming should be cleared
     expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
+  });
+
+  it("assistant with empty content and parent_tool_use_id: keeps empty content", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+    useStore.getState().appendAgentStreaming("s1", "agent-1", "agent streamed reply");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: "agent-1",
+        message: makeAssistantContent([]),
+      }),
+    );
+
+    const assistant = getSessionData()?.messages[0];
+    expect(assistant?.type).toBe("assistant");
+    if (assistant?.type === "assistant") {
+      expect(assistant.message.content).toEqual([]);
+    }
+    expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
+  });
+
+  it("assistant duplicate id updates existing message instead of appending", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          ...makeAssistantContent([{ type: "text", text: "first" }]),
+          id: "msg-dup",
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          ...makeAssistantContent([{ type: "text", text: "second" }]),
+          id: "msg-dup",
+        },
+      }),
+    );
+
+    const messages = getSessionData()?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      type: "assistant",
+      message: { id: "msg-dup", content: [{ type: "text", text: "second" }] },
+    });
   });
 
   // ── result ──────────────────────────────────────────────────────────────
@@ -928,6 +1002,42 @@ describe("handleMessage", () => {
     });
   });
 
+  it("tool_use_summary: upserts by tool_use_id", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        tool_name: "read",
+        status: "completed",
+        output: "1: # beamcode",
+      }),
+    );
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        tool_name: "read",
+        status: "completed",
+        output: "2: updated",
+      }),
+    );
+
+    const messages = getSessionData()?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      type: "tool_use_summary",
+      summary: "read completed",
+      tool_use_ids: ["call-1"],
+      output: "2: updated",
+    });
+  });
+
   // ── session_name_update ─────────────────────────────────────────────────
 
   it("session_name_update: updates session name", () => {
@@ -1049,14 +1159,6 @@ describe("handleMessage", () => {
     expect(logs[logs.length - 1]).toBe("Green text");
   });
 
-  // ── Queue message helpers & cleanup ─────────────────────────────────
-
-  afterEach(() => {
-    for (const el of document.querySelectorAll("[data-queued-message]")) {
-      el.remove();
-    }
-  });
-
   /** Seed a queued message into the store for session "s1". */
   function seedQueuedMessage(content = "queued") {
     useStore.getState().setQueuedMessage("s1", {
@@ -1065,15 +1167,6 @@ describe("handleMessage", () => {
       content,
       queuedAt: 1700000000,
     });
-  }
-
-  /** Mount a mock DOM element with `data-queued-message` and a fake bounding rect. */
-  function mountQueuedMessageElement(rect = { top: 100, left: 50, width: 300 }): HTMLDivElement {
-    const el = document.createElement("div");
-    el.setAttribute("data-queued-message", "");
-    el.getBoundingClientRect = () => rect as DOMRect;
-    document.body.appendChild(el);
-    return el;
   }
 
   // ── message_queued ──────────────────────────────────────────────────────
@@ -1185,40 +1278,6 @@ describe("handleMessage", () => {
 
     expect(getSessionData()?.queuedMessage).toBeNull();
     expect(getSessionData()?.isEditingQueue).toBe(false);
-  });
-
-  it("queued_message_sent: captures FLIP origin from DOM element", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    mountQueuedMessageElement();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-
-    expect(getSessionData()?.flipOrigin).toEqual({ top: 100, left: 50, width: 300 });
-  });
-
-  it("queued_message_sent: clears flipOrigin after 2s safety timeout", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    mountQueuedMessageElement();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-    expect(getSessionData()?.flipOrigin).not.toBeNull();
-
-    // 2000ms matches the safety timeout in ws.ts queued_message_sent handler
-    vi.advanceTimersByTime(2001);
-    expect(getSessionData()?.flipOrigin).toBeNull();
-  });
-
-  it("queued_message_sent: no flipOrigin when no DOM element exists", () => {
-    const ws = openSession();
-    seedQueuedMessage();
-
-    ws.simulateMessage(JSON.stringify({ type: "queued_message_sent" }));
-
-    expect(getSessionData()?.flipOrigin).toBeNull();
   });
 
   // ── Unhandled message type ──────────────────────────────────────────────

@@ -197,11 +197,19 @@ export function mapPermissionRequest(
  */
 export function mapToolProgress(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
+  const toolUseId =
+    coerceString(m.tool_use_id) ??
+    coerceString(m.call_id) ??
+    coerceString(m.toolCallId) ??
+    coerceString(m.part_id) ??
+    "unknown";
+  const toolName =
+    coerceString(m.tool_name) ?? coerceString(m.tool) ?? coerceString(m.kind) ?? "tool";
   return {
     type: "tool_progress",
-    tool_use_id: m.tool_use_id as string,
-    tool_name: m.tool_name as string,
-    elapsed_time_seconds: m.elapsed_time_seconds as number,
+    tool_use_id: toolUseId,
+    tool_name: toolName,
+    elapsed_time_seconds: deriveElapsedSeconds(m),
   };
 }
 
@@ -210,11 +218,28 @@ export function mapToolProgress(msg: UnifiedMessage): ConsumerMessage {
  */
 export function mapToolUseSummary(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
-  return {
+  const toolUseId =
+    coerceString(m.tool_use_id) ?? coerceString(m.call_id) ?? coerceString(m.toolCallId);
+  const toolUseIds = normalizeToolUseIds(m.tool_use_ids, toolUseId);
+  const mapped: Extract<ConsumerMessage, { type: "tool_use_summary" }> = {
     type: "tool_use_summary",
-    summary: m.summary as string,
-    tool_use_ids: m.tool_use_ids as string[],
+    summary: deriveToolSummary(m),
+    tool_use_ids: toolUseIds,
   };
+
+  if (toolUseId) mapped.tool_use_id = toolUseId;
+  if (typeof m.tool === "string") mapped.tool_name = m.tool;
+  if (typeof m.tool_name === "string") mapped.tool_name = m.tool_name;
+  if (typeof m.status === "string") mapped.status = m.status;
+  if (typeof m.is_error === "boolean") mapped.is_error = m.is_error;
+  if (Object.hasOwn(m, "input")) mapped.input = m.input;
+  if (Object.hasOwn(m, "output")) mapped.output = m.output;
+  if (!Object.hasOwn(m, "output") && Object.hasOwn(m, "content")) {
+    mapped.output = m.content;
+  }
+  if (Object.hasOwn(m, "error")) mapped.error = m.error;
+
+  return mapped;
 }
 
 /**
@@ -255,4 +280,60 @@ function mapMetadataMessage(
     subtype: (sub as string) ?? "unknown",
     metadata: rest,
   };
+}
+
+function coerceString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizeToolUseIds(rawIds: unknown, toolUseId?: string): string[] {
+  const ids = Array.isArray(rawIds)
+    ? rawIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  if (toolUseId && !ids.includes(toolUseId)) ids.push(toolUseId);
+  return ids;
+}
+
+function deriveToolSummary(metadata: UnifiedMessage["metadata"]): string {
+  if (typeof metadata.summary === "string" && metadata.summary.length > 0) {
+    return metadata.summary;
+  }
+  if (typeof metadata.title === "string" && metadata.title.length > 0) {
+    return metadata.title;
+  }
+
+  const toolName =
+    coerceString(metadata.tool_name) ?? coerceString(metadata.tool) ?? coerceString(metadata.kind);
+  const status = coerceString(metadata.status);
+  const isError = metadata.is_error === true || status === "error" || status === "failed";
+
+  if (toolName && isError) return `${toolName} failed`;
+  if (toolName && status) return `${toolName} ${status}`;
+  if (toolName) return `${toolName} completed`;
+  if (status && isError) return `Tool ${status}`;
+  if (status) return `Tool ${status}`;
+
+  return "Tool execution completed";
+}
+
+function deriveElapsedSeconds(metadata: UnifiedMessage["metadata"]): number {
+  if (
+    typeof metadata.elapsed_time_seconds === "number" &&
+    Number.isFinite(metadata.elapsed_time_seconds)
+  ) {
+    return metadata.elapsed_time_seconds;
+  }
+
+  const time = metadata.time as { start?: number; end?: number } | undefined;
+  if (
+    time &&
+    typeof time.start === "number" &&
+    Number.isFinite(time.start) &&
+    typeof time.end === "number" &&
+    Number.isFinite(time.end)
+  ) {
+    return Math.max(0, Math.round((time.end - time.start) / 1000));
+  }
+
+  return 0;
 }

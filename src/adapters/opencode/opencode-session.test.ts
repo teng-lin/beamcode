@@ -307,6 +307,179 @@ describe("OpencodeSession", () => {
     expect(result.value.metadata.delta).toBe("Hello");
   });
 
+  it("messages yields stream_event for message.part.delta text chunks", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "opc-session-abc",
+        messageID: "m-1",
+        partID: "p-1",
+        field: "text",
+        delta: "Hello",
+      },
+    });
+
+    const result = await iter.next();
+    expect(result.done).toBe(false);
+    expect(result.value.type).toBe("stream_event");
+    expect(result.value.metadata.delta).toBe("Hello");
+    expect(result.value.metadata.event).toEqual({
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "Hello" },
+    });
+  });
+
+  it("materializes streamed text into final assistant message", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "opc-session-abc",
+        messageID: "m-1",
+        partID: "p-1",
+        field: "text",
+        delta: "First 50 lines",
+      },
+    });
+    const stream1 = await iter.next();
+    expect(stream1.value.type).toBe("stream_event");
+
+    sub.push({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "opc-session-abc",
+        messageID: "m-1",
+        partID: "p-1",
+        field: "text",
+        delta: " of README.md",
+      },
+    });
+    const stream2 = await iter.next();
+    expect(stream2.value.type).toBe("stream_event");
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-1",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000, completed: 6000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "end_turn",
+        },
+      },
+    });
+
+    const assistant = await iter.next();
+    expect(assistant.done).toBe(false);
+    expect(assistant.value.type).toBe("assistant");
+    expect(assistant.value.content).toEqual([
+      { type: "text", text: "First 50 lines of README.md" },
+    ]);
+  });
+
+  it("preserves materialized text when same assistant message is re-emitted empty", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "opc-session-abc",
+        messageID: "m-repeat",
+        partID: "p-repeat",
+        field: "text",
+        delta: "Top of README",
+      },
+    });
+    const stream = await iter.next();
+    expect(stream.value.type).toBe("stream_event");
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-repeat",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "stop",
+        },
+      },
+    });
+    const firstAssistant = await iter.next();
+    expect(firstAssistant.value.type).toBe("assistant");
+    expect(firstAssistant.value.content).toEqual([{ type: "text", text: "Top of README" }]);
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-repeat",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000, completed: 6000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "stop",
+        },
+      },
+    });
+    const secondAssistant = await iter.next();
+    expect(secondAssistant.value.type).toBe("assistant");
+    expect(secondAssistant.value.content).toEqual([{ type: "text", text: "Top of README" }]);
+  });
+
+  it("does not materialize text when no stream deltas exist", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-no-stream",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000, completed: 6000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "end_turn",
+        },
+      },
+    });
+
+    const assistant = await iter.next();
+    expect(assistant.done).toBe(false);
+    expect(assistant.value.type).toBe("assistant");
+    expect(assistant.value.content).toEqual([]);
+  });
+
   // -------------------------------------------------------------------------
   // Permission event flows through
   // -------------------------------------------------------------------------

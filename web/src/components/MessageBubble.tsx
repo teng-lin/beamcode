@@ -8,20 +8,31 @@ interface MessageBubbleProps {
   sessionId: string;
 }
 
+function renderToolPayload(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  if (payload === null) return "null";
+  if (payload === undefined) return "";
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 export const MessageBubble = memo(function MessageBubble({
   message,
   sessionId,
 }: MessageBubbleProps) {
   switch (message.type) {
     case "user_message":
-      return <UserMessageBubble content={message.content} sessionId={sessionId} />;
+      return <UserMessageBubble content={message.content} />;
 
     case "assistant":
       return <AssistantMessage message={message.message} sessionId={sessionId} />;
 
     case "error":
       return (
-        <div className="animate-fadeSlideIn flex items-start gap-2 rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
+        <div className="flex items-start gap-2 rounded-lg border border-bc-error/30 bg-bc-error/10 px-3 py-2 text-sm text-bc-error">
           <svg
             width="14"
             height="14"
@@ -38,7 +49,7 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "slash_command_result":
       return (
-        <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+        <div className="rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
             {message.command}
           </span>
@@ -50,7 +61,7 @@ export const MessageBubble = memo(function MessageBubble({
 
     case "slash_command_error":
       return (
-        <div className="animate-fadeSlideIn rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
+        <div className="rounded-lg border border-bc-error/30 bg-bc-error/5 px-3 py-2.5 text-sm">
           <span className="mb-1.5 inline-block rounded bg-bc-error/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-error">
             {message.command} failed
           </span>
@@ -59,6 +70,32 @@ export const MessageBubble = memo(function MessageBubble({
           </pre>
         </div>
       );
+
+    case "tool_use_summary": {
+      const outputText = renderToolPayload(message.output);
+      const errorText = renderToolPayload(message.error);
+
+      return (
+        <div className="rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
+              {message.tool_name ?? "tool"}
+            </span>
+            <span className="text-bc-text-muted">{message.summary}</span>
+          </div>
+          {outputText && (
+            <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted leading-relaxed">
+              {outputText}
+            </pre>
+          )}
+          {errorText && (
+            <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-error leading-relaxed">
+              {errorText}
+            </pre>
+          )}
+        </div>
+      );
+    }
 
     default:
       return null;
