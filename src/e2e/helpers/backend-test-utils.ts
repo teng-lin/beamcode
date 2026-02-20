@@ -379,7 +379,7 @@ export function createUserMessage(text: string, sessionId = "e2e-session"): Unif
 }
 
 export function createPermissionResponse(
-  behavior: "allow" | "deny",
+  behavior: "allow" | "deny" | "always",
   requestId: string,
   metadata?: Record<string, unknown>,
 ): UnifiedMessage {
@@ -719,5 +719,130 @@ export function buildOpencodeConnectedEvent(): OpencodeEvent {
   return {
     type: "server.connected",
     properties: {} as Record<string, never>,
+  };
+}
+
+export function buildOpencodeReasoningPartEvent(
+  text: string,
+  delta: string,
+  options?: { partId?: string; messageId?: string; sessionId?: string },
+): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "reasoning",
+        id: options?.partId ?? "r-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        text,
+        time: { created: 0, updated: 0 },
+      },
+      delta,
+    },
+  };
+}
+
+export function buildOpencodeStepStartEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "step-start",
+        id: options?.partId ?? "step-start-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+      },
+    },
+  };
+}
+
+export function buildOpencodeStepFinishEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+  cost?: number;
+  tokens?: { input: number; output: number };
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "step-finish",
+        id: options?.partId ?? "step-finish-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        cost: options?.cost,
+        tokens: options?.tokens,
+      },
+    },
+  };
+}
+
+export function buildOpencodeCompactedEvent(sessionId = "opc-session-1"): OpencodeEvent {
+  return {
+    type: "session.compacted",
+    properties: { sessionID: sessionId },
+  };
+}
+
+export function buildOpencodeMessageRemovedEvent(
+  messageId: string,
+  sessionId = "opc-session-1",
+): OpencodeEvent {
+  return {
+    type: "message.removed",
+    properties: { messageID: messageId, sessionID: sessionId },
+  };
+}
+
+export function buildOpencodeUserUpdatedEvent(options?: {
+  messageId?: string;
+  sessionId?: string;
+}): OpencodeEvent {
+  return {
+    type: "message.updated",
+    properties: {
+      info: {
+        id: options?.messageId ?? "m-user-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        role: "user" as const,
+        time: { created: 1000 },
+        agent: "default",
+        model: { providerID: "openai", modelID: "gpt-5" },
+      },
+    },
+  };
+}
+
+export function buildOpencodeToolPendingEvent(options?: {
+  partId?: string;
+  messageId?: string;
+  sessionId?: string;
+  callId?: string;
+  tool?: string;
+  input?: Record<string, unknown>;
+}): OpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        type: "tool",
+        id: options?.partId ?? "tool-part-1",
+        messageID: options?.messageId ?? "m-1",
+        sessionID: options?.sessionId ?? "opc-session-1",
+        callID: options?.callId ?? "call-1",
+        tool: options?.tool ?? "read",
+        state: {
+          status: "pending",
+          input: options?.input ?? { filePath: "README.md" },
+        },
+        time: { created: 1_000, updated: 1_000 },
+      },
+    },
   };
 }
