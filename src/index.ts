@@ -34,7 +34,7 @@ export type {
   Reconnectable,
   TeamObserver,
 } from "./core/interfaces/extensions.js";
-export type { SessionRegistry } from "./core/interfaces/session-registry.js";
+export type { RegisterSessionInput, SessionRegistry } from "./core/interfaces/session-registry.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
 export { SessionBridge } from "./core/session-bridge.js";

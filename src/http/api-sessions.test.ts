@@ -117,18 +117,6 @@ function emitEmptyBody(req: IncomingMessage): void {
 describe("handleApiSessions", () => {
   // ---- GET /api/sessions ----
 
-  it("GET /api/sessions lists all sessions", () => {
-    const sessions = [{ sessionId: "s1" }, { sessionId: "s2" }];
-    const sm = mockSessionManager({ listSessions: () => sessions });
-    const req = mockReq("GET");
-    const res = mockRes();
-
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
-
-    expect(res._status).toBe(200);
-    expect(parseBody(res)).toEqual(sessions);
-  });
-
   it("GET /api/sessions returns registry sessions directly", () => {
     const sessions = [
       { sessionId: "s1", state: "connected", cwd: "/tmp" },

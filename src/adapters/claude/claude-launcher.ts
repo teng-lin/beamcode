@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { SessionLauncher } from "../../core/interfaces/session-launcher.js";
+import type { RegisterSessionInput } from "../../core/interfaces/session-registry.js";
 import type { ProcessSupervisorOptions } from "../../core/process-supervisor.js";
 import { ProcessSupervisor } from "../../core/process-supervisor.js";
 import type { Logger } from "../../interfaces/logger.js";
@@ -524,13 +525,7 @@ export class ClaudeLauncher extends ProcessSupervisor<LauncherEventMap> implemen
   }
 
   /** Register a session entry (no process spawned). */
-  register(info: {
-    sessionId: string;
-    cwd: string;
-    createdAt: number;
-    model?: string;
-    adapterName?: string;
-  }): SessionInfo {
+  register(info: RegisterSessionInput): SessionInfo {
     const entry: SessionInfo = {
       sessionId: info.sessionId,
       cwd: info.cwd,

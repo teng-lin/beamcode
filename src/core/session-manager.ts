@@ -244,7 +244,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
   /**
    * Fully delete a session: kill CLI process, clean up dedup state,
-   * close WS connections + remove persisted JSON, remove from launcher map.
+   * close WS connections + remove persisted JSON, remove from registry.
    */
   async deleteSession(sessionId: string): Promise<boolean> {
     const info = this.registry.getSession(sessionId);
@@ -310,7 +310,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
       this.registry.setBackendSessionId(sessionId, backendSessionId);
     });
 
-    // When backend connects, mark it in the launcher
+    // When backend connects, mark it in the registry
     this.trackListener(this.bridge, "backend:connected", ({ sessionId }) => {
       this.registry.markConnected(sessionId);
     });
@@ -504,8 +504,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
     // If registry is separate from launcher, restore it too
     let registryCount = 0;
     if (this.registry !== this.launcher) {
-      const r = this.registry as { restoreFromStorage?(): number };
-      registryCount = r.restoreFromStorage?.() ?? 0;
+      registryCount = this.registry.restoreFromStorage?.() ?? 0;
     }
 
     const bridgeCount = this.bridge.restoreFromStorage();

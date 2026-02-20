@@ -1,5 +1,14 @@
 import type { SessionInfo } from "../../types/session-state.js";
 
+/** Input for registering a new session entry. */
+export interface RegisterSessionInput {
+  sessionId: string;
+  cwd: string;
+  createdAt: number;
+  model?: string;
+  adapterName?: string;
+}
+
 /**
  * Read/write registry for session metadata.
  * Every adapter path (inverted or forward) must register sessions here
@@ -7,13 +16,7 @@ import type { SessionInfo } from "../../types/session-state.js";
  */
 export interface SessionRegistry {
   /** Register a new session entry. Returns the stored SessionInfo. */
-  register(info: {
-    sessionId: string;
-    cwd: string;
-    createdAt: number;
-    model?: string;
-    adapterName?: string;
-  }): SessionInfo;
+  register(info: RegisterSessionInput): SessionInfo;
 
   /** Query session state. */
   getSession(sessionId: string): SessionInfo | undefined;
@@ -38,4 +41,7 @@ export interface SessionRegistry {
 
   /** Remove a session from internal state and persist. */
   removeSession(sessionId: string): void;
+
+  /** Restore sessions from persistent storage. Returns count restored. */
+  restoreFromStorage?(): number;
 }

@@ -1,6 +1,6 @@
 import type { LauncherStateStorage } from "../interfaces/storage.js";
 import type { SessionInfo } from "../types/session-state.js";
-import type { SessionRegistry } from "./interfaces/session-registry.js";
+import type { RegisterSessionInput, SessionRegistry } from "./interfaces/session-registry.js";
 
 /**
  * Simple in-memory session registry backed by an optional LauncherStateStorage.
@@ -15,13 +15,7 @@ export class SimpleSessionRegistry implements SessionRegistry {
     this.storage = storage ?? null;
   }
 
-  register(info: {
-    sessionId: string;
-    cwd: string;
-    createdAt: number;
-    model?: string;
-    adapterName?: string;
-  }): SessionInfo {
+  register(info: RegisterSessionInput): SessionInfo {
     const entry: SessionInfo = {
       sessionId: info.sessionId,
       cwd: info.cwd,
@@ -48,35 +42,27 @@ export class SimpleSessionRegistry implements SessionRegistry {
   }
 
   markConnected(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.state = "connected";
-      this.persistState();
-    }
+    this.updateSession(sessionId, (s) => {
+      s.state = "connected";
+    });
   }
 
   setBackendSessionId(sessionId: string, backendSessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.backendSessionId = backendSessionId;
-      this.persistState();
-    }
+    this.updateSession(sessionId, (s) => {
+      s.backendSessionId = backendSessionId;
+    });
   }
 
   setSessionName(sessionId: string, name: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.name = name;
-      this.persistState();
-    }
+    this.updateSession(sessionId, (s) => {
+      s.name = name;
+    });
   }
 
   setArchived(sessionId: string, archived: boolean): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.archived = archived;
-      this.persistState();
-    }
+    this.updateSession(sessionId, (s) => {
+      s.archived = archived;
+    });
   }
 
   removeSession(sessionId: string): void {
@@ -98,6 +84,14 @@ export class SimpleSessionRegistry implements SessionRegistry {
       }
     }
     return count;
+  }
+
+  /** Look up a session, apply a mutation, and persist. */
+  private updateSession(sessionId: string, mutate: (session: SessionInfo) => void): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    mutate(session);
+    this.persistState();
   }
 
   private persistState(): void {
