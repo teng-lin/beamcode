@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { chmod, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { noopLogger } from "../adapters/noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import type { Logger } from "../interfaces/logger.js";
 
 export interface DaemonState {

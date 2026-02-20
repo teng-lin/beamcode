@@ -8,7 +8,7 @@ import type {
   WebSocketServerLike,
 } from "../interfaces/ws-server.js";
 import type { OriginValidator } from "../server/origin-validator.js";
-import { noopLogger } from "./noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 
 const CLI_PATH_RE = /^\/ws\/cli\/([^/]+)$/;
 const CONSUMER_PATH_RE = /^\/ws\/consumer\/([^/]+)$/;

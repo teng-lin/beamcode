@@ -13,7 +13,7 @@ import { join, normalize, resolve } from "node:path";
 import type { Logger } from "../interfaces/logger.js";
 import type { LauncherStateStorage, SessionStorage } from "../interfaces/storage.js";
 import type { PersistedSession } from "../types/session-state.js";
-import { noopLogger } from "./noop-logger.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import { CURRENT_SCHEMA_VERSION, migrateSession } from "./state-migrator.js";
 
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;

@@ -3,6 +3,6 @@
  * Consumers can use these for their own tests (T1).
  */
 export { MemoryStorage } from "./adapters/memory-storage.js";
-export { NoopLogger, noopLogger } from "./adapters/noop-logger.js";
+export { NoopLogger, noopLogger } from "./utils/noop-logger.js";
 export { MockProcessManager } from "./testing/mock-process-manager.js";
 export { createMockSocket } from "./testing/mock-socket.js";

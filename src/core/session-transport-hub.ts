@@ -1,5 +1,7 @@
 import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
+import type { CliAdapterName } from "./interfaces/adapter-names.js";
+import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type {
   SessionTransportHub as ISessionTransportHub,
@@ -40,24 +42,30 @@ export class SessionTransportHub implements ISessionTransportHub {
     },
     sessionId: string,
   ): void {
-    const invertedAdapter =
-      this.deps.adapterResolver?.claudeAdapter ??
-      (this.deps.adapter && isInvertedConnectionAdapter(this.deps.adapter)
-        ? this.deps.adapter
-        : null);
-
-    if (!invertedAdapter || !isInvertedConnectionAdapter(invertedAdapter)) {
+    const info = this.deps.launcher.getSession(sessionId);
+    if (!info || info.state !== "starting") {
       this.deps.logger.warn(
-        `No adapter configured, cannot handle CLI connection for session ${sessionId}`,
+        `Rejecting unexpected CLI connection for session ${sessionId} (state=${info?.state ?? "unknown"})`,
       );
       socket.close();
       return;
     }
 
-    const info = this.deps.launcher.getSession(sessionId);
-    if (!info || info.state !== "starting") {
+    // Resolve the adapter for this session and verify it supports inverted connections
+    const adapterName = info.adapterName;
+    let invertedAdapter: InvertedConnectionAdapter | null = null;
+    if (adapterName && this.deps.adapterResolver) {
+      const resolved = this.deps.adapterResolver.resolve(adapterName as CliAdapterName);
+      if (isInvertedConnectionAdapter(resolved)) {
+        invertedAdapter = resolved;
+      }
+    } else if (this.deps.adapter && isInvertedConnectionAdapter(this.deps.adapter)) {
+      invertedAdapter = this.deps.adapter;
+    }
+
+    if (!invertedAdapter) {
       this.deps.logger.warn(
-        `Rejecting unexpected CLI connection for session ${sessionId} (state=${info?.state ?? "unknown"})`,
+        `No adapter configured, cannot handle CLI connection for session ${sessionId}`,
       );
       socket.close();
       return;
@@ -98,7 +106,7 @@ export class SessionTransportHub implements ISessionTransportHub {
       }) as typeof socket.on,
     };
 
-    this.deps.bridge.setAdapterName(sessionId, "claude");
+    this.deps.bridge.setAdapterName(sessionId, adapterName ?? this.deps.adapter?.name ?? "unknown");
     this.deps.bridge
       .connectBackend(sessionId)
       .then(() => {

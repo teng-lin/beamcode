@@ -51,11 +51,12 @@ describe("createAdapterResolver", () => {
     expect(a1).not.toBe(a2);
   });
 
-  it("eagerly creates claudeAdapter on construction", () => {
+  it("eagerly creates claude adapter singleton on construction", () => {
     const resolver = createAdapterResolver(mockDeps);
-    // ClaudeAdapter is created eagerly, not lazily
-    expect(resolver.claudeAdapter).not.toBeNull();
-    expect(resolver.claudeAdapter?.name).toBe("claude");
+    // Claude adapter is created eagerly and returned as a singleton via resolve()
+    const claude = resolver.resolve("claude");
+    expect(claude).not.toBeNull();
+    expect(claude.name).toBe("claude");
   });
 
   it("throws for unknown adapter name", () => {

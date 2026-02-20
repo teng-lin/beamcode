@@ -17,7 +17,7 @@ import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { CLIMessage } from "../../types/cli-messages.js";
 import { NDJSONLineBuffer } from "../../utils/ndjson.js";
-import { noopLogger } from "../noop-logger.js";
+import { noopLogger } from "../../utils/noop-logger.js";
 import { toNDJSON } from "./inbound-translator.js";
 import { translate } from "./message-translator.js";
 

@@ -6,7 +6,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
-import { CLILauncher } from "./cli-launcher.js";
+import { ClaudeLauncher as CLILauncher } from "../adapters/claude/claude-launcher.js";
 
 // ---------------------------------------------------------------------------
 // Mock ProcessManager

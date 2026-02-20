@@ -139,7 +139,10 @@ describe("SessionTransportHub", () => {
     }
 
     it("closes socket when no adapter is configured", async () => {
-      const hub = setupServer();
+      const launcher = {
+        getSession: vi.fn().mockReturnValue({ state: "starting" }),
+      };
+      const hub = setupServer({ launcher: launcher as any });
       await hub.start();
 
       const socket = createMockSocket();
@@ -249,16 +252,15 @@ describe("SessionTransportHub", () => {
       );
     });
 
-    it("uses adapterResolver.claudeAdapter when no global adapter", async () => {
+    it("uses adapterResolver.resolve() to find inverted adapter from session info", async () => {
       const resolverAdapter = makeInvertedAdapter(true);
       const adapterResolver = {
-        claudeAdapter: resolverAdapter,
-        resolve: vi.fn(),
+        resolve: vi.fn().mockReturnValue(resolverAdapter),
         defaultName: "codex" as const,
         availableAdapters: [],
       };
       const launcher = {
-        getSession: vi.fn().mockReturnValue({ state: "starting" }),
+        getSession: vi.fn().mockReturnValue({ state: "starting", adapterName: "claude" }),
       };
       const hub = setupServer({
         adapter: null,
@@ -273,6 +275,7 @@ describe("SessionTransportHub", () => {
       await vi.waitFor(() => {
         expect(resolverAdapter.deliverSocket).toHaveBeenCalled();
       });
+      expect(adapterResolver.resolve).toHaveBeenCalledWith("claude");
     });
   });
 

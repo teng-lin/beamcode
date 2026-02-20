@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { AdapterResolver } from "../adapters/adapter-resolver.js";
-import { noopLogger } from "../adapters/noop-logger.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
