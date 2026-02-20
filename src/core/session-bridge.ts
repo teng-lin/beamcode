@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
-import { noopLogger } from "../utils/noop-logger.js";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -18,6 +16,7 @@ import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import { BackendLifecycleManager } from "./backend-lifecycle-manager.js";
 import { CapabilitiesProtocol } from "./capabilities-protocol.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
@@ -25,6 +24,7 @@ import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeep
 import { ConsumerTransportCoordinator } from "./consumer-transport-coordinator.js";
 import { GitInfoTracker } from "./git-info-tracker.js";
 import { normalizeInbound } from "./inbound-normalizer.js";
+import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
 import { type MessageTracer, noopTracer } from "./message-tracer.js";
@@ -86,7 +86,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       createRegistry: () => new SlashCommandRegistry(),
     });
     this.logger = options?.logger ?? noopLogger;
-    this.config = resolveConfig(options?.config ?? { port: 3456 });
+    this.config = resolveConfig(options?.config ?? { port: 9414 });
     this.tracer = options?.tracer ?? noopTracer;
     this.broadcaster = new ConsumerBroadcaster(
       this.logger,

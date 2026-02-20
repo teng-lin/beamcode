@@ -119,7 +119,7 @@ pnpm add -g beamcode
 beamcode
 ```
 
-This starts the BeamCode server on port 3456. Open `http://localhost:3456` in your browser to access the web UI.
+This starts the BeamCode server on port 9414. Open `http://localhost:9414` in your browser to access the web UI.
 
 For development from source:
 
@@ -129,7 +129,7 @@ pnpm build && pnpm start
 
 ### Web UI
 
-The web UI is a React 19 app served directly from the BeamCode server. Open your browser to `http://localhost:3456`.
+The web UI is a React 19 app served directly from the BeamCode server. Open your browser to `http://localhost:9414`.
 
 **What you get:**
 
@@ -146,10 +146,10 @@ To start with hot-module replacement during frontend development:
 
 ```sh
 # Terminal 1
-pnpm start          # BeamCode server on :3456
+pnpm start          # BeamCode server on :9414
 
 # Terminal 2
-pnpm dev:web        # Vite dev server on :5174 (proxies to :3456)
+pnpm dev:web        # Vite dev server on :5174 (proxies to :9414)
 ```
 
 Then open `http://localhost:5174`.
@@ -167,9 +167,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const manager = new SessionManager({
-  config: { port: 3456 },
+  config: { port: 9414 },
   processManager: new NodeProcessManager(),
-  server: new NodeWebSocketServer({ port: 3456 }),
+  server: new NodeWebSocketServer({ port: 9414 }),
   storage: new FileStorage(join(tmpdir(), "beamcode-sessions")),
 });
 

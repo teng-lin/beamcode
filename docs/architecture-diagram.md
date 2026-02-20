@@ -31,7 +31,7 @@
 │          │ localhost:PORT        │                                                  │
 │          │                       │                                                  │
 │  ┌───────▼───────────────────────▼───────────────────────────────────────┐          │
-│  │                     HTTP + WS SERVER (localhost:3456)                 │          │
+│  │                     HTTP + WS SERVER (localhost:9414)                 │          │
 │  │                                                                       │          │
 │  │  ┌─────────────────────────────────────────────────────────────────┐  │          │
 │  │  │  http/ — HTTP Request Router                                    │  │          │
@@ -374,7 +374,7 @@
 ```
 Consumer (React)                                     BeamCode Server
      │                                                     │
-     │  ws://localhost:3456/ws/consumer/:sessionId         │
+     │  ws://localhost:9414/ws/consumer/:sessionId         │
      ├────────────────────────────────────────────────────►│
      │                                                     │
      │  InboundMessage (JSON)                              │

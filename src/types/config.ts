@@ -69,7 +69,7 @@ export type ResolvedConfig = Required<
   };
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
-  port: 3456,
+  port: 9414,
   gitCommandTimeoutMs: 3000,
   relaunchGracePeriodMs: 2000,
   killGracePeriodMs: 5000,

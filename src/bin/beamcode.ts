@@ -63,7 +63,7 @@ function printHelp(): void {
   Usage: beamcode [options]
 
   Options:
-    --port <n>             WebSocket/HTTP port (default: 3456)
+    --port <n>             WebSocket/HTTP port (default: 9414)
     --no-tunnel            Skip cloudflared tunnel
     --tunnel-token <tok>   Use production tunnel with token
     --data-dir <path>      Runtime data directory (default: ~/.beamcode)
@@ -103,7 +103,7 @@ function isTruthyEnv(value: string | undefined): boolean {
 
 function parseArgs(argv: string[]): CliConfig {
   const config: CliConfig = {
-    port: 3456,
+    port: 9414,
     noTunnel: false,
     noAutoLaunch: false,
     dataDir: join(process.env.HOME ?? "~", ".beamcode"),

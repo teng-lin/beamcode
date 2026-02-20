@@ -448,7 +448,7 @@ SESSION_ID="<from startup output>"
 
 node -e "
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://localhost:3456/ws/consumer/$SESSION_ID');
+const ws = new WebSocket('ws://localhost:9414/ws/consumer/$SESSION_ID');
 
 ws.on('message', (data) => {
   const msg = JSON.parse(data.toString());
@@ -854,7 +854,7 @@ pnpm build
 node dist/bin/beamcode.mjs --no-tunnel
 
 # Health check
-curl http://localhost:3456/health
+curl http://localhost:9414/health
 
 # Custom port
 node dist/bin/beamcode.mjs --no-tunnel --port 8080
