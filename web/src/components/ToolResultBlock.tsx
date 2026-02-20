@@ -9,7 +9,7 @@ interface ToolResultBlockProps {
   isError?: boolean;
 }
 
-const MAX_LINES = 50;
+export const MAX_LINES = 50;
 
 function contentToString(content: string | ConsumerContentBlock[]): string {
   if (typeof content === "string") return content;

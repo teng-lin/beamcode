@@ -1,17 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ToolResultBlock } from "./ToolResultBlock";
-
-// Must match MAX_LINES in ToolResultBlock.tsx
-const MAX_LINES = 50;
+import { MAX_LINES, ToolResultBlock } from "./ToolResultBlock";
 
 function lines(n: number): string {
   return Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n");
 }
 
-function mockClipboard(): ReturnType<typeof vi.fn> {
-  const writeText = vi.fn().mockResolvedValue(undefined);
+function mockClipboard(writeText = vi.fn().mockResolvedValue(undefined)) {
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
     configurable: true,
@@ -20,6 +16,15 @@ function mockClipboard(): ReturnType<typeof vi.fn> {
 }
 
 describe("ToolResultBlock", () => {
+  const originalClipboard = navigator.clipboard;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+    });
+  });
+
   it("renders tool name in summary", () => {
     render(<ToolResultBlock toolName="Bash" content="hello" />);
     expect(screen.getByText("Bash")).toBeInTheDocument();
@@ -166,15 +171,6 @@ describe("ToolResultBlock", () => {
   });
 
   describe("copy", () => {
-    const originalClipboard = navigator.clipboard;
-
-    afterEach(() => {
-      Object.defineProperty(navigator, "clipboard", {
-        value: originalClipboard,
-        configurable: true,
-      });
-    });
-
     it("copies content to clipboard", async () => {
       const user = userEvent.setup();
       const writeText = mockClipboard();
@@ -195,10 +191,7 @@ describe("ToolResultBlock", () => {
 
     it("does not throw when clipboard API is unavailable", async () => {
       const user = userEvent.setup();
-      Object.defineProperty(navigator, "clipboard", {
-        value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
-        configurable: true,
-      });
+      mockClipboard(vi.fn().mockRejectedValue(new Error("denied")));
       render(<ToolResultBlock toolName="Glob" content="file.ts" />);
       await expect(
         user.click(screen.getByRole("button", { name: /copy to clipboard/i })),
