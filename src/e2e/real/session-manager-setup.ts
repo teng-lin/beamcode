@@ -85,7 +85,7 @@ export async function setupRealSession(
     server,
     adapterResolver,
     authenticator: options?.authenticator,
-    launcher: new ClaudeLauncher({ processManager, config, storage: memStorage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage }),
     tracer,
   });
 
