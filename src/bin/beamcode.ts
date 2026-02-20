@@ -74,6 +74,11 @@ function printHelp(): void {
     --trace-allow-sensitive  Allow sensitive payload logging with --trace-level full
     --verbose, -v          Verbose logging
     --help, -h             Show this help
+
+  Environment:
+    BEAMCODE_TRACE=1
+    BEAMCODE_TRACE_LEVEL=smart|headers|full
+    BEAMCODE_TRACE_ALLOW_SENSITIVE=1
 `);
 }
 
@@ -83,6 +88,12 @@ function validateAdapterName(value: string, source: string): CliAdapterName {
     process.exit(1);
   }
   return value as CliAdapterName;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const lower = value.toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes" || lower === "on";
 }
 
 function parseArgs(argv: string[]): CliConfig {
@@ -98,6 +109,9 @@ function parseArgs(argv: string[]): CliConfig {
     traceLevel: "smart",
     traceAllowSensitive: false,
   };
+  let traceExplicit = false;
+  let traceLevelExplicit = false;
+  let traceAllowSensitiveExplicit = false;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -136,6 +150,7 @@ function parseArgs(argv: string[]): CliConfig {
         break;
       case "--trace":
         config.trace = true;
+        traceExplicit = true;
         break;
       case "--trace-level": {
         const level = argv[++i];
@@ -144,10 +159,12 @@ function parseArgs(argv: string[]): CliConfig {
           process.exit(1);
         }
         config.traceLevel = level as TraceLevel;
+        traceLevelExplicit = true;
         break;
       }
       case "--trace-allow-sensitive":
         config.traceAllowSensitive = true;
+        traceAllowSensitiveExplicit = true;
         break;
       case "--verbose":
       case "-v":
@@ -170,6 +187,23 @@ function parseArgs(argv: string[]): CliConfig {
 
   if (!config.noAutoLaunch && process.env.BEAMCODE_NO_AUTO_LAUNCH === "1") {
     config.noAutoLaunch = true;
+  }
+
+  if (!traceExplicit && process.env.BEAMCODE_TRACE) {
+    config.trace = isTruthyEnv(process.env.BEAMCODE_TRACE);
+  }
+
+  const traceLevelEnv = process.env.BEAMCODE_TRACE_LEVEL;
+  if (!traceLevelExplicit && traceLevelEnv) {
+    if (!["smart", "headers", "full"].includes(traceLevelEnv)) {
+      console.error("Error: BEAMCODE_TRACE_LEVEL must be smart, headers, or full");
+      process.exit(1);
+    }
+    config.traceLevel = traceLevelEnv as TraceLevel;
+  }
+
+  if (!traceAllowSensitiveExplicit && process.env.BEAMCODE_TRACE_ALLOW_SENSITIVE) {
+    config.traceAllowSensitive = isTruthyEnv(process.env.BEAMCODE_TRACE_ALLOW_SENSITIVE);
   }
 
   if (config.traceLevel === "full" && !config.traceAllowSensitive) {

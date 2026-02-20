@@ -13,6 +13,7 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import { AcpSession } from "./acp-session.js";
 import { JsonRpcCodec } from "./json-rpc.js";
 import type { AcpInitializeResult } from "./outbound-translator.js";
@@ -43,6 +44,7 @@ export class AcpAdapter implements BackendAdapter {
     const command = (options.adapterOptions?.command as string) ?? "goose";
     const args = (options.adapterOptions?.args as string[]) ?? [];
     const cwd = options.adapterOptions?.cwd as string | undefined;
+    const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
 
     const child = this.spawnFn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -58,9 +60,19 @@ export class AcpAdapter implements BackendAdapter {
       clientInfo: { name: "beamcode", version: "0.1.0" },
     });
 
+    tracer?.send("backend", "native_outbound", initReq, {
+      sessionId: options.sessionId,
+      phase: "handshake_send",
+    });
     child.stdin?.write(codec.encode(initReq));
 
-    const initResult = await waitForResponse<AcpInitializeResult>(child.stdout!, codec, initId);
+    const initResult = await waitForResponse<AcpInitializeResult>(
+      child.stdout!,
+      codec,
+      initId,
+      tracer,
+      options.sessionId,
+    );
 
     // Create or resume session
     const sessionMethod = options.resume ? "session/load" : "session/new";
@@ -68,17 +80,23 @@ export class AcpAdapter implements BackendAdapter {
       sessionId: options.sessionId,
     });
 
+    tracer?.send("backend", "native_outbound", sessionReq, {
+      sessionId: options.sessionId,
+      phase: "handshake_send",
+    });
     child.stdin?.write(codec.encode(sessionReq));
 
     const sessionResult = await waitForResponse<{ sessionId: string }>(
       child.stdout!,
       codec,
       sessionReqId,
+      tracer,
+      options.sessionId,
     );
 
     const sessionId = sessionResult.sessionId ?? options.sessionId;
 
-    return new AcpSession(sessionId, child, codec, initResult);
+    return new AcpSession(sessionId, child, codec, initResult, tracer);
   }
 }
 
@@ -87,6 +105,8 @@ async function waitForResponse<T>(
   stdout: NodeJS.ReadableStream,
   codec: JsonRpcCodec,
   expectedId: number | string,
+  tracer?: MessageTracer,
+  sessionId?: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let buffer = "";
@@ -103,6 +123,10 @@ async function waitForResponse<T>(
 
         try {
           const msg = codec.decode(line);
+          tracer?.recv("backend", "native_inbound", msg, {
+            sessionId,
+            phase: "handshake_recv",
+          });
           if ("id" in msg && msg.id === expectedId) {
             cleanup();
             if ("error" in msg && msg.error) {

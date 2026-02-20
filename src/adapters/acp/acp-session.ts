@@ -7,6 +7,7 @@
 
 import type { ChildProcess } from "node:child_process";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
+import { extractTraceContext, type MessageTracer } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { translateToAcp } from "./inbound-translator.js";
 import type { JsonRpcMessage } from "./json-rpc.js";
@@ -35,6 +36,7 @@ export class AcpSession implements BackendSession {
   private readonly child: ChildProcess;
   private readonly codec: JsonRpcCodec;
   private readonly initResult: AcpInitializeResult;
+  private readonly tracer?: MessageTracer;
   private readonly pendingRequests = new Map<number | string, PendingRequest>();
   private pendingPermissionRequestId: number | string | undefined;
   private closed = false;
@@ -44,20 +46,36 @@ export class AcpSession implements BackendSession {
     child: ChildProcess,
     codec: JsonRpcCodec,
     initResult: AcpInitializeResult,
+    tracer?: MessageTracer,
   ) {
     this.sessionId = sessionId;
     this.child = child;
     this.codec = codec;
     this.initResult = initResult;
+    this.tracer = tracer;
   }
 
   send(message: UnifiedMessage): void {
     if (this.closed) throw new Error("Session is closed");
 
+    const trace = extractTraceContext(message.metadata);
     const action = translateToAcp(message, {
       pendingRequestId: this.pendingPermissionRequestId,
     });
     if (!action) return;
+    this.tracer?.translate(
+      "translateToAcp",
+      "T2",
+      { format: "UnifiedMessage", body: message },
+      { format: "AcpOutboundAction", body: action },
+      {
+        sessionId: this.sessionId,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t2",
+      },
+    );
 
     let rpcMsg: JsonRpcMessage;
 
@@ -86,6 +104,13 @@ export class AcpSession implements BackendSession {
       }
     }
 
+    this.tracer?.send("backend", "native_outbound", rpcMsg, {
+      sessionId: this.sessionId,
+      traceId: trace.traceId,
+      requestId: trace.requestId,
+      command: trace.command,
+      phase: "t2_send_native",
+    });
     this.child.stdin?.write(this.codec.encode(rpcMsg));
   }
 
@@ -152,11 +177,36 @@ export class AcpSession implements BackendSession {
           try {
             msg = codec.decode(line);
           } catch {
+            session.tracer?.error(
+              "backend",
+              "native_inbound",
+              "Failed to decode ACP JSON-RPC line",
+              {
+                sessionId: session.sessionId,
+                action: "dropped",
+                phase: "t3_parse",
+                outcome: "parse_error",
+              },
+            );
             return; // Skip unparseable lines
           }
+          session.tracer?.recv("backend", "native_inbound", msg, {
+            sessionId: session.sessionId,
+            phase: "t3_recv_native",
+          });
 
           const unified = session.routeMessage(msg);
           if (!unified) return;
+          session.tracer?.translate(
+            "routeMessage",
+            "T3",
+            { format: "AcpJsonRpc", body: msg },
+            { format: "UnifiedMessage", body: unified },
+            {
+              sessionId: session.sessionId,
+              phase: "t3",
+            },
+          );
 
           if (resolve) {
             const r = resolve;
@@ -231,6 +281,12 @@ export class AcpSession implements BackendSession {
       if (msg.method === "session/update") {
         return translateSessionUpdate(msg.params as Parameters<typeof translateSessionUpdate>[0]);
       }
+      this.tracer?.error("backend", msg.method, "ACP notification not mapped to UnifiedMessage", {
+        sessionId: this.sessionId,
+        action: "dropped",
+        phase: "t3",
+        outcome: "unmapped_type",
+      });
       return null;
     }
 

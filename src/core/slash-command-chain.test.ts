@@ -30,7 +30,25 @@ function makeContext(): CommandHandlerContext {
   return {
     command: "/compact",
     requestId: "req-1",
+    slashRequestId: "sr-1",
+    traceId: "t-1",
+    startedAtMs: Date.now(),
     session: createMockSession(),
+  };
+}
+
+function slashCtx(
+  session: ReturnType<typeof createMockSession>,
+  command: string,
+  requestId?: string,
+): CommandHandlerContext {
+  return {
+    command,
+    requestId,
+    slashRequestId: requestId ?? "sr-generated",
+    traceId: "t-test",
+    startedAtMs: Date.now(),
+    session,
   };
 }
 
@@ -90,17 +108,17 @@ function makeLocalSetup() {
 describe("LocalHandler", () => {
   it("handles /help", () => {
     const { handler, session } = makeLocalSetup();
-    expect(handler.handles({ command: "/help", requestId: undefined, session })).toBe(true);
+    expect(handler.handles(slashCtx(session, "/help"))).toBe(true);
   });
 
   it("does not handle /compact", () => {
     const { handler, session } = makeLocalSetup();
-    expect(handler.handles({ command: "/compact", requestId: undefined, session })).toBe(false);
+    expect(handler.handles(slashCtx(session, "/compact"))).toBe(false);
   });
 
   it("executes /help and broadcasts slash_command_result", async () => {
     const { handler, ws, session } = makeLocalSetup();
-    handler.execute({ command: "/help", requestId: "r1", session });
+    handler.execute(slashCtx(session, "/help", "r1"));
     await flushPromises();
     const msg = findMessage(ws, "slash_command_result");
     expect(msg).toBeDefined();
@@ -122,7 +140,7 @@ describe("LocalHandler", () => {
       displayName: "Alice",
       role: "participant",
     });
-    handler.execute({ command: "/help", requestId: "r1", session });
+    handler.execute(slashCtx(session, "/help", "r1"));
     await flushPromises();
     const msg = findMessage(ws, "slash_command_error");
     expect(msg.error).toBe("boom");
@@ -130,7 +148,7 @@ describe("LocalHandler", () => {
 
   it("emits slash_command:executed on success", async () => {
     const { handler, session, emitEvent } = makeLocalSetup();
-    handler.execute({ command: "/help", requestId: undefined, session });
+    handler.execute(slashCtx(session, "/help"));
     await flushPromises();
     expect(emitEvent).toHaveBeenCalledWith(
       "slash_command:executed",
@@ -151,7 +169,7 @@ describe("AdapterNativeHandler", () => {
     };
     const broadcaster = new ConsumerBroadcaster(noopLogger);
     const handler = new AdapterNativeHandler({ broadcaster, emitEvent: vi.fn() });
-    expect(handler.handles({ command: "/compact", requestId: undefined, session })).toBe(true);
+    expect(handler.handles(slashCtx(session, "/compact"))).toBe(true);
   });
 
   it("does not handle when adapterSlashExecutor is null", () => {
@@ -159,7 +177,7 @@ describe("AdapterNativeHandler", () => {
     session.adapterSlashExecutor = null;
     const broadcaster = new ConsumerBroadcaster(noopLogger);
     const handler = new AdapterNativeHandler({ broadcaster, emitEvent: vi.fn() });
-    expect(handler.handles({ command: "/compact", requestId: undefined, session })).toBe(false);
+    expect(handler.handles(slashCtx(session, "/compact"))).toBe(false);
   });
 
   it("broadcasts result from adapter executor", async () => {
@@ -179,7 +197,7 @@ describe("AdapterNativeHandler", () => {
     };
     const broadcaster = new ConsumerBroadcaster(noopLogger);
     const handler = new AdapterNativeHandler({ broadcaster, emitEvent: vi.fn() });
-    handler.execute({ command: "/compact", requestId: "r1", session });
+    handler.execute(slashCtx(session, "/compact", "r1"));
     await flushPromises();
     const msg = findMessage(ws, "slash_command_result");
     expect(msg.content).toBe("compact done");
@@ -197,7 +215,7 @@ describe("PassthroughHandler", () => {
       emitEvent: vi.fn(),
       sendUserMessage: vi.fn(),
     });
-    expect(handler.handles({ command: "/any-cmd", requestId: undefined, session })).toBe(true);
+    expect(handler.handles(slashCtx(session, "/any-cmd"))).toBe(true);
   });
 
   it("does not handle when adapter does not support passthrough", () => {
@@ -208,7 +226,7 @@ describe("PassthroughHandler", () => {
       emitEvent: vi.fn(),
       sendUserMessage: vi.fn(),
     });
-    expect(handler.handles({ command: "/compact", requestId: undefined, session })).toBe(false);
+    expect(handler.handles(slashCtx(session, "/compact"))).toBe(false);
   });
 
   it("pushes to pendingPassthroughs queue and calls sendUserMessage", () => {
@@ -220,9 +238,19 @@ describe("PassthroughHandler", () => {
       emitEvent: vi.fn(),
       sendUserMessage,
     });
-    handler.execute({ command: "/compact arg", requestId: "r1", session });
-    expect(session.pendingPassthroughs).toEqual([{ command: "/compact", requestId: "r1" }]);
-    expect(sendUserMessage).toHaveBeenCalledWith("sess-1", "/compact arg");
+    handler.execute(slashCtx(session, "/compact arg", "r1"));
+    expect(session.pendingPassthroughs).toEqual([
+      expect.objectContaining({
+        command: "/compact",
+        requestId: "r1",
+        slashRequestId: "r1",
+      }),
+    ]);
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "sess-1",
+      "/compact arg",
+      expect.objectContaining({ requestId: "r1", command: "/compact" }),
+    );
   });
 });
 
@@ -233,7 +261,7 @@ describe("UnsupportedHandler", () => {
     const session = createMockSession();
     const broadcaster = new ConsumerBroadcaster(noopLogger);
     const handler = new UnsupportedHandler({ broadcaster, emitEvent: vi.fn() });
-    expect(handler.handles({ command: "/anything", requestId: undefined, session })).toBe(true);
+    expect(handler.handles(slashCtx(session, "/anything"))).toBe(true);
   });
 
   it("broadcasts slash_command_error", async () => {
@@ -246,7 +274,7 @@ describe("UnsupportedHandler", () => {
       displayName: "Alice",
       role: "participant",
     });
-    handler.execute({ command: "/unknown", requestId: "r1", session });
+    handler.execute(slashCtx(session, "/unknown", "r1"));
     const msg = findMessage(ws, "slash_command_error");
     expect(msg.error).toContain("/unknown");
     expect(msg.error).toContain("not supported");

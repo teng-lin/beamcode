@@ -12,7 +12,7 @@ import type WebSocket from "ws";
 import type { RawData } from "ws";
 import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
-import type { MessageTracer } from "../../core/message-tracer.js";
+import { extractTraceContext, type MessageTracer } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { CLIMessage } from "../../types/cli-messages.js";
@@ -72,14 +72,39 @@ export class ClaudeSession implements BackendSession {
       this.logger.warn("toNDJSON returned null, message not sent", { messageType: message.type });
       return;
     }
+    const trace = this.traceFromUnified(message);
     this.tracer?.translate(
       "toNDJSON",
       "T2",
       { format: "UnifiedMessage", body: message },
       { format: "Claude NDJSON", body: ndjson },
-      { sessionId: this.sessionId },
+      {
+        sessionId: this.sessionId,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t2",
+      },
     );
-    this.tracer?.send("backend", message.type, message, { sessionId: this.sessionId });
+    this.tracer?.send(
+      "backend",
+      "native_outbound",
+      { ndjson },
+      {
+        sessionId: this.sessionId,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t2_send_native",
+      },
+    );
+    this.tracer?.send("backend", message.type, message, {
+      sessionId: this.sessionId,
+      traceId: trace.traceId,
+      requestId: trace.requestId,
+      command: trace.command,
+      phase: "send_unified",
+    });
     this.sendToSocket(ndjson);
   }
 
@@ -204,6 +229,13 @@ export class ClaudeSession implements BackendSession {
   }
 
   private processCliMessage(cliMsg: CLIMessage): void {
+    const inboundTrace = this.traceFromCliMessage(cliMsg);
+    this.tracer?.recv("backend", "native_inbound", cliMsg, {
+      sessionId: this.sessionId,
+      requestId: inboundTrace.requestId,
+      command: inboundTrace.command,
+      phase: "t3_recv_native",
+    });
     if (cliMsg.type === "user" && this.passthroughHandler?.(cliMsg)) {
       return;
     }
@@ -214,7 +246,12 @@ export class ClaudeSession implements BackendSession {
         "T3",
         { format: "Claude CLIMessage", body: cliMsg },
         { format: "UnifiedMessage", body: unified },
-        { sessionId: this.sessionId },
+        {
+          sessionId: this.sessionId,
+          requestId: inboundTrace.requestId,
+          command: inboundTrace.command,
+          phase: "t3",
+        },
       );
       this.queue.enqueue(unified);
     } else {
@@ -228,6 +265,8 @@ export class ClaudeSession implements BackendSession {
         {
           sessionId: this.sessionId,
           action: consumedType ? "consumed" : "dropped",
+          phase: "t3",
+          outcome: consumedType ? undefined : "unmapped_type",
         },
       );
     }
@@ -246,6 +285,31 @@ export class ClaudeSession implements BackendSession {
     this.tracer?.error("backend", "raw_unparsed_line", error, {
       sessionId: this.sessionId,
       action: "dropped",
+      phase: "t3_parse",
+      outcome: "parse_error",
     });
+  }
+
+  private traceFromUnified(message: UnifiedMessage): {
+    traceId?: string;
+    requestId?: string;
+    command?: string;
+  } {
+    return extractTraceContext(message.metadata);
+  }
+
+  private traceFromCliMessage(msg: CLIMessage): { requestId?: string; command?: string } {
+    if (msg.type === "control_request") {
+      return {
+        requestId: msg.request_id,
+        command: typeof msg.request.tool_name === "string" ? msg.request.tool_name : undefined,
+      };
+    }
+    if (msg.type === "control_response") {
+      return {
+        requestId: msg.response.request_id,
+      };
+    }
+    return {};
   }
 }
