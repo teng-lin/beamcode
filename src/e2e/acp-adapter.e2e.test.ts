@@ -47,13 +47,17 @@ describe("E2E: AcpAdapter", () => {
         onPrompt: (parsed) => {
           sendNotification(stdout, "session/update", {
             sessionId: "e2e-session",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Hello " },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Hello " },
+            },
           });
           sendNotification(stdout, "session/update", {
             sessionId: "e2e-session",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "world!" },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "world!" },
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "e2e-session",
@@ -75,14 +79,15 @@ describe("E2E: AcpAdapter", () => {
     // Send a user message
     session.send(createUserMessage("Hello"));
 
-    // Collect stream chunks + result
-    const messages = await reader.collect(3);
+    // Collect stream chunks + synthesized assistant message + result
+    const messages = await reader.collect(4);
     expect(messages[0].type).toBe("stream_event");
     expect(messages[0].content[0]).toEqual({ type: "text", text: "Hello " });
     expect(messages[1].type).toBe("stream_event");
     expect(messages[1].content[0]).toEqual({ type: "text", text: "world!" });
-    expect(messages[2].type).toBe("result");
-    expect(messages[2].metadata.stopReason).toBe("end_turn");
+    expect(messages[2].type).toBe("assistant");
+    expect(messages[3].type).toBe("result");
+    expect(messages[3].metadata.stopReason).toBe("end_turn");
   });
 
   it("multi-turn conversation", async () => {
@@ -94,8 +99,10 @@ describe("E2E: AcpAdapter", () => {
           promptCount++;
           sendNotification(stdout, "session/update", {
             sessionId: "e2e-session",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: `Response ${promptCount}` },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: `Response ${promptCount}` },
+            },
           });
           respondToRequest(stdout, parsed.id, {
             sessionId: "e2e-session",
@@ -111,17 +118,19 @@ describe("E2E: AcpAdapter", () => {
 
     // Turn 1
     session.send(createUserMessage("First message"));
-    const turn1 = await reader.collect(2);
+    const turn1 = await reader.collect(3);
     expect(turn1[0].type).toBe("stream_event");
     expect(turn1[0].content[0]).toEqual({ type: "text", text: "Response 1" });
-    expect(turn1[1].type).toBe("result");
+    expect(turn1[1].type).toBe("assistant");
+    expect(turn1[2].type).toBe("result");
 
     // Turn 2
     session.send(createUserMessage("Second message"));
-    const turn2 = await reader.collect(2);
+    const turn2 = await reader.collect(3);
     expect(turn2[0].type).toBe("stream_event");
     expect(turn2[0].content[0]).toEqual({ type: "text", text: "Response 2" });
-    expect(turn2[1].type).toBe("result");
+    expect(turn2[1].type).toBe("assistant");
+    expect(turn2[2].type).toBe("result");
 
     expect(promptCount).toBe(2);
   });
@@ -149,8 +158,7 @@ describe("E2E: AcpAdapter", () => {
     session.send(createUserMessage("Do something"));
 
     const { target: permReq } = await reader.waitFor("permission_request");
-    expect(permReq.metadata.toolCall).toBeDefined();
-    expect((permReq.metadata.toolCall as { name: string }).name).toBe("bash");
+    expect(permReq.metadata.tool_use_id).toBe("tc-1");
 
     session.send(createPermissionResponse("allow", permReq.id, { optionId: "allow-once" }));
   });
@@ -222,8 +230,10 @@ describe("E2E: AcpAdapter", () => {
         onPrompt: () => {
           sendNotification(stdout, "session/update", {
             sessionId: "e2e-session",
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "partial..." },
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "partial..." },
+            },
           });
           setTimeout(() => {
             stdout.emit("close");

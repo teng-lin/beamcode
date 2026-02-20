@@ -442,6 +442,146 @@ const mgr = new SessionManager({ config, launcher, tracer });
 
 When `--trace` is not set, `noopTracer` is used — all methods are empty functions with zero overhead.
 
+### Debugging with Traces: Practical Walkthrough
+
+This section explains the step-by-step process for using traces to find where messages are dropped or malformed. This is the primary debugging technique for cross-boundary issues.
+
+#### Step 1: Start beamcode with full tracing
+
+```bash
+# Build first (required after code changes)
+pnpm build:lib
+
+# Start with full trace, stderr to file
+node dist/bin/beamcode.mjs \
+  --trace --trace-level full --trace-allow-sensitive \
+  --adapter gemini --no-tunnel \
+  2>trace.ndjson
+```
+
+Note the **Session ID** from the startup output — you need it to connect as a consumer.
+
+#### Step 2: Connect a consumer and trigger the flow
+
+```bash
+SESSION_ID="<from startup output>"
+
+node -e "
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://localhost:3456/ws/consumer/$SESSION_ID');
+
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  console.log(msg.type, JSON.stringify(msg).substring(0, 120));
+});
+
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    type: 'user_message',
+    content: 'Hello',
+    session_id: '$SESSION_ID'
+  }));
+});
+
+setTimeout(() => process.exit(0), 15000);
+"
+```
+
+#### Step 3: Analyze the trace for drops
+
+Extract translation events and check for dropped fields at each boundary:
+
+```bash
+# Show all translation events (T1–T4) in sequence
+grep '"trace":true' trace.ndjson | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        obj = json.loads(line.strip())
+        boundary = obj.get('boundary', '')
+        if boundary:
+            diff = obj.get('diff', [])
+            drops = [d for d in diff if d.startswith('-')]
+            adds = [d for d in diff if d.startswith('+')]
+            maps = [d for d in diff if '→' in d]
+            print(f'[{boundary}] {obj.get(\"messageType\", \"?\")}')
+            if maps: print(f'  mapped: {maps}')
+            if drops: print(f'  DROPPED: {drops}')
+            if adds: print(f'  added: {adds}')
+    except: pass
+"
+```
+
+A field appearing as `-metadata.someField` in a diff means it was **silently dropped** at that boundary.
+
+#### Step 4: Find the specific boundary
+
+| Symptom | Check boundary | File to fix |
+|---------|---------------|-------------|
+| Consumer never receives the message | T4 | `unified-message-router.ts` |
+| Backend receives wrong params | T2 | Adapter's inbound translator |
+| Backend response not translated | T3 | Adapter's outbound translator |
+| Consumer sends but backend ignores | T1 | `inbound-normalizer.ts` |
+
+#### Step 5: Check for errors and unmapped types
+
+```bash
+# Show errors (parse failures, unmapped types)
+grep '"trace":true' trace.ndjson | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        obj = json.loads(line.strip())
+        if obj.get('outcome') in ('parse_error', 'unmapped_type') or 'error' in obj.get('direction', ''):
+            print(f'[seq={obj.get(\"seq\")}] {obj.get(\"layer\")} {obj.get(\"direction\")} — {obj.get(\"messageType\", \"?\")}')
+            if obj.get('body'): print(f'  body: {json.dumps(obj[\"body\"])[:200]}')
+    except: pass
+"
+```
+
+#### Step 6: Inspect raw backend messages
+
+```bash
+# Show all native messages to/from backend
+grep '"trace":true' trace.ndjson | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        obj = json.loads(line.strip())
+        layer = obj.get('layer', '')
+        direction = obj.get('direction', '')
+        if layer == 'backend' and direction in ('send', 'recv'):
+            body = obj.get('body', {})
+            method = body.get('method', 'response')
+            error = body.get('error', {})
+            print(f'[seq={obj.get(\"seq\")}] {direction} {method}', end='')
+            if error: print(f' ERROR={json.dumps(error)}', end='')
+            print()
+    except: pass
+"
+```
+
+#### Example: Diagnosing a dropped field
+
+Real example — `authMethods` was present in the ACP initialize response but missing from the consumer's `session_init`:
+
+```
+[T3] session_init
+  mapped: ['content → session.tools', 'metadata.agentCapabilities → ...']
+  DROPPED: ['-metadata.authMethods']
+  added: ['+session.session_id', '+session.model', ...]
+```
+
+The `-metadata.authMethods` in the T4 diff immediately shows the field was dropped at the `handleSessionInit` mapper in `unified-message-router.ts`. Fix: store the field on `session.state` before building the consumer message.
+
+#### Tips
+
+- Use `--trace-level smart` (default) to avoid sensitive data in logs
+- The `seq` field orders events chronologically across all layers
+- The `diff` array is auto-generated — look for `-` prefixed entries (drops)
+- Use `pnpm trace:inspect dropped-backend-types trace.ndjson` for a pre-built query on dropped types
+- Each adapter maintains its own T2/T3 translators — check the adapter directory for the specific backend
+
 ---
 
 ## Building

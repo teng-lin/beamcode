@@ -83,7 +83,10 @@ describe("AcpAdapter", () => {
     it("sends initialize and session/new handshake", async () => {
       setup();
       const adapter = new AcpAdapter(mockSpawn);
-      const connectPromise = adapter.connect({ sessionId: "sess-1" });
+      const connectPromise = adapter.connect({
+        sessionId: "sess-1",
+        adapterOptions: { cwd: "/test/dir" },
+      });
 
       await tick();
 
@@ -100,6 +103,8 @@ describe("AcpAdapter", () => {
 
       const sessionReq = JSON.parse(mockChild.stdin.chunks[1]);
       expect(sessionReq.method).toBe("session/new");
+      expect(sessionReq.params.cwd).toBe("/test/dir");
+      expect(sessionReq.params.mcpServers).toEqual([]);
 
       respondToRequest(mockChild.stdout, 2, { sessionId: "sess-1" });
       await connectPromise;
@@ -175,8 +180,10 @@ describe("AcpAdapter", () => {
 
       sendNotification(mockChild.stdout, "session/update", {
         sessionId: "sess-1",
-        sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: "Hello user" },
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Hello user" },
+        },
       });
 
       const result = await iter.next();
@@ -206,10 +213,10 @@ describe("AcpAdapter", () => {
 
       const permReq = await iter.next();
       expect(permReq.value.type).toBe("permission_request");
-      expect(permReq.value.metadata.toolCall).toEqual({
-        toolCallId: "call-1",
-        title: "Run bash",
-      });
+      expect(permReq.value.metadata.request_id).toBe("call-1");
+      expect(permReq.value.metadata.tool_use_id).toBe("call-1");
+      expect(permReq.value.metadata.tool_name).toBe("Run bash");
+      expect(permReq.value.metadata.description).toBe("Run bash");
 
       // Send permission response
       const permResp = createUnifiedMessage({

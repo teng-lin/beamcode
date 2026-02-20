@@ -79,17 +79,6 @@ export function getGeminiPrereqState(): BackendPrereqState {
     };
   }
 
-  // Gemini CLI's --experimental-acp mode requires authentication even for
-  // the initial handshake, so all tests (including smoke) need credentials.
-  if (!hasApiKey) {
-    return {
-      ok: false,
-      reason: "gemini binary available but GOOGLE_API_KEY/GEMINI_API_KEY not set",
-      hasApiKey,
-      canRunPromptTests: false,
-    };
-  }
-
   return { ok: true, hasApiKey, canRunPromptTests: true };
 }
 

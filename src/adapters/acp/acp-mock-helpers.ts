@@ -102,8 +102,10 @@ export function autoRespond(
           () =>
             sendNotification(stdout, "session/update", {
               sessionId,
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "echo" },
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "echo" },
+              },
             }),
           0,
         );

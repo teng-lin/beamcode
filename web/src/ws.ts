@@ -187,8 +187,16 @@ function handleMessage(sessionId: string, data: string): void {
           break;
 
         case "content_block_delta": {
-          const delta = (event as { delta?: { type: string; text?: string } }).delta;
+          const delta = (event as { delta?: { type: string; text?: string; thinking?: string } })
+            .delta;
           if (delta?.type === "text_delta" && delta.text) {
+            // Auto-init streaming if no message_start was received (ACP backends)
+            const sd = useStore.getState().sessionData[sessionId];
+            if (!agentId && sd?.streaming === null) {
+              store.setStreamingStarted(sessionId, Date.now());
+              store.setStreaming(sessionId, "");
+              store.setSessionStatus(sessionId, "running");
+            }
             bufferStreamingDelta(sessionId, agentId, delta.text);
           }
           break;
@@ -334,6 +342,7 @@ function handleMessage(sessionId: string, data: string): void {
         isAuthenticating: msg.isAuthenticating,
         output: msg.output,
         error: msg.error,
+        validationLink: msg.validationLink,
       });
       break;
 

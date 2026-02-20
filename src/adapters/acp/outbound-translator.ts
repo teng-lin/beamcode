@@ -30,10 +30,17 @@ export interface AcpPromptResult {
   [key: string]: unknown;
 }
 
+export interface AcpAuthMethod {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
 export interface AcpInitializeResult {
   protocolVersion: number;
   agentCapabilities: Record<string, unknown>;
   agentInfo?: { name?: string; version?: string };
+  authMethods?: AcpAuthMethod[];
 }
 
 // ---------------------------------------------------------------------------
@@ -68,12 +75,19 @@ export function translateSessionUpdate(update: AcpSessionUpdate): UnifiedMessage
 
 /** Translate a session/request_permission request into a UnifiedMessage. */
 export function translatePermissionRequest(request: AcpPermissionRequest): UnifiedMessage {
+  const tc = request.toolCall;
   return createUnifiedMessage({
     type: "permission_request",
     role: "system",
     metadata: {
       sessionId: request.sessionId,
-      toolCall: request.toolCall,
+      // Map ACP toolCall fields to the flat names expected by consumer-message-mapper
+      request_id: tc.toolCallId,
+      tool_use_id: tc.toolCallId,
+      tool_name: (tc.kind as string) ?? (tc.title as string) ?? "tool",
+      input: (tc.rawInput as Record<string, unknown>) ?? {},
+      description: tc.title as string | undefined,
+      // Preserve ACP options for inbound permission response translation
       options: request.options,
     },
   });
@@ -89,6 +103,53 @@ export function translatePromptResult(result: AcpPromptResult): UnifiedMessage {
   });
 }
 
+/** Signature for backend-specific error classifiers. */
+export type ErrorClassifier = (code: number, message: string) => string;
+
+/**
+ * Translate a JSON-RPC error on a prompt response into a result UnifiedMessage.
+ *
+ * Preserves the full error detail (code, message, data) so consumers can
+ * surface actionable info. An optional classifier maps the error to a
+ * UnifiedErrorCode; defaults to "api_error" when no classifier is provided.
+ */
+export function translatePromptError(
+  sessionId: string,
+  error: { code: number; message: string; data?: unknown },
+  classify?: ErrorClassifier,
+): UnifiedMessage {
+  return createUnifiedMessage({
+    type: "result",
+    role: "system",
+    metadata: {
+      sessionId,
+      stopReason: "error",
+      error_code: classify ? classify(error.code, error.message) : "api_error",
+      error_message: error.message,
+      ...(error.data !== undefined && { error_data: error.data }),
+    },
+  });
+}
+
+/** Translate an auth error into an auth_status UnifiedMessage. */
+export function translateAuthStatus(
+  sessionId: string,
+  error: string,
+  data?: { validationLink?: string; validationDescription?: string; learnMoreUrl?: string },
+): UnifiedMessage {
+  return createUnifiedMessage({
+    type: "auth_status",
+    role: "system",
+    metadata: {
+      sessionId,
+      isAuthenticating: false,
+      output: [],
+      error,
+      ...(data?.validationLink && { validationLink: data.validationLink }),
+    },
+  });
+}
+
 /** Translate an initialize response into a UnifiedMessage. */
 export function translateInitializeResult(result: AcpInitializeResult): UnifiedMessage {
   return createUnifiedMessage({
@@ -99,6 +160,7 @@ export function translateInitializeResult(result: AcpInitializeResult): UnifiedM
       agentCapabilities: result.agentCapabilities,
       agentName: result.agentInfo?.name,
       agentVersion: result.agentInfo?.version,
+      ...(result.authMethods && { authMethods: result.authMethods }),
     },
   });
 }
@@ -118,7 +180,13 @@ function translateAgentMessageChunk(update: AcpSessionUpdate): UnifiedMessage {
     type: "stream_event",
     role: "assistant",
     content,
-    metadata: { sessionId: update.sessionId },
+    metadata: {
+      sessionId: update.sessionId,
+      // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
+      ...(textChunk?.text && {
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: textChunk.text } },
+      }),
+    },
   });
 }
 
@@ -133,7 +201,17 @@ function translateAgentThoughtChunk(update: AcpSessionUpdate): UnifiedMessage {
     type: "stream_event",
     role: "assistant",
     content,
-    metadata: { sessionId: update.sessionId, thought: true },
+    metadata: {
+      sessionId: update.sessionId,
+      thought: true,
+      // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
+      ...(textChunk?.text && {
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: textChunk.text },
+        },
+      }),
+    },
   });
 }
 
@@ -153,6 +231,7 @@ function translateToolCall(update: AcpSessionUpdate): UnifiedMessage {
 
 function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
   const status = update.status as string | undefined;
+  const content = extractToolContent(update.content);
 
   if (status === "completed" || status === "failed") {
     return createUnifiedMessage({
@@ -161,7 +240,7 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
       metadata: {
         sessionId: update.sessionId,
         toolCallId: update.toolCallId as string,
-        content: update.content,
+        content,
         status,
         is_error: status === "failed",
       },
@@ -175,10 +254,32 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
     metadata: {
       sessionId: update.sessionId,
       toolCallId: update.toolCallId as string,
-      content: update.content,
+      content,
       status: status ?? "in_progress",
     },
   });
+}
+
+/**
+ * Extract text from ACP tool content format.
+ * ACP sends: [{type: "content", content: {type: "text", text: "..."}}]
+ * We flatten to a plain text string for the consumer.
+ */
+function extractToolContent(raw: unknown): string | unknown {
+  if (!Array.isArray(raw)) return raw;
+  const texts: string[] = [];
+  for (const item of raw) {
+    if (
+      item?.type === "content" &&
+      item?.content?.type === "text" &&
+      typeof item.content.text === "string"
+    ) {
+      texts.push(item.content.text);
+    } else if (item?.type === "text" && typeof item?.text === "string") {
+      texts.push(item.text);
+    }
+  }
+  return texts.length > 0 ? texts.join("\n") : raw;
 }
 
 function translatePlan(update: AcpSessionUpdate): UnifiedMessage {

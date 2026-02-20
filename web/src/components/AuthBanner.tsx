@@ -31,6 +31,16 @@ export function AuthBanner({ sessionId }: AuthBannerProps) {
         </pre>
       )}
       {authStatus.error && <p className="mt-1">{authStatus.error}</p>}
+      {authStatus.validationLink && (
+        <a
+          href={authStatus.validationLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1.5 inline-block rounded bg-bc-error/20 px-2 py-1 text-[11px] font-medium text-bc-error underline hover:bg-bc-error/30"
+        >
+          Verify your account
+        </a>
+      )}
     </div>
   );
 }

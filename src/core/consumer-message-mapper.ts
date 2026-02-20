@@ -143,6 +143,7 @@ export function mapResultMessage(msg: UnifiedMessage): ConsumerMessage {
       total_lines_removed: m.total_lines_removed as number | undefined,
       error_code: m.error_code as string | undefined,
       error_message: m.error_message as string | undefined,
+      error_data: m.error_data as Record<string, unknown> | undefined,
     },
   };
 }
@@ -154,7 +155,10 @@ export function mapStreamEvent(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
   return {
     type: "stream_event",
-    event: m.event,
+    event: (m.event as Record<string, unknown>) ?? {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "" },
+    },
     parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
   };
 }
@@ -252,6 +256,7 @@ export function mapAuthStatus(msg: UnifiedMessage): ConsumerMessage {
     isAuthenticating: m.isAuthenticating as boolean,
     output: m.output as string[],
     error: m.error as string | undefined,
+    validationLink: m.validationLink as string | undefined,
   };
 }
 
