@@ -83,8 +83,8 @@ export interface SessionSnapshot {
   lastStatus: "compacting" | "idle" | "running" | null;
 }
 
-/** Session info from the launcher (process-level info) */
-export interface SdkSessionInfo {
+/** Session metadata exposed to HTTP API and frontend (adapter-agnostic). */
+export interface SessionInfo {
   sessionId: string;
   pid?: number;
   state: "starting" | "connected" | "running" | "exited";

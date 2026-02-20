@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archiveSession, deleteSession, renameSession, unarchiveSession } from "../api";
-import { type SdkSessionInfo, useStore } from "../store";
+import { type SessionInfo, useStore } from "../store";
 import { cwdBasename } from "../utils/format";
 import { filterSessionsByQuery, sortedSessions, updateSessionUrl } from "../utils/session";
 import { connectToSession, disconnectSession } from "../ws";
@@ -15,7 +15,7 @@ const ADAPTER_COLORS: Record<string, string> = {
   opencode: "bg-bc-adapter-opencode",
 };
 
-function adapterColor(info?: SdkSessionInfo): string {
+function adapterColor(info?: SessionInfo): string {
   const type = info?.adapterName ?? info?.adapterType ?? "default";
   return ADAPTER_COLORS[type] ?? "bg-bc-adapter-default";
 }
@@ -54,7 +54,7 @@ function formatTime(ts: number): string {
 }
 
 /** Resolve the effective status: exited sessions should never appear "green". */
-function resolveStatus(info: SdkSessionInfo, sessionStatus: string | null): string {
+function resolveStatus(info: SessionInfo, sessionStatus: string | null): string {
   if (info.state === "exited") return "exited";
   return sessionStatus ?? info.state;
 }
@@ -66,7 +66,7 @@ const SessionItem = memo(function SessionItem({
   onSelect,
   onArchiveToggle,
 }: {
-  info: SdkSessionInfo;
+  info: SessionInfo;
   isActive: boolean;
   onSelect: () => void;
   onArchiveToggle: () => void;
@@ -447,8 +447,8 @@ export function Sidebar() {
   );
 
   const { activeSessions, archivedSessions } = useMemo(() => {
-    const active: SdkSessionInfo[] = [];
-    const archived: SdkSessionInfo[] = [];
+    const active: SessionInfo[] = [];
+    const archived: SessionInfo[] = [];
     for (const s of filteredList) {
       (s.archived ? archived : active).push(s);
     }
@@ -488,7 +488,7 @@ export function Sidebar() {
   const groupedSessions = useMemo(() => {
     const groups: Record<
       string,
-      { project: string; sessions: SdkSessionInfo[]; runningCount: number }
+      { project: string; sessions: SessionInfo[]; runningCount: number }
     > = {};
     for (const s of activeSessions) {
       const project = cwdBasename(s.cwd ?? "untitled");

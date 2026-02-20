@@ -11,7 +11,7 @@ import type {
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export interface SdkSessionInfo {
+export interface SessionInfo {
   sessionId: string;
   pid?: number;
   state: "starting" | "connected" | "running" | "exited";
@@ -89,7 +89,7 @@ const MAX_TOASTS = 5;
 export interface AppState {
   // Session data (grouped per session)
   sessionData: Record<string, SessionData>;
-  sessions: Record<string, SdkSessionInfo>;
+  sessions: Record<string, SessionInfo>;
   currentSessionId: string | null;
 
   // UI state
@@ -169,8 +169,8 @@ export interface AppState {
   setAuthStatus: (sessionId: string, status: SessionData["authStatus"]) => void;
 
   // Session list actions
-  setSessions: (sessions: Record<string, SdkSessionInfo>) => void;
-  updateSession: (id: string, update: Partial<SdkSessionInfo>) => void;
+  setSessions: (sessions: Record<string, SessionInfo>) => void;
+  updateSession: (id: string, update: Partial<SessionInfo>) => void;
   removeSession: (id: string) => void;
 }
 

@@ -4,9 +4,9 @@ const mockExecFileSync = vi.hoisted(() => vi.fn(() => "/usr/bin/claude"));
 vi.mock("node:child_process", () => ({ execFileSync: mockExecFileSync }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
+import { ClaudeLauncher as CLILauncher } from "../adapters/claude/claude-launcher.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "../interfaces/process-manager.js";
-import { ClaudeLauncher as CLILauncher } from "../adapters/claude/claude-launcher.js";
 
 // ---------------------------------------------------------------------------
 // Mock ProcessManager
@@ -104,7 +104,7 @@ beforeEach(() => {
 // ===========================================================================
 
 describe("launch", () => {
-  it("returns SdkSessionInfo with state starting", () => {
+  it("returns SessionInfo with state starting", () => {
     const info = launcher.launch();
     expect(info.sessionId).toBe("test-session-id");
     expect(info.state).toBe("starting");

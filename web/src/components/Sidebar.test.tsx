@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SdkSessionInfo } from "../store";
+import type { SessionInfo } from "../store";
 import { useStore } from "../store";
 import { checkA11y } from "../test/a11y";
 import { makeSessionInfo, resetStore } from "../test/factories";
@@ -23,8 +23,8 @@ vi.mock("../ws", () => ({
 import { archiveSession, createSession, deleteSession, unarchiveSession } from "../api";
 import { connectToSession, disconnect, disconnectSession } from "../ws";
 
-function setupSessions(...sessions: SdkSessionInfo[]): void {
-  const map: Record<string, SdkSessionInfo> = {};
+function setupSessions(...sessions: SessionInfo[]): void {
+  const map: Record<string, SessionInfo> = {};
   for (const s of sessions) map[s.sessionId] = s;
   useStore.setState({ sessions: map });
 }

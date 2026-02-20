@@ -1,24 +1,24 @@
-import type { SdkSessionInfo } from "../store";
+import type { SessionInfo } from "../store";
 import { cwdBasename } from "./format";
 
 /** Type guard that validates a session object has the required fields. */
-export function isValidSession(s: unknown): s is SdkSessionInfo {
+export function isValidSession(s: unknown): s is SessionInfo {
   return (
     s != null &&
-    typeof (s as SdkSessionInfo).sessionId === "string" &&
-    typeof (s as SdkSessionInfo).createdAt === "number"
+    typeof (s as SessionInfo).sessionId === "string" &&
+    typeof (s as SessionInfo).createdAt === "number"
   );
 }
 
 /** Sort sessions by most recently created first, filtering out invalid entries. */
-export function sortedSessions(sessions: Record<string, SdkSessionInfo>): SdkSessionInfo[] {
+export function sortedSessions(sessions: Record<string, SessionInfo>): SessionInfo[] {
   return Object.values(sessions)
     .filter(isValidSession)
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** Filter sessions by a case-insensitive query against name or cwd basename. */
-export function filterSessionsByQuery(sessions: SdkSessionInfo[], query: string): SdkSessionInfo[] {
+export function filterSessionsByQuery(sessions: SessionInfo[], query: string): SessionInfo[] {
   if (!query) return sessions;
   const q = query.toLowerCase();
   return sessions.filter((s) => {

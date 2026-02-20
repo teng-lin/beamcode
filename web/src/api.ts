@@ -1,4 +1,4 @@
-import type { SdkSessionInfo } from "./store";
+import type { SessionInfo } from "./store";
 
 const BASE = "/api";
 
@@ -13,7 +13,7 @@ function authHeaders(): Record<string, string> {
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
-export async function listSessions(): Promise<SdkSessionInfo[]> {
+export async function listSessions(): Promise<SessionInfo[]> {
   const res = await fetch(`${BASE}/sessions`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Failed to list sessions: ${res.status}`);
   return res.json();
@@ -23,7 +23,7 @@ export async function createSession(options: {
   cwd?: string;
   model?: string;
   adapter?: string;
-}): Promise<SdkSessionInfo> {
+}): Promise<SessionInfo> {
   const res = await fetch(`${BASE}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -38,7 +38,7 @@ export async function deleteSession(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete session: ${res.status}`);
 }
 
-export async function getSession(id: string): Promise<SdkSessionInfo> {
+export async function getSession(id: string): Promise<SessionInfo> {
   const res = await fetch(`${BASE}/sessions/${id}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Failed to get session: ${res.status}`);
   return res.json();

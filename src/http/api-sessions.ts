@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { SessionManager } from "../core/session-manager.js";
-import type { SdkSessionInfo } from "../types/session-state.js";
+import type { SessionInfo } from "../types/session-state.js";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
@@ -42,7 +42,7 @@ function json(res: ServerResponse, status: number, data: unknown): void {
 
 function toSyntheticSessionInfo(
   snapshot: ReturnType<SessionManager["bridge"]["getSession"]>,
-): SdkSessionInfo | null {
+): SessionInfo | null {
   if (!snapshot) return null;
   return {
     sessionId: snapshot.id,
@@ -55,9 +55,9 @@ function toSyntheticSessionInfo(
   };
 }
 
-function listAllSessionInfos(sessionManager: SessionManager): SdkSessionInfo[] {
+function listAllSessionInfos(sessionManager: SessionManager): SessionInfo[] {
   const launcherSessions = sessionManager.launcher.listSessions();
-  const byId = new Map<string, SdkSessionInfo>();
+  const byId = new Map<string, SessionInfo>();
   for (const session of launcherSessions) {
     byId.set(session.sessionId, session);
   }

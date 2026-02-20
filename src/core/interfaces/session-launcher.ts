@@ -1,5 +1,5 @@
 import type { LauncherEventMap } from "../../types/events.js";
-import type { LaunchOptions, SdkSessionInfo } from "../../types/session-state.js";
+import type { LaunchOptions, SessionInfo } from "../../types/session-state.js";
 import type { TypedEventEmitter } from "../typed-emitter.js";
 
 // Re-export for convenience
@@ -14,7 +14,7 @@ export type { LauncherEventMap, LaunchOptions };
  */
 export interface SessionLauncher extends TypedEventEmitter<LauncherEventMap> {
   /** Create a new session and optionally spawn its process. */
-  launch(options?: LaunchOptions): SdkSessionInfo;
+  launch(options?: LaunchOptions): SessionInfo;
 
   /** Kill and respawn a session's process. */
   relaunch(sessionId: string): Promise<boolean>;
@@ -26,13 +26,13 @@ export interface SessionLauncher extends TypedEventEmitter<LauncherEventMap> {
   killAll(): Promise<void>;
 
   /** Query session state. */
-  getSession(sessionId: string): SdkSessionInfo | undefined;
+  getSession(sessionId: string): SessionInfo | undefined;
 
   /** List all sessions. */
-  listSessions(): SdkSessionInfo[];
+  listSessions(): SessionInfo[];
 
   /** Get sessions still awaiting their first connection. */
-  getStartingSessions(): SdkSessionInfo[];
+  getStartingSessions(): SessionInfo[];
 
   /** Mark a session as connected. */
   markConnected(sessionId: string): void;
@@ -65,5 +65,5 @@ export interface SessionLauncher extends TypedEventEmitter<LauncherEventMap> {
     createdAt: number;
     model?: string;
     adapterName?: string;
-  }): SdkSessionInfo;
+  }): SessionInfo;
 }
