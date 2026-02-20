@@ -94,6 +94,7 @@ function translateSystemStatus(msg: CLISystemStatusMessage): UnifiedMessage {
 }
 
 function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
+  const droppedContentBlockTypes: string[] = [];
   const content: UnifiedContent[] = msg.message.content.map((block) => {
     switch (block.type) {
       case "text":
@@ -120,6 +121,11 @@ function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
           budget_tokens: (block as { budget_tokens?: number }).budget_tokens,
         };
       default:
+        droppedContentBlockTypes.push(
+          typeof (block as { type?: unknown }).type === "string"
+            ? (block as { type: string }).type
+            : "unknown",
+        );
         return { type: "text" as const, text: "" };
     }
   });
@@ -137,6 +143,11 @@ function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
       error: msg.error,
       uuid: msg.uuid,
       session_id: msg.session_id,
+      ...(droppedContentBlockTypes.length > 0
+        ? {
+            dropped_content_block_types: [...new Set(droppedContentBlockTypes)],
+          }
+        : {}),
     },
   });
 }

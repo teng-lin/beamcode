@@ -185,6 +185,7 @@ export class ClaudeSession implements BackendSession {
       try {
         cliMsg = JSON.parse(line) as CLIMessage;
       } catch {
+        this.traceUnparsedLine(line, "Failed to parse CLI NDJSON line");
         continue;
       }
       this.processCliMessage(cliMsg);
@@ -198,7 +199,7 @@ export class ClaudeSession implements BackendSession {
       const cliMsg = JSON.parse(line) as CLIMessage;
       this.processCliMessage(cliMsg);
     } catch {
-      // ignore invalid/incomplete trailing fragment
+      this.traceUnparsedLine(line, "Failed to parse trailing CLI NDJSON fragment");
     }
   }
 
@@ -217,15 +218,34 @@ export class ClaudeSession implements BackendSession {
       );
       this.queue.enqueue(unified);
     } else {
+      const consumedType = cliMsg.type === "user" || cliMsg.type === "keep_alive";
       this.tracer?.error(
         "backend",
         cliMsg.type ?? "unknown",
-        "T3 translate returned null (unmapped CLI message type)",
+        consumedType
+          ? "T3 translate returned null (intentionally consumed CLI message type)"
+          : "T3 translate returned null (unmapped CLI message type)",
         {
           sessionId: this.sessionId,
-          action: "dropped",
+          action: consumedType ? "consumed" : "dropped",
         },
       );
     }
+  }
+
+  private traceUnparsedLine(line: string, error: string): void {
+    const maxChars = 2_000;
+    const truncated =
+      line.length > maxChars ? `${line.slice(0, maxChars)}...[truncated ${line.length}]` : line;
+    this.tracer?.recv(
+      "backend",
+      "raw_unparsed_line",
+      { raw: truncated },
+      { sessionId: this.sessionId },
+    );
+    this.tracer?.error("backend", "raw_unparsed_line", error, {
+      sessionId: this.sessionId,
+      action: "dropped",
+    });
   }
 }

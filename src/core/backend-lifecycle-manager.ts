@@ -162,7 +162,20 @@ export class BackendLifecycleManager {
     if (!content && msg.type === "result") {
       content = this.passthroughTextBuffers.get(session.id) ?? "";
     }
-    if (!content) return;
+    if (!content) {
+      if (msg.type === "result") {
+        this.tracer.error(
+          "bridge",
+          "slash_command_result",
+          `Pending passthrough "${pending.command}" produced empty output`,
+          {
+            sessionId: session.id,
+            action: "pending_passthrough_empty_result",
+          },
+        );
+      }
+      return;
+    }
 
     session.pendingPassthroughs.shift();
     this.passthroughTextBuffers.delete(session.id);
