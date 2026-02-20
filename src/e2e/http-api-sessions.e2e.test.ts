@@ -192,8 +192,13 @@ describe("E2E: HTTP API /api/sessions", () => {
     expect(data.cwd).toBeTruthy();
   });
 
-  it("allows health endpoint access without API key", async () => {
+  it("rejects health endpoint without API key", async () => {
     const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(401);
+  });
+
+  it("allows health endpoint access with valid API key", async () => {
+    const res = await apiFetch("/health");
     expect(res.status).toBe(200);
     const data = (await res.json()) as { status: string };
     expect(data.status).toBe("ok");
