@@ -323,6 +323,10 @@ function handleMessage(sessionId: string, data: string): void {
       store.setToolProgress(sessionId, msg.tool_use_id, msg.tool_name, msg.elapsed_time_seconds);
       break;
 
+    case "tool_use_summary":
+      store.addMessage(sessionId, msg);
+      break;
+
     case "session_name_update":
       store.updateSession(sessionId, { name: msg.name });
       break;
@@ -383,6 +387,13 @@ function handleMessage(sessionId: string, data: string): void {
     case "session_lifecycle":
       // Informational only — no store action needed
       break;
+
+    default: {
+      // Compile-time exhaustiveness guard; runtime remains forward-compatible.
+      const _exhaustive: never = msg;
+      void _exhaustive;
+      break;
+    }
   }
 }
 

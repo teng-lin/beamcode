@@ -13,6 +13,7 @@ import type {
   InitializeCommand,
   InitializeModel,
 } from "../types/cli-messages.js";
+import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { SessionState } from "../types/session-state.js";
 import type { CapabilitiesProtocol } from "./capabilities-protocol.js";
@@ -251,7 +252,24 @@ export class UnifiedMessageRouter {
 
   private handleAssistant(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapAssistantMessage(msg);
+    if (consumerMsg.type !== "assistant") return;
     this.traceT4("mapAssistantMessage", session, msg, consumerMsg, trace);
+
+    const existingIndex = this.findAssistantMessageIndexById(session, consumerMsg.message.id);
+    if (existingIndex >= 0) {
+      const existing = session.messageHistory[existingIndex];
+      if (
+        existing.type === "assistant" &&
+        this.assistantMessagesEquivalent(existing, consumerMsg)
+      ) {
+        return;
+      }
+      session.messageHistory[existingIndex] = consumerMsg;
+      this.broadcaster.broadcast(session, consumerMsg);
+      this.persistSession(session);
+      return;
+    }
+
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -342,8 +360,31 @@ export class UnifiedMessageRouter {
 
   private handleToolUseSummary(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapToolUseSummary(msg);
+    if (consumerMsg.type !== "tool_use_summary") return;
     this.traceT4("mapToolUseSummary", session, msg, consumerMsg, trace);
+
+    const toolUseId = consumerMsg.tool_use_id ?? consumerMsg.tool_use_ids[0];
+    if (toolUseId) {
+      const existingIndex = this.findToolSummaryIndexByToolUseId(session, toolUseId);
+      if (existingIndex >= 0) {
+        const existing = session.messageHistory[existingIndex];
+        if (
+          existing.type === "tool_use_summary" &&
+          this.toolSummariesEquivalent(existing, consumerMsg)
+        ) {
+          return;
+        }
+        session.messageHistory[existingIndex] = consumerMsg;
+        this.broadcaster.broadcast(session, consumerMsg);
+        this.persistSession(session);
+        return;
+      }
+    }
+
+    session.messageHistory.push(consumerMsg);
+    this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
+    this.persistSession(session);
   }
 
   private handleAuthStatus(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
@@ -424,5 +465,44 @@ export class UnifiedMessageRouter {
     if (session.messageHistory.length > this.maxMessageHistoryLength) {
       session.messageHistory = session.messageHistory.slice(-this.maxMessageHistoryLength);
     }
+  }
+
+  private findAssistantMessageIndexById(session: Session, messageId: string): number {
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      const item = session.messageHistory[i];
+      if (item.type === "assistant" && item.message.id === messageId) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private assistantMessagesEquivalent(
+    a: Extract<ConsumerMessage, { type: "assistant" }>,
+    b: Extract<ConsumerMessage, { type: "assistant" }>,
+  ): boolean {
+    if (a.parent_tool_use_id !== b.parent_tool_use_id) return false;
+    if (a.message.id !== b.message.id) return false;
+    if (a.message.model !== b.message.model) return false;
+    if (a.message.stop_reason !== b.message.stop_reason) return false;
+    return JSON.stringify(a.message.content) === JSON.stringify(b.message.content);
+  }
+
+  private findToolSummaryIndexByToolUseId(session: Session, toolUseId: string): number {
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      const item = session.messageHistory[i];
+      if (item.type !== "tool_use_summary") continue;
+      if (item.tool_use_id === toolUseId || item.tool_use_ids.includes(toolUseId)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private toolSummariesEquivalent(
+    a: Extract<ConsumerMessage, { type: "tool_use_summary" }>,
+    b: Extract<ConsumerMessage, { type: "tool_use_summary" }>,
+  ): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
   }
 }

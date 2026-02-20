@@ -391,6 +391,39 @@ describe("handleMessage", () => {
     expect(getSessionData()?.agentStreaming?.["agent-1"]).toBeUndefined();
   });
 
+  it("assistant duplicate id updates existing message instead of appending", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          ...makeAssistantContent([{ type: "text", text: "first" }]),
+          id: "msg-dup",
+        },
+      }),
+    );
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          ...makeAssistantContent([{ type: "text", text: "second" }]),
+          id: "msg-dup",
+        },
+      }),
+    );
+
+    const messages = getSessionData()?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      type: "assistant",
+      message: { id: "msg-dup", content: [{ type: "text", text: "second" }] },
+    });
+  });
+
   // ── result ──────────────────────────────────────────────────────────────
 
   it("result: sets idle status and adds message", () => {
@@ -966,6 +999,42 @@ describe("handleMessage", () => {
     expect(getSessionData()?.toolProgress?.["tu-1"]).toEqual({
       toolName: "Bash",
       elapsedSeconds: 5,
+    });
+  });
+
+  it("tool_use_summary: upserts by tool_use_id", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        tool_name: "read",
+        status: "completed",
+        output: "1: # beamcode",
+      }),
+    );
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "tool_use_summary",
+        summary: "read completed",
+        tool_use_ids: ["call-1"],
+        tool_use_id: "call-1",
+        tool_name: "read",
+        status: "completed",
+        output: "2: updated",
+      }),
+    );
+
+    const messages = getSessionData()?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      type: "tool_use_summary",
+      summary: "read completed",
+      tool_use_ids: ["call-1"],
+      output: "2: updated",
     });
   });
 

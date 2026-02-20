@@ -223,6 +223,31 @@ function patchSession(
 
 const MAX_MESSAGES_PER_SESSION = 2000;
 
+function messageIdentityKey(message: ConsumerMessage): string | null {
+  switch (message.type) {
+    case "assistant":
+      return `assistant:${message.message.id}`;
+    case "tool_use_summary":
+      return message.tool_use_id ? `tool_use_summary:${message.tool_use_id}` : null;
+    default:
+      return null;
+  }
+}
+
+function upsertMessage(messages: ConsumerMessage[], message: ConsumerMessage): ConsumerMessage[] {
+  const key = messageIdentityKey(message);
+  if (!key) return [...messages, message];
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messageIdentityKey(messages[i]) === key) {
+      const next = messages.slice();
+      next[i] = message;
+      return next;
+    }
+  }
+  return [...messages, message];
+}
+
 function readBool(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
   try {
@@ -331,7 +356,7 @@ export const useStore = create<AppState>()((set, get) => ({
   addMessage: (sessionId, message) =>
     set((s) => {
       const data = s.sessionData[sessionId] ?? emptySessionData();
-      const messages = [...data.messages, message];
+      const messages = upsertMessage(data.messages, message);
       return patchSession(s, sessionId, {
         messages:
           messages.length > MAX_MESSAGES_PER_SESSION
@@ -340,7 +365,14 @@ export const useStore = create<AppState>()((set, get) => ({
       });
     }),
 
-  setMessages: (sessionId, messages) => set((s) => patchSession(s, sessionId, { messages })),
+  setMessages: (sessionId, messages) =>
+    set((s) => {
+      let normalized: ConsumerMessage[] = [];
+      for (const message of messages) {
+        normalized = upsertMessage(normalized, message);
+      }
+      return patchSession(s, sessionId, { messages: normalized });
+    }),
 
   setStreaming: (sessionId, text) => set((s) => patchSession(s, sessionId, { streaming: text })),
 

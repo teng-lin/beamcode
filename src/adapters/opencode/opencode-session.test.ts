@@ -388,6 +388,69 @@ describe("OpencodeSession", () => {
     ]);
   });
 
+  it("preserves materialized text when same assistant message is re-emitted empty", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "opc-session-abc",
+        messageID: "m-repeat",
+        partID: "p-repeat",
+        field: "text",
+        delta: "Top of README",
+      },
+    });
+    const stream = await iter.next();
+    expect(stream.value.type).toBe("stream_event");
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-repeat",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "stop",
+        },
+      },
+    });
+    const firstAssistant = await iter.next();
+    expect(firstAssistant.value.type).toBe("assistant");
+    expect(firstAssistant.value.content).toEqual([{ type: "text", text: "Top of README" }]);
+
+    sub.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m-repeat",
+          sessionID: "opc-session-abc",
+          role: "assistant",
+          time: { created: 5000, completed: 6000 },
+          parentID: "m-parent",
+          modelID: "claude-3-5-sonnet",
+          providerID: "anthropic",
+          agent: "default",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0.001,
+          tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "stop",
+        },
+      },
+    });
+    const secondAssistant = await iter.next();
+    expect(secondAssistant.value.type).toBe("assistant");
+    expect(secondAssistant.value.content).toEqual([{ type: "text", text: "Top of README" }]);
+  });
+
   it("does not materialize text when no stream deltas exist", async () => {
     const iter = session.messages[Symbol.asyncIterator]();
 

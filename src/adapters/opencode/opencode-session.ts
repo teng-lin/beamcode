@@ -28,6 +28,7 @@ export class OpencodeSession implements BackendSession {
   private readonly tracer?: MessageTracer;
   private readonly textPartsByMessage = new Map<string, Map<string, string>>();
   private readonly reasoningPartsByMessage = new Map<string, Set<string>>();
+  private readonly assistantTextByMessage = new Map<string, string>();
 
   constructor(options: {
     sessionId: string;
@@ -140,11 +141,20 @@ export class OpencodeSession implements BackendSession {
     const messageId = message.metadata.message_id;
     if (typeof messageId !== "string" || messageId.length === 0) return message;
 
-    const parts = this.textPartsByMessage.get(messageId);
-    this.textPartsByMessage.delete(messageId);
-    this.reasoningPartsByMessage.delete(messageId);
-    const text = parts ? Array.from(parts.values()).join("") : "";
-    if (message.content.length > 0 || text.length === 0) return message;
+    if (message.content.length > 0) {
+      const existingText = this.extractTextFromContent(message);
+      if (existingText.length > 0) {
+        this.assistantTextByMessage.set(messageId, existingText);
+      }
+      return message;
+    }
+
+    const streamedText = this.getBufferedText(messageId);
+    const priorText = this.assistantTextByMessage.get(messageId) ?? "";
+    const text = streamedText.length > 0 ? streamedText : priorText;
+    if (text.length === 0) return message;
+
+    this.assistantTextByMessage.set(messageId, text);
 
     return {
       ...message,
@@ -152,9 +162,25 @@ export class OpencodeSession implements BackendSession {
     };
   }
 
+  private extractTextFromContent(message: UnifiedMessage): string {
+    let text = "";
+    for (const block of message.content) {
+      if (block.type === "text" && typeof block.text === "string") {
+        text += block.text;
+      }
+    }
+    return text;
+  }
+
+  private getBufferedText(messageId: string): string {
+    const parts = this.textPartsByMessage.get(messageId);
+    return parts ? Array.from(parts.values()).join("") : "";
+  }
+
   private clearStreamState(): void {
     this.textPartsByMessage.clear();
     this.reasoningPartsByMessage.clear();
+    this.assistantTextByMessage.clear();
   }
 
   // ---------------------------------------------------------------------------

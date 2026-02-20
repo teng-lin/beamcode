@@ -8,6 +8,17 @@ interface MessageBubbleProps {
   sessionId: string;
 }
 
+function renderToolPayload(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  if (payload === null) return "null";
+  if (payload === undefined) return "";
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 export const MessageBubble = memo(function MessageBubble({
   message,
   sessionId,
@@ -59,6 +70,32 @@ export const MessageBubble = memo(function MessageBubble({
           </pre>
         </div>
       );
+
+    case "tool_use_summary": {
+      const outputText = renderToolPayload(message.output);
+      const errorText = renderToolPayload(message.error);
+
+      return (
+        <div className="animate-fadeSlideIn rounded-lg border border-bc-border/50 bg-bc-surface px-3 py-2.5 text-sm">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="rounded bg-bc-accent/15 px-1.5 py-0.5 font-mono-code text-[11px] text-bc-accent">
+              {message.tool_name ?? "tool"}
+            </span>
+            <span className="text-bc-text-muted">{message.summary}</span>
+          </div>
+          {outputText && (
+            <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-text-muted leading-relaxed">
+              {outputText}
+            </pre>
+          )}
+          {errorText && (
+            <pre className="whitespace-pre-wrap font-mono-code text-xs text-bc-error leading-relaxed">
+              {errorText}
+            </pre>
+          )}
+        </div>
+      );
+    }
 
     default:
       return null;
