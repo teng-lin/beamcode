@@ -11,6 +11,7 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import type { QueryFn } from "./agent-sdk-session.js";
 import { AgentSdkSession } from "./agent-sdk-session.js";
 
@@ -34,7 +35,8 @@ export class AgentSdkAdapter implements BackendAdapter {
     }
 
     const queryOptions = (options.adapterOptions?.queryOptions as Record<string, unknown>) ?? {};
+    const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
 
-    return new AgentSdkSession(options.sessionId, queryFn, queryOptions);
+    return new AgentSdkSession(options.sessionId, queryFn, queryOptions, tracer);
   }
 }

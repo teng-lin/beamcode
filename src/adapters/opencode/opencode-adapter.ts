@@ -12,6 +12,7 @@ import type {
   BackendSession,
   ConnectOptions,
 } from "../../core/interfaces/backend-adapter.js";
+import type { MessageTracer } from "../../core/message-tracer.js";
 import type { Logger } from "../../interfaces/logger.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
 import { OpencodeHttpClient } from "./opencode-http-client.js";
@@ -102,6 +103,7 @@ export class OpencodeAdapter implements BackendAdapter {
     const { id: opcSessionId } = await this.httpClient!.createSession({
       title: options.sessionId,
     });
+    const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
 
     // 3. Create and return the OpencodeSession
     return new OpencodeSession({
@@ -109,6 +111,7 @@ export class OpencodeAdapter implements BackendAdapter {
       opcSessionId,
       httpClient: this.httpClient!,
       subscribe: (handler) => this.addSubscriber(opcSessionId, handler),
+      tracer,
     });
   }
 

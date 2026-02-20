@@ -105,7 +105,16 @@ export class ConsumerTransportCoordinator {
     }
 
     const traceId = (result.data as Record<string, unknown>).traceId as string | undefined;
-    this.deps.tracer.recv("bridge", msg.type, result.data, { sessionId, traceId });
+    const hasRequestId = msg.type === "slash_command" || msg.type === "permission_response";
+    const requestId = hasRequestId ? msg.request_id : undefined;
+    const command = msg.type === "slash_command" ? msg.command : undefined;
+    this.deps.tracer.recv("bridge", msg.type, result.data, {
+      sessionId,
+      traceId,
+      requestId,
+      command,
+      phase: "recv",
+    });
 
     this.deps.emit("message:inbound", { sessionId, message: msg });
     this.deps.routeConsumerMessage(session, msg, ws);

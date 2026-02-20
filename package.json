@@ -57,6 +57,7 @@
     "build": "pnpm build:lib && pnpm build:web",
     "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.mjs",
+    "trace:inspect": "node scripts/trace-inspect.mjs",
     "test": "vitest run",
     "test:e2e": "pnpm test:e2e:deterministic",
     "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",

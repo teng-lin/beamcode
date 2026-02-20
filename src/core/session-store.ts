@@ -58,7 +58,13 @@ export interface Session {
   /** Per-session slash command registry. */
   registry: SlashCommandRegistry;
   /** FIFO queue of passthrough slash commands awaiting CLI responses. */
-  pendingPassthroughs: Array<{ command: string; requestId?: string }>;
+  pendingPassthroughs: Array<{
+    command: string;
+    requestId?: string;
+    slashRequestId: string;
+    traceId: string;
+    startedAtMs: number;
+  }>;
   /** Backend adapter name for this session. */
   adapterName?: string;
   /** Adapter-specific slash command executor (e.g. Codex JSON-RPC translation). */

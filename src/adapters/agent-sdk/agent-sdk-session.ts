@@ -7,6 +7,7 @@
 
 import { AsyncMessageQueue } from "../../core/async-message-queue.js";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
+import { extractTraceContext, type MessageTracer } from "../../core/message-tracer.js";
 import type { UnifiedMessage } from "../../core/types/unified-message.js";
 import { PermissionBridge } from "./permission-bridge.js";
 import type { SDKMessage, SDKUserMessage } from "./sdk-message-translator.js";
@@ -36,14 +37,17 @@ export class AgentSdkSession implements BackendSession {
   private readonly inputQueue: SDKUserMessage[] = [];
   private inputResolve: ((value: IteratorResult<SDKUserMessage>) => void) | null = null;
   private queryRunning = false;
+  private readonly tracer?: MessageTracer;
 
   constructor(
     sessionId: string,
     private readonly queryFn: QueryFn,
     private readonly queryOptions?: Record<string, unknown>,
+    tracer?: MessageTracer,
   ) {
     this.sessionId = sessionId;
     this.permissionBridge = new PermissionBridge((msg) => this.queue.enqueue(msg));
+    this.tracer = tracer;
   }
 
   // ---------------------------------------------------------------------------
@@ -52,6 +56,7 @@ export class AgentSdkSession implements BackendSession {
 
   send(message: UnifiedMessage): void {
     if (this.closed) throw new Error("Session is closed");
+    const trace = extractTraceContext(message.metadata);
 
     if (message.type === "permission_response") {
       const { requestId, behavior, updatedInput } = message.metadata as {
@@ -62,7 +67,27 @@ export class AgentSdkSession implements BackendSession {
       this.permissionBridge.respondToPermission(requestId, behavior, updatedInput);
     } else if (message.type === "user_message") {
       const sdkInput = translateToSdkInput(message);
+      this.tracer?.translate(
+        "translateToSdkInput",
+        "T2",
+        { format: "UnifiedMessage", body: message },
+        { format: "SDKUserMessage", body: sdkInput },
+        {
+          sessionId: this.sessionId,
+          traceId: trace.traceId,
+          requestId: trace.requestId,
+          command: trace.command,
+          phase: "t2",
+        },
+      );
       if (sdkInput) {
+        this.tracer?.send("backend", "native_outbound", sdkInput, {
+          sessionId: this.sessionId,
+          traceId: trace.traceId,
+          requestId: trace.requestId,
+          command: trace.command,
+          phase: "t2_send_native",
+        });
         if (!this.queryRunning) {
           this.startQuery(sdkInput);
         } else {
@@ -163,7 +188,18 @@ export class AgentSdkSession implements BackendSession {
 
       for await (const sdkMsg of sdkStream) {
         if (this.closed) break;
+        this.tracer?.recv("backend", "native_inbound", sdkMsg, {
+          sessionId: this.sessionId,
+          phase: "t3_recv_native",
+        });
         const unified = translateSdkMessage(sdkMsg);
+        this.tracer?.translate(
+          "translateSdkMessage",
+          "T3",
+          { format: "SDKMessage", body: sdkMsg },
+          { format: "UnifiedMessage", body: unified },
+          { sessionId: this.sessionId, phase: "t3" },
+        );
         this.queue.enqueue(unified);
       }
     } catch {

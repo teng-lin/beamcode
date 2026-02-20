@@ -30,7 +30,7 @@ import {
 } from "./consumer-message-mapper.js";
 import { applyGitInfo, type GitInfoTracker } from "./git-info-tracker.js";
 import type { MessageQueueHandler } from "./message-queue-handler.js";
-import type { MessageTracer } from "./message-tracer.js";
+import { extractTraceContext, type MessageTracer } from "./message-tracer.js";
 import { reduce as reduceState } from "./session-state-reducer.js";
 import type { Session } from "./session-store.js";
 import { diffTeamState } from "./team-event-differ.js";
@@ -41,6 +41,15 @@ import type { UnifiedMessage } from "./types/unified-message.js";
 
 type EmitEvent = (type: string, payload: unknown) => void;
 type PersistSession = (session: Session) => void;
+
+/** Trace context threaded through the route() call to each handler. */
+interface RouteTrace {
+  sessionId: string;
+  traceId?: string;
+  requestId?: string;
+  command?: string;
+  phase: string;
+}
 
 export interface UnifiedMessageRouterDeps {
   broadcaster: ConsumerBroadcaster;
@@ -81,7 +90,16 @@ export class UnifiedMessageRouter {
 
   /** Route a UnifiedMessage through state reduction and the appropriate handler. */
   route(session: Session, msg: UnifiedMessage): void {
-    this.tracer.recv("bridge", msg.type, msg, { sessionId: session.id });
+    const { traceId, requestId, command } = extractTraceContext(msg.metadata);
+    const trace: RouteTrace = {
+      sessionId: session.id,
+      traceId,
+      requestId,
+      command,
+      phase: "route_unified",
+    };
+
+    this.tracer.recv("bridge", msg.type, msg, trace);
 
     // Capture previous team state for event diffing
     const prevTeam = session.state.team;
@@ -94,40 +112,40 @@ export class UnifiedMessageRouter {
 
     switch (msg.type) {
       case "session_init":
-        this.handleSessionInit(session, msg);
+        this.handleSessionInit(session, msg, trace);
         break;
       case "status_change":
-        this.handleStatusChange(session, msg);
+        this.handleStatusChange(session, msg, trace);
         break;
       case "assistant":
-        this.handleAssistant(session, msg);
+        this.handleAssistant(session, msg, trace);
         break;
       case "result":
-        this.handleResult(session, msg);
+        this.handleResult(session, msg, trace);
         break;
       case "stream_event":
-        this.handleStreamEvent(session, msg);
+        this.handleStreamEvent(session, msg, trace);
         break;
       case "permission_request":
-        this.handlePermissionRequest(session, msg);
+        this.handlePermissionRequest(session, msg, trace);
         break;
       case "control_response":
         this.capabilitiesProtocol.handleControlResponse(session, msg);
         break;
       case "tool_progress":
-        this.handleToolProgress(session, msg);
+        this.handleToolProgress(session, msg, trace);
         break;
       case "tool_use_summary":
-        this.handleToolUseSummary(session, msg);
+        this.handleToolUseSummary(session, msg, trace);
         break;
       case "auth_status":
-        this.handleAuthStatus(session, msg);
+        this.handleAuthStatus(session, msg, trace);
         break;
       case "configuration_change":
-        this.handleConfigurationChange(session, msg);
+        this.handleConfigurationChange(session, msg, trace);
         break;
       case "session_lifecycle":
-        this.handleSessionLifecycle(session, msg);
+        this.handleSessionLifecycle(session, msg, trace);
         break;
     }
   }
@@ -156,7 +174,7 @@ export class UnifiedMessageRouter {
 
   // ── Individual handlers ──────────────────────────────────────────────────
 
-  private handleSessionInit(session: Session, msg: UnifiedMessage): void {
+  private handleSessionInit(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const m = msg.metadata;
 
     // Store backend session ID for resume
@@ -187,7 +205,7 @@ export class UnifiedMessageRouter {
     }
 
     const initMsg = { type: "session_init" as const, session: session.state };
-    this.traceT4("handleSessionInit", session, msg, initMsg);
+    this.traceT4("handleSessionInit", session, msg, initMsg, trace);
     this.broadcaster.broadcast(session, initMsg);
     this.persistSession(session);
 
@@ -210,11 +228,11 @@ export class UnifiedMessageRouter {
     }
   }
 
-  private handleStatusChange(session: Session, msg: UnifiedMessage): void {
+  private handleStatusChange(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
     const statusMsg = { type: "status_change" as const, status: session.lastStatus };
-    this.traceT4("handleStatusChange", session, msg, statusMsg);
+    this.traceT4("handleStatusChange", session, msg, statusMsg, trace);
     this.broadcaster.broadcast(session, statusMsg);
 
     // Broadcast permissionMode change so frontend can confirm the update
@@ -231,18 +249,18 @@ export class UnifiedMessageRouter {
     }
   }
 
-  private handleAssistant(session: Session, msg: UnifiedMessage): void {
+  private handleAssistant(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapAssistantMessage(msg);
-    this.traceT4("mapAssistantMessage", session, msg, consumerMsg);
+    this.traceT4("mapAssistantMessage", session, msg, consumerMsg, trace);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
     this.persistSession(session);
   }
 
-  private handleResult(session: Session, msg: UnifiedMessage): void {
+  private handleResult(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapResultMessage(msg);
-    this.traceT4("mapResultMessage", session, msg, consumerMsg);
+    this.traceT4("mapResultMessage", session, msg, consumerMsg, trace);
     session.messageHistory.push(consumerMsg);
     this.trimMessageHistory(session);
     this.broadcaster.broadcast(session, consumerMsg);
@@ -277,7 +295,7 @@ export class UnifiedMessageRouter {
     }
   }
 
-  private handleStreamEvent(session: Session, msg: UnifiedMessage): void {
+  private handleStreamEvent(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const m = msg.metadata;
     const event = m.event as { type?: string } | undefined;
 
@@ -293,14 +311,14 @@ export class UnifiedMessageRouter {
     }
 
     const streamConsumerMsg = mapStreamEvent(msg);
-    this.traceT4("mapStreamEvent", session, msg, streamConsumerMsg);
+    this.traceT4("mapStreamEvent", session, msg, streamConsumerMsg, trace);
     this.broadcaster.broadcast(session, streamConsumerMsg);
   }
 
-  private handlePermissionRequest(session: Session, msg: UnifiedMessage): void {
+  private handlePermissionRequest(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const mapped = mapPermissionRequest(msg);
     if (!mapped) return;
-    this.traceT4("mapPermissionRequest", session, msg, mapped.consumerPerm);
+    this.traceT4("mapPermissionRequest", session, msg, mapped.consumerPerm, trace);
 
     const { consumerPerm, cliPerm } = mapped;
     session.pendingPermissions.set(consumerPerm.request_id, cliPerm);
@@ -316,21 +334,21 @@ export class UnifiedMessageRouter {
     this.persistSession(session);
   }
 
-  private handleToolProgress(session: Session, msg: UnifiedMessage): void {
+  private handleToolProgress(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapToolProgress(msg);
-    this.traceT4("mapToolProgress", session, msg, consumerMsg);
+    this.traceT4("mapToolProgress", session, msg, consumerMsg, trace);
     this.broadcaster.broadcast(session, consumerMsg);
   }
 
-  private handleToolUseSummary(session: Session, msg: UnifiedMessage): void {
+  private handleToolUseSummary(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapToolUseSummary(msg);
-    this.traceT4("mapToolUseSummary", session, msg, consumerMsg);
+    this.traceT4("mapToolUseSummary", session, msg, consumerMsg, trace);
     this.broadcaster.broadcast(session, consumerMsg);
   }
 
-  private handleAuthStatus(session: Session, msg: UnifiedMessage): void {
+  private handleAuthStatus(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapAuthStatus(msg);
-    this.traceT4("mapAuthStatus", session, msg, consumerMsg);
+    this.traceT4("mapAuthStatus", session, msg, consumerMsg, trace);
     this.broadcaster.broadcast(session, consumerMsg);
     const m = msg.metadata;
     this.emitEvent("auth_status", {
@@ -341,9 +359,13 @@ export class UnifiedMessageRouter {
     });
   }
 
-  private handleConfigurationChange(session: Session, msg: UnifiedMessage): void {
+  private handleConfigurationChange(
+    session: Session,
+    msg: UnifiedMessage,
+    trace: RouteTrace,
+  ): void {
     const consumerMsg = mapConfigurationChange(msg);
-    this.traceT4("mapConfigurationChange", session, msg, consumerMsg);
+    this.traceT4("mapConfigurationChange", session, msg, consumerMsg, trace);
     this.broadcaster.broadcast(session, consumerMsg);
 
     // Also broadcast a session_update so frontend state stays in sync
@@ -366,9 +388,9 @@ export class UnifiedMessageRouter {
     }
   }
 
-  private handleSessionLifecycle(session: Session, msg: UnifiedMessage): void {
+  private handleSessionLifecycle(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapSessionLifecycle(msg);
-    this.traceT4("mapSessionLifecycle", session, msg, consumerMsg);
+    this.traceT4("mapSessionLifecycle", session, msg, consumerMsg, trace);
     this.broadcaster.broadcast(session, consumerMsg);
   }
 
@@ -379,13 +401,20 @@ export class UnifiedMessageRouter {
     session: Session,
     unifiedMsg: UnifiedMessage,
     consumerMsg: unknown,
+    trace: RouteTrace,
   ): void {
     this.tracer.translate(
       mapperName,
       "T4",
       { format: "UnifiedMessage", body: unifiedMsg },
       { format: "ConsumerMessage", body: consumerMsg },
-      { sessionId: session.id },
+      {
+        sessionId: session.id,
+        traceId: trace.traceId,
+        requestId: trace.requestId,
+        command: trace.command,
+        phase: "t4",
+      },
     );
   }
 
