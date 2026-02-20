@@ -224,7 +224,18 @@ export type ConsumerMessage =
   | { type: "permission_request"; request: ConsumerPermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
   | { type: "tool_progress"; tool_use_id: string; tool_name: string; elapsed_time_seconds: number }
-  | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
+  | {
+      type: "tool_use_summary";
+      summary: string;
+      tool_use_ids: string[];
+      tool_use_id?: string;
+      tool_name?: string;
+      status?: string;
+      is_error?: boolean;
+      input?: unknown;
+      output?: unknown;
+      error?: unknown;
+    }
   | { type: "status_change"; status: "compacting" | "idle" | "running" | null }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }

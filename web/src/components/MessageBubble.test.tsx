@@ -53,6 +53,22 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Unknown command")).toBeInTheDocument();
   });
 
+  it("renders tool_use_summary output content", () => {
+    const message: ConsumerMessage = {
+      type: "tool_use_summary",
+      summary: "read completed",
+      tool_use_ids: ["call-1"],
+      tool_name: "read",
+      status: "completed",
+      output: "1: # beamcode\n2: ...",
+    };
+    render(<MessageBubble message={message} sessionId={SESSION_ID} />);
+    expect(screen.getByText("read")).toBeInTheDocument();
+    expect(screen.getByText("read completed")).toBeInTheDocument();
+    expect(screen.getByText(/1: # beamcode/)).toBeInTheDocument();
+    expect(screen.getByText(/2: \.\.\./)).toBeInTheDocument();
+  });
+
   it("renders nothing for unknown message types", () => {
     const message: ConsumerMessage = { type: "cli_connected" };
     const { container } = render(<MessageBubble message={message} sessionId={SESSION_ID} />);

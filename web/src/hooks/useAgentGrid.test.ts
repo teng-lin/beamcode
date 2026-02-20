@@ -12,22 +12,28 @@ import { useAgentGrid } from "./useAgentGrid";
 
 const SESSION = "grid-test";
 
+let msgCounter = 0;
+
 function addTaskToolUse(id: string, name: string, subagentType: string) {
   store().addMessage(SESSION, {
     type: "assistant",
     parent_tool_use_id: null,
-    message: makeAssistantContent([
-      makeToolUseBlock({
-        id,
-        name: "Task",
-        input: { name, subagent_type: subagentType, description: "test" },
-      }),
-    ]),
+    message: makeAssistantContent(
+      [
+        makeToolUseBlock({
+          id,
+          name: "Task",
+          input: { name, subagent_type: subagentType, description: "test" },
+        }),
+      ],
+      { id: `msg-task-${++msgCounter}` },
+    ),
   });
 }
 
 describe("useAgentGrid", () => {
   beforeEach(() => {
+    msgCounter = 0;
     resetStore({ currentSessionId: SESSION });
     store().ensureSessionData(SESSION);
   });

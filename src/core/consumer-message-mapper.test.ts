@@ -504,6 +504,48 @@ describe("mapToolProgress", () => {
       elapsed_time_seconds: 5,
     });
   });
+
+  it("falls back to opencode tool metadata keys", () => {
+    const msg = createUnifiedMessage({
+      type: "tool_progress",
+      role: "tool",
+      metadata: {
+        call_id: "call-123",
+        tool: "read",
+        status: "running",
+      },
+    });
+
+    const result = mapToolProgress(msg);
+
+    expect(result).toEqual({
+      type: "tool_progress",
+      tool_use_id: "call-123",
+      tool_name: "read",
+      elapsed_time_seconds: 0,
+    });
+  });
+
+  it("derives elapsed seconds from metadata.time when needed", () => {
+    const msg = createUnifiedMessage({
+      type: "tool_progress",
+      role: "tool",
+      metadata: {
+        call_id: "call-124",
+        tool: "read",
+        time: { start: 1_000, end: 4_000 },
+      },
+    });
+
+    const result = mapToolProgress(msg);
+
+    expect(result).toEqual({
+      type: "tool_progress",
+      tool_use_id: "call-124",
+      tool_name: "read",
+      elapsed_time_seconds: 3,
+    });
+  });
 });
 
 // ─── mapToolUseSummary ──────────────────────────────────────────────────────
@@ -525,6 +567,59 @@ describe("mapToolUseSummary", () => {
       type: "tool_use_summary",
       summary: "Executed 3 commands",
       tool_use_ids: ["tu-1", "tu-2", "tu-3"],
+    });
+  });
+
+  it("maps tool output metadata when summary is missing", () => {
+    const msg = createUnifiedMessage({
+      type: "tool_use_summary",
+      role: "assistant",
+      metadata: {
+        tool: "read",
+        call_id: "call-123",
+        status: "completed",
+        input: { filePath: "README.md" },
+        output: "1: # beamcode\n2: ...",
+      },
+    });
+
+    const result = mapToolUseSummary(msg);
+
+    expect(result).toEqual({
+      type: "tool_use_summary",
+      summary: "read completed",
+      tool_use_ids: ["call-123"],
+      tool_use_id: "call-123",
+      tool_name: "read",
+      status: "completed",
+      input: { filePath: "README.md" },
+      output: "1: # beamcode\n2: ...",
+    });
+  });
+
+  it("maps failed tool summary from ACP-style metadata", () => {
+    const msg = createUnifiedMessage({
+      type: "tool_use_summary",
+      role: "assistant",
+      metadata: {
+        toolCallId: "acp-1",
+        kind: "bash",
+        status: "failed",
+        is_error: true,
+        content: { stderr: "permission denied" },
+      },
+    });
+
+    const result = mapToolUseSummary(msg);
+
+    expect(result).toEqual({
+      type: "tool_use_summary",
+      summary: "bash failed",
+      tool_use_ids: ["acp-1"],
+      tool_use_id: "acp-1",
+      status: "failed",
+      is_error: true,
+      output: { stderr: "permission denied" },
     });
   });
 });

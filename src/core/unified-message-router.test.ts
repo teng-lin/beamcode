@@ -338,6 +338,81 @@ describe("UnifiedMessageRouter", () => {
         expect(last.message.content).toEqual([]);
       }
     });
+
+    it("drops duplicate assistant events with same message id and content", () => {
+      const m = createUnifiedMessage({
+        type: "assistant",
+        role: "assistant",
+        content: [{ type: "text", text: "same" }],
+        metadata: {
+          message_id: "msg-dup",
+          model: "claude",
+          stop_reason: "end_turn",
+          parent_tool_use_id: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+
+      router.route(session, m);
+      router.route(session, m);
+
+      expect(session.messageHistory).toHaveLength(1);
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledTimes(1);
+    });
+
+    it("updates prior assistant entry when same message id has new content", () => {
+      const first = createUnifiedMessage({
+        type: "assistant",
+        role: "assistant",
+        content: [{ type: "text", text: "first" }],
+        metadata: {
+          message_id: "msg-update",
+          model: "claude",
+          stop_reason: "end_turn",
+          parent_tool_use_id: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+      const second = createUnifiedMessage({
+        type: "assistant",
+        role: "assistant",
+        content: [{ type: "text", text: "second" }],
+        metadata: {
+          message_id: "msg-update",
+          model: "claude",
+          stop_reason: "end_turn",
+          parent_tool_use_id: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+
+      router.route(session, first);
+      router.route(session, second);
+
+      expect(session.messageHistory).toHaveLength(1);
+      const item = session.messageHistory[0];
+      expect(item.type).toBe("assistant");
+      if (item.type === "assistant") {
+        expect(item.message.id).toBe("msg-update");
+        expect(item.message.content).toEqual([{ type: "text", text: "second" }]);
+      }
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledTimes(2);
+    });
   });
 
   // ── result ────────────────────────────────────────────────────────────
@@ -525,17 +600,71 @@ describe("UnifiedMessageRouter", () => {
   // ── tool_use_summary ──────────────────────────────────────────────────
 
   describe("tool_use_summary", () => {
-    it("broadcasts tool use summary", () => {
+    it("persists and broadcasts tool use summary", () => {
       const m = msg("tool_use_summary", {
         summary: "Ran command",
+        tool_use_id: "tu-1",
         tool_use_ids: ["tu-1"],
+        output: "ok",
       });
       router.route(session, m);
 
+      expect(session.messageHistory).toHaveLength(1);
+      expect(session.messageHistory[0]).toEqual(
+        expect.objectContaining({
+          type: "tool_use_summary",
+          tool_use_id: "tu-1",
+          output: "ok",
+        }),
+      );
       expect(deps.broadcaster.broadcast).toHaveBeenCalledWith(
         session,
         expect.objectContaining({ type: "tool_use_summary" }),
       );
+      expect(deps.persistSession).toHaveBeenCalledWith(session);
+    });
+
+    it("drops duplicate tool summaries with same tool_use_id and payload", () => {
+      const m = msg("tool_use_summary", {
+        summary: "Ran command",
+        tool_use_id: "tu-dup",
+        tool_use_ids: ["tu-dup"],
+        output: "ok",
+      });
+
+      router.route(session, m);
+      router.route(session, m);
+
+      expect(session.messageHistory).toHaveLength(1);
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledTimes(1);
+    });
+
+    it("updates existing tool summary when same tool_use_id has new output", () => {
+      const first = msg("tool_use_summary", {
+        summary: "Ran command",
+        tool_use_id: "tu-update",
+        tool_use_ids: ["tu-update"],
+        output: "line 1",
+      });
+      const second = msg("tool_use_summary", {
+        summary: "Ran command",
+        tool_use_id: "tu-update",
+        tool_use_ids: ["tu-update"],
+        output: "line 1\nline 2",
+      });
+
+      router.route(session, first);
+      router.route(session, second);
+
+      expect(session.messageHistory).toHaveLength(1);
+      expect(session.messageHistory[0]).toEqual(
+        expect.objectContaining({
+          type: "tool_use_summary",
+          tool_use_id: "tu-update",
+          output: "line 1\nline 2",
+        }),
+      );
+      expect(deps.broadcaster.broadcast).toHaveBeenCalledTimes(2);
     });
   });
 
