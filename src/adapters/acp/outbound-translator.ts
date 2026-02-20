@@ -125,7 +125,11 @@ export function translatePromptError(
 }
 
 /** Translate an auth error into an auth_status UnifiedMessage. */
-export function translateAuthStatus(sessionId: string, error: string): UnifiedMessage {
+export function translateAuthStatus(
+  sessionId: string,
+  error: string,
+  data?: { validationLink?: string; validationDescription?: string; learnMoreUrl?: string },
+): UnifiedMessage {
   return createUnifiedMessage({
     type: "auth_status",
     role: "system",
@@ -134,6 +138,7 @@ export function translateAuthStatus(sessionId: string, error: string): UnifiedMe
       isAuthenticating: false,
       output: [],
       error,
+      ...(data?.validationLink && { validationLink: data.validationLink }),
     },
   });
 }

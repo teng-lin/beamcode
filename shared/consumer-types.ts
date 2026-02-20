@@ -74,6 +74,7 @@ export interface ResultData {
   total_lines_removed?: number;
   error_code?: string;
   error_message?: string;
+  error_data?: Record<string, unknown>;
 }
 
 // ── Permission Request ──────────────────────────────────────────────────────
@@ -239,7 +240,13 @@ export type ConsumerMessage =
       error?: unknown;
     }
   | { type: "status_change"; status: "compacting" | "idle" | "running" | null }
-  | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
+  | {
+      type: "auth_status";
+      isAuthenticating: boolean;
+      output: string[];
+      error?: string;
+      validationLink?: string;
+    }
   | { type: "error"; message: string }
   | { type: "cli_disconnected" }
   | { type: "cli_connected" }

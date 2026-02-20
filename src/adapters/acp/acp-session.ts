@@ -333,7 +333,10 @@ export class AcpSession implements BackendSession {
 
           // Emit auth_status before result so the frontend can show auth state
           if (result.metadata.error_code === "provider_auth") {
-            return [translateAuthStatus(this.sessionId, msg.error.message), result];
+            const data = msg.error.data as
+              | { validationLink?: string; validationDescription?: string; learnMoreUrl?: string }
+              | undefined;
+            return [translateAuthStatus(this.sessionId, msg.error.message, data), result];
           }
 
           return [result];

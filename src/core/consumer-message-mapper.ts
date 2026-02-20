@@ -143,6 +143,7 @@ export function mapResultMessage(msg: UnifiedMessage): ConsumerMessage {
       total_lines_removed: m.total_lines_removed as number | undefined,
       error_code: m.error_code as string | undefined,
       error_message: m.error_message as string | undefined,
+      error_data: m.error_data as Record<string, unknown> | undefined,
     },
   };
 }
@@ -252,6 +253,7 @@ export function mapAuthStatus(msg: UnifiedMessage): ConsumerMessage {
     isAuthenticating: m.isAuthenticating as boolean,
     output: m.output as string[],
     error: m.error as string | undefined,
+    validationLink: m.validationLink as string | undefined,
   };
 }
 
