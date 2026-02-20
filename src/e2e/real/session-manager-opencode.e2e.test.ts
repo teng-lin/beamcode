@@ -672,6 +672,19 @@ describe("E2E Real Opencode SessionManager", () => {
       );
       await waitForMessageType(consumer, "result", 90_000);
 
+      // Diagnostic: log session state between turns
+      {
+        const snapshot = manager.bridge.getSession(sessionId);
+        const launcherInfo = manager.launcher.getSession(sessionId);
+        console.log(
+          `[opencode-second-turn] between turns: lastStatus=${snapshot?.lastStatus ?? "n/a"} ` +
+            `cliConnected=${snapshot?.cliConnected ?? "n/a"} ` +
+            `launcherState=${launcherInfo?.state ?? "n/a"} ` +
+            `backendConnected=${manager.bridge.isBackendConnected(sessionId)} ` +
+            `messageHistoryLen=${snapshot?.messageHistoryLength ?? "n/a"}`,
+        );
+      }
+
       // Turn 2 — depends on SSE reconnection working between turns.
       consumer.send(
         JSON.stringify({
