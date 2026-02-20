@@ -510,7 +510,7 @@ describe("mapToolProgress", () => {
       type: "tool_progress",
       role: "tool",
       metadata: {
-        call_id: "call-123",
+        tool_use_id: "call-123",
         tool: "read",
         status: "running",
       },
@@ -531,7 +531,7 @@ describe("mapToolProgress", () => {
       type: "tool_progress",
       role: "tool",
       metadata: {
-        call_id: "call-124",
+        tool_use_id: "call-124",
         tool: "read",
         time: { start: 1_000, end: 4_000 },
       },
@@ -576,7 +576,7 @@ describe("mapToolUseSummary", () => {
       role: "assistant",
       metadata: {
         tool: "read",
-        call_id: "call-123",
+        tool_use_id: "call-123",
         status: "completed",
         input: { filePath: "README.md" },
         output: "1: # beamcode\n2: ...",
@@ -602,7 +602,7 @@ describe("mapToolUseSummary", () => {
       type: "tool_use_summary",
       role: "assistant",
       metadata: {
-        toolCallId: "acp-1",
+        tool_use_id: "acp-1",
         kind: "bash",
         status: "failed",
         is_error: true,
