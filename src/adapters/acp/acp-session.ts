@@ -8,7 +8,7 @@
 import type { ChildProcess } from "node:child_process";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
 import { extractTraceContext, type MessageTracer } from "../../core/message-tracer.js";
-import type { UnifiedMessage } from "../../core/types/unified-message.js";
+import { createUnifiedMessage, type UnifiedMessage } from "../../core/types/unified-message.js";
 import { translateToAcp } from "./inbound-translator.js";
 import type { JsonRpcMessage } from "./json-rpc.js";
 import {
@@ -43,6 +43,8 @@ export class AcpSession implements BackendSession {
   private readonly pendingRequests = new Map<number | string, PendingRequest>();
   private pendingPermissionRequestId: number | string | undefined;
   private closed = false;
+  /** Accumulated streaming text for synthesizing an assistant message when the prompt completes. */
+  private streamedText = "";
 
   constructor(
     sessionId: string,
@@ -62,6 +64,11 @@ export class AcpSession implements BackendSession {
 
   send(message: UnifiedMessage): void {
     if (this.closed) throw new Error("Session is closed");
+
+    // Reset accumulated streaming text on new user prompt
+    if (message.type === "user_message") {
+      this.streamedText = "";
+    }
 
     const trace = extractTraceContext(message.metadata);
     const action = translateToAcp(message, {
@@ -292,7 +299,19 @@ export class AcpSession implements BackendSession {
   private routeMessage(msg: JsonRpcMessage): UnifiedMessage[] {
     if (isJsonRpcNotification(msg)) {
       if (msg.method === "session/update") {
-        return [translateSessionUpdate(msg.params as Parameters<typeof translateSessionUpdate>[0])];
+        // ACP sends {sessionId, update: {sessionUpdate, ...}} — flatten for translator
+        const params = msg.params as { sessionId: string; update: Record<string, unknown> };
+        const flattened = { sessionId: params.sessionId, ...params.update } as Parameters<
+          typeof translateSessionUpdate
+        >[0];
+
+        // Accumulate text from agent_message_chunk for synthesizing the final assistant message
+        if (flattened.sessionUpdate === "agent_message_chunk") {
+          const content = flattened.content as { text?: string } | undefined;
+          if (content?.text) this.streamedText += content.text;
+        }
+
+        return [translateSessionUpdate(flattened)];
       }
       this.tracer?.error("backend", msg.method, "ACP notification not mapped to UnifiedMessage", {
         sessionId: this.sessionId,
@@ -329,6 +348,7 @@ export class AcpSession implements BackendSession {
       if (pending) {
         this.pendingRequests.delete(msg.id);
         if (msg.error) {
+          this.streamedText = "";
           const result = translatePromptError(this.sessionId, msg.error, this.errorClassifier);
 
           // Emit auth_status before result so the frontend can show auth state
@@ -343,9 +363,26 @@ export class AcpSession implements BackendSession {
         }
       }
 
-      // If no pending request matches, treat as a prompt result
+      // Prompt completed — synthesize an assistant message from accumulated streamed text
+      // so the frontend can clear streaming state and show the final message.
+      // ACP doesn't send an explicit "assistant" message like Claude does.
       if (msg.result && typeof msg.result === "object" && "stopReason" in msg.result) {
-        return [translatePromptResult(msg.result as Parameters<typeof translatePromptResult>[0])];
+        const messages: UnifiedMessage[] = [];
+        if (this.streamedText) {
+          messages.push(
+            createUnifiedMessage({
+              type: "assistant",
+              role: "assistant",
+              content: [{ type: "text", text: this.streamedText }],
+              metadata: { sessionId: this.sessionId },
+            }),
+          );
+          this.streamedText = "";
+        }
+        messages.push(
+          translatePromptResult(msg.result as Parameters<typeof translatePromptResult>[0]),
+        );
+        return messages;
       }
 
       return [];

@@ -69,7 +69,12 @@ export interface SessionData {
     queuedAt: number;
   } | null;
   isEditingQueue: boolean;
-  authStatus: { isAuthenticating: boolean; output: string[]; error?: string } | null;
+  authStatus: {
+    isAuthenticating: boolean;
+    output: string[];
+    error?: string;
+    validationLink?: string;
+  } | null;
 }
 
 export interface Toast {

@@ -35,6 +35,20 @@ describe("translateSessionUpdate", () => {
       expect(result.metadata.sessionId).toBe("sess-1");
     });
 
+    it("synthesizes Claude-compatible event in metadata", () => {
+      const update: AcpSessionUpdate = {
+        sessionId: "sess-1",
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Hello world" },
+      };
+      const result = translateSessionUpdate(update);
+
+      expect(result.metadata.event).toEqual({
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "Hello world" },
+      });
+    });
+
     it("produces empty content when text is absent", () => {
       const update: AcpSessionUpdate = {
         sessionId: "sess-1",
@@ -44,6 +58,7 @@ describe("translateSessionUpdate", () => {
 
       expect(result.type).toBe("stream_event");
       expect(result.content).toEqual([]);
+      expect(result.metadata.event).toBeUndefined();
     });
   });
 
@@ -60,6 +75,20 @@ describe("translateSessionUpdate", () => {
       expect(result.role).toBe("assistant");
       expect(result.content[0]).toEqual({ type: "thinking", thinking: "Let me think..." });
       expect(result.metadata.thought).toBe(true);
+    });
+
+    it("synthesizes Claude-compatible thinking event in metadata", () => {
+      const update: AcpSessionUpdate = {
+        sessionId: "sess-1",
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "Let me think..." },
+      };
+      const result = translateSessionUpdate(update);
+
+      expect(result.metadata.event).toEqual({
+        type: "content_block_delta",
+        delta: { type: "thinking_delta", thinking: "Let me think..." },
+      });
     });
   });
 
@@ -224,10 +253,15 @@ describe("translateSessionUpdate", () => {
 // ---------------------------------------------------------------------------
 
 describe("translatePermissionRequest", () => {
-  it("translates permission request with toolCall and options", () => {
+  it("maps ACP toolCall fields to flat consumer-compatible names", () => {
     const request: AcpPermissionRequest = {
       sessionId: "sess-1",
-      toolCall: { toolCallId: "call-1", title: "Run command" },
+      toolCall: {
+        toolCallId: "call-1",
+        title: "Run command",
+        kind: "shell",
+        rawInput: { command: "ls -la" },
+      },
       options: [
         { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
         { optionId: "reject-once", name: "Deny", kind: "reject_once" },
@@ -238,8 +272,35 @@ describe("translatePermissionRequest", () => {
     expect(result.type).toBe("permission_request");
     expect(result.role).toBe("system");
     expect(result.metadata.sessionId).toBe("sess-1");
-    expect(result.metadata.toolCall).toEqual({ toolCallId: "call-1", title: "Run command" });
+    expect(result.metadata.request_id).toBe("call-1");
+    expect(result.metadata.tool_use_id).toBe("call-1");
+    expect(result.metadata.tool_name).toBe("shell");
+    expect(result.metadata.input).toEqual({ command: "ls -la" });
+    expect(result.metadata.description).toBe("Run command");
     expect(result.metadata.options).toHaveLength(2);
+  });
+
+  it("falls back to title when kind is absent", () => {
+    const request: AcpPermissionRequest = {
+      sessionId: "sess-1",
+      toolCall: { toolCallId: "call-2", title: "Edit file" },
+      options: [],
+    };
+    const result = translatePermissionRequest(request);
+
+    expect(result.metadata.tool_name).toBe("Edit file");
+  });
+
+  it("defaults tool_name to 'tool' when both kind and title are absent", () => {
+    const request: AcpPermissionRequest = {
+      sessionId: "sess-1",
+      toolCall: { toolCallId: "call-3" },
+      options: [],
+    };
+    const result = translatePermissionRequest(request);
+
+    expect(result.metadata.tool_name).toBe("tool");
+    expect(result.metadata.input).toEqual({});
   });
 });
 

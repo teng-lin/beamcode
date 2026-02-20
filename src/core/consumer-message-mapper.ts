@@ -155,7 +155,10 @@ export function mapStreamEvent(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
   return {
     type: "stream_event",
-    event: m.event,
+    event: (m.event as Record<string, unknown>) ?? {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "" },
+    },
     parent_tool_use_id: (m.parent_tool_use_id as string | null) ?? null,
   };
 }

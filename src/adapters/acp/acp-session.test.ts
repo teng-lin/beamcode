@@ -299,8 +299,10 @@ describe("AcpSession", () => {
         method: "session/update",
         params: {
           sessionId: "sess-1",
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "Hello world" },
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Hello world" },
+          },
         },
       };
       mockDecode(codec).mockReturnValueOnce(updateMsg);
@@ -343,8 +345,10 @@ describe("AcpSession", () => {
         method: "session/update",
         params: {
           sessionId: "sess-1",
-          sessionUpdate: "plan",
-          planEntries: [],
+          update: {
+            sessionUpdate: "plan",
+            planEntries: [],
+          },
         },
       };
       mockDecode(codec).mockReturnValueOnce(validMsg);
@@ -387,8 +391,10 @@ describe("AcpSession", () => {
         method: "session/update",
         params: {
           sessionId: "sess-1",
-          sessionUpdate: "plan",
-          planEntries: [{ step: 1, text: "do thing" }],
+          update: {
+            sessionUpdate: "plan",
+            planEntries: [{ step: 1, text: "do thing" }],
+          },
         },
       };
       mockDecode(codec).mockReturnValueOnce(notification);

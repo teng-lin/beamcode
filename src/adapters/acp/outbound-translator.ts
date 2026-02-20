@@ -75,12 +75,19 @@ export function translateSessionUpdate(update: AcpSessionUpdate): UnifiedMessage
 
 /** Translate a session/request_permission request into a UnifiedMessage. */
 export function translatePermissionRequest(request: AcpPermissionRequest): UnifiedMessage {
+  const tc = request.toolCall;
   return createUnifiedMessage({
     type: "permission_request",
     role: "system",
     metadata: {
       sessionId: request.sessionId,
-      toolCall: request.toolCall,
+      // Map ACP toolCall fields to the flat names expected by consumer-message-mapper
+      request_id: tc.toolCallId,
+      tool_use_id: tc.toolCallId,
+      tool_name: (tc.kind as string) ?? (tc.title as string) ?? "tool",
+      input: (tc.rawInput as Record<string, unknown>) ?? {},
+      description: tc.title as string | undefined,
+      // Preserve ACP options for inbound permission response translation
       options: request.options,
     },
   });
@@ -173,7 +180,13 @@ function translateAgentMessageChunk(update: AcpSessionUpdate): UnifiedMessage {
     type: "stream_event",
     role: "assistant",
     content,
-    metadata: { sessionId: update.sessionId },
+    metadata: {
+      sessionId: update.sessionId,
+      // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
+      ...(textChunk?.text && {
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: textChunk.text } },
+      }),
+    },
   });
 }
 
@@ -188,7 +201,17 @@ function translateAgentThoughtChunk(update: AcpSessionUpdate): UnifiedMessage {
     type: "stream_event",
     role: "assistant",
     content,
-    metadata: { sessionId: update.sessionId, thought: true },
+    metadata: {
+      sessionId: update.sessionId,
+      thought: true,
+      // Synthesize Claude-compatible event so consumer-message-mapper stays backend-agnostic
+      ...(textChunk?.text && {
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: textChunk.text },
+        },
+      }),
+    },
   });
 }
 
@@ -208,6 +231,7 @@ function translateToolCall(update: AcpSessionUpdate): UnifiedMessage {
 
 function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
   const status = update.status as string | undefined;
+  const content = extractToolContent(update.content);
 
   if (status === "completed" || status === "failed") {
     return createUnifiedMessage({
@@ -216,7 +240,7 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
       metadata: {
         sessionId: update.sessionId,
         toolCallId: update.toolCallId as string,
-        content: update.content,
+        content,
         status,
         is_error: status === "failed",
       },
@@ -230,10 +254,32 @@ function translateToolCallUpdate(update: AcpSessionUpdate): UnifiedMessage {
     metadata: {
       sessionId: update.sessionId,
       toolCallId: update.toolCallId as string,
-      content: update.content,
+      content,
       status: status ?? "in_progress",
     },
   });
+}
+
+/**
+ * Extract text from ACP tool content format.
+ * ACP sends: [{type: "content", content: {type: "text", text: "..."}}]
+ * We flatten to a plain text string for the consumer.
+ */
+function extractToolContent(raw: unknown): string | unknown {
+  if (!Array.isArray(raw)) return raw;
+  const texts: string[] = [];
+  for (const item of raw) {
+    if (
+      item?.type === "content" &&
+      item?.content?.type === "text" &&
+      typeof item.content.text === "string"
+    ) {
+      texts.push(item.content.text);
+    } else if (item?.type === "text" && typeof item?.text === "string") {
+      texts.push(item.text);
+    }
+  }
+  return texts.length > 0 ? texts.join("\n") : raw;
 }
 
 function translatePlan(update: AcpSessionUpdate): UnifiedMessage {
