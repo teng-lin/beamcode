@@ -681,6 +681,19 @@ describe("E2E Real SDK-URL SessionManager", () => {
       // session_init/capabilities_ready. cli_connected + backend connected
       // is sufficient to validate post-relaunch usability.
 
+      // Diagnostic: log session state before post-relaunch turn
+      {
+        const snapshot = manager.bridge.getSession(sessionId);
+        const launcherInfo = manager.launcher.getSession(sessionId);
+        console.log(
+          `[claude-relaunch-turn] before post-relaunch turn: lastStatus=${snapshot?.lastStatus ?? "n/a"} ` +
+            `cliConnected=${snapshot?.cliConnected ?? "n/a"} ` +
+            `launcherState=${launcherInfo?.state ?? "n/a"} ` +
+            `backendConnected=${manager.bridge.isBackendConnected(sessionId)} ` +
+            `messageHistoryLen=${snapshot?.messageHistoryLength ?? "n/a"}`,
+        );
+      }
+
       consumer.send(
         JSON.stringify({
           type: "user_message",
@@ -718,6 +731,19 @@ describe("E2E Real SDK-URL SessionManager", () => {
         90_000,
       );
       await waitForMessageType(consumer, "result", 90_000);
+
+      // Diagnostic: log session state between turns
+      {
+        const snapshot = manager.bridge.getSession(sessionId);
+        const launcherInfo = manager.launcher.getSession(sessionId);
+        console.log(
+          `[claude-second-turn] between turns: lastStatus=${snapshot?.lastStatus ?? "n/a"} ` +
+            `cliConnected=${snapshot?.cliConnected ?? "n/a"} ` +
+            `launcherState=${launcherInfo?.state ?? "n/a"} ` +
+            `backendConnected=${manager.bridge.isBackendConnected(sessionId)} ` +
+            `messageHistoryLen=${snapshot?.messageHistoryLength ?? "n/a"}`,
+        );
+      }
 
       consumer.send(
         JSON.stringify({

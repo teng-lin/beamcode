@@ -156,6 +156,7 @@ export class SessionStore {
       pendingPermissions: Array.from(session.pendingPermissions.values()),
       messageHistoryLength: session.messageHistory.length,
       lastActivity: session.lastActivity,
+      lastStatus: session.lastStatus,
     };
   }
 

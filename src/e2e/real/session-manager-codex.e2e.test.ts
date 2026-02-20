@@ -439,6 +439,17 @@ describe("E2E Real Codex SessionManager", () => {
       await waitForMessage(consumer, (msg) => assistantTextContains(msg, "CODEX_TURN_ONE"), 90_000);
       await waitForMessageType(consumer, "result", 90_000);
 
+      // Diagnostic: log session state between turns
+      const snapshot = manager.bridge.getSession(sessionId);
+      const launcherInfo = manager.launcher.getSession(sessionId);
+      console.log(
+        `[codex-second-turn] between turns: lastStatus=${snapshot?.lastStatus ?? "n/a"} ` +
+          `cliConnected=${snapshot?.cliConnected ?? "n/a"} ` +
+          `launcherState=${launcherInfo?.state ?? "n/a"} ` +
+          `backendConnected=${manager.bridge.isBackendConnected(sessionId)} ` +
+          `messageHistoryLen=${snapshot?.messageHistoryLength ?? "n/a"}`,
+      );
+
       // Turn 2
       consumer.send(
         JSON.stringify({
