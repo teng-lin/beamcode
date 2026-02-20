@@ -19,7 +19,7 @@ import {
 } from "../../core/message-tracer.js";
 import { SessionManager } from "../../core/session-manager.js";
 import type { Authenticator } from "../../interfaces/auth.js";
-import type { SessionStorage } from "../../interfaces/storage.js";
+import type { LauncherStateStorage, SessionStorage } from "../../interfaces/storage.js";
 import { attachTrace, reservePort } from "./helpers.js";
 
 export interface SetupRealSessionOptions {
@@ -56,6 +56,15 @@ function createEnvTracer(): MessageTracer {
   });
 }
 
+function isLauncherStateStorage(storage: SessionStorage): storage is SessionStorage & LauncherStateStorage {
+  return (
+    "saveLauncherState" in storage &&
+    typeof storage.saveLauncherState === "function" &&
+    "loadLauncherState" in storage &&
+    typeof storage.loadLauncherState === "function"
+  );
+}
+
 /**
  * Set up a real backend session using SessionManager.createSession().
  *
@@ -76,6 +85,7 @@ export async function setupRealSession(
   const tracer = createEnvTracer();
   const memStorage = new MemoryStorage();
   const storage = options?.storage ?? memStorage;
+  const launcherStorage = isLauncherStateStorage(storage) ? storage : memStorage;
 
   const adapterResolver = createAdapterResolver({ processManager }, adapterName);
 
@@ -85,7 +95,7 @@ export async function setupRealSession(
     server,
     adapterResolver,
     authenticator: options?.authenticator,
-    launcher: new ClaudeLauncher({ processManager, config, storage }),
+    launcher: new ClaudeLauncher({ processManager, config, storage: launcherStorage }),
     tracer,
   });
 
