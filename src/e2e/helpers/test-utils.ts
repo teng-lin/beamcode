@@ -24,6 +24,15 @@ function getPrebuffer(ws: WebSocket): string[] {
   return toBuffered(ws)[PREBUFFER_KEY] ?? [];
 }
 
+export function attachPrebuffer(ws: WebSocket): void {
+  const buffered = toBuffered(ws);
+  if (buffered[PREBUFFER_KEY]) return;
+  buffered[PREBUFFER_KEY] = [];
+  ws.on("message", (data: Buffer | string) => {
+    buffered[PREBUFFER_KEY]?.push(data.toString());
+  });
+}
+
 function removeFirstRaw(prebuffer: string[], raw: string): void {
   const idx = prebuffer.indexOf(raw);
   if (idx >= 0) prebuffer.splice(idx, 1);
@@ -122,11 +131,7 @@ type ClientRole = "cli" | "consumer";
 function connectWebSocketUrl(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const buffered = toBuffered(ws);
-    buffered[PREBUFFER_KEY] = [];
-    ws.on("message", (data: Buffer | string) => {
-      buffered[PREBUFFER_KEY]?.push(data.toString());
-    });
+    attachPrebuffer(ws);
     ws.on("open", () => resolve(ws));
     ws.on("error", reject);
   });
