@@ -36,11 +36,13 @@ export function createBeamcodeServer(
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-    // Security: API key gate for /api/* endpoints.
-    // When configured, all /api requests must include Authorization: Bearer <key>.
+    // Security: API key gate for sensitive endpoints.
+    // When configured, /api/*, /health, and /metrics require Authorization: Bearer <key>.
     // This prevents unauthenticated access both from LAN and through tunnels
     // (cloudflared forwards requests as localhost, making IP-based checks unreliable).
-    if (apiKey && url.pathname.startsWith("/api/")) {
+    const isProtected =
+      url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/metrics";
+    if (apiKey && isProtected) {
       const auth = req.headers.authorization ?? "";
       if (!timingSafeCompare(auth, `Bearer ${apiKey}`)) {
         res.writeHead(401, { "Content-Type": "application/json" });

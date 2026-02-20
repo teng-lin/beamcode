@@ -15,7 +15,7 @@ export function handleHealth(
   if (ctx) {
     body.version = ctx.version;
     body.uptime_seconds = Math.floor(process.uptime());
-    const stats = ctx.metrics.getStats?.() as Record<string, unknown> | undefined;
+    const stats = ctx.metrics.getStats?.();
     if (stats) {
       body.sessions = stats.totalSessions ?? 0;
       body.consumers = stats.totalConsumers ?? 0;
