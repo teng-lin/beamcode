@@ -62,6 +62,29 @@ describe("ToolResultBlock", () => {
       expect(gutters[0]?.textContent).toBe("1");
       expect(gutters[1]?.textContent).toBe("2");
     });
+
+    it("renders unified diff output with diff highlighting", () => {
+      const diff = `--- a/file.ts\n+++ b/file.ts\n@@ -1,2 +1,2 @@\n-old\n+new\n ctx`;
+      const { container } = render(<ToolResultBlock toolName="Bash" content={diff} />);
+      expect(container.querySelector('[data-diff="added"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-diff="removed"]')).toBeInTheDocument();
+    });
+
+    it("renders non-diff output as plain PreBlock", () => {
+      const { container } = render(
+        <ToolResultBlock toolName="Bash" content="ls output\nfile.ts" />,
+      );
+      expect(container.querySelector('[data-diff="added"]')).not.toBeInTheDocument();
+      const gutters = container.querySelectorAll(".select-none");
+      expect(gutters.length).toBeGreaterThan(0);
+    });
+
+    it("handles ANSI-colored diff output", () => {
+      const coloredDiff = `\u001B[1m--- a/file.ts\u001B[0m\n\u001B[1m+++ b/file.ts\u001B[0m\n\u001B[36m@@ -1 +1 @@\u001B[0m\n\u001B[31m-old\u001B[0m\n\u001B[32m+new\u001B[0m`;
+      const { container } = render(<ToolResultBlock toolName="Bash" content={coloredDiff} />);
+      expect(container.querySelector('[data-diff="added"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-diff="removed"]')).toBeInTheDocument();
+    });
   });
 
   describe("Read/Write/Edit", () => {
