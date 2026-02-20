@@ -215,12 +215,14 @@ All adapters translate to/from `UnifiedMessage` — a normalized envelope that f
 | `user_message` | consumer → backend | — |
 | `permission_response` | consumer → backend | — |
 | `interrupt` | consumer → backend | — |
-| `team_message` | backend → state | — |
-| `team_task_update` | backend → state | — |
-| `team_state_change` | backend → state | — |
-| `session_lifecycle` | internal | — |
+| `team_message` | backend → state | indirect ¹ |
+| `team_task_update` | backend → state | indirect ¹ |
+| `team_state_change` | backend → state | indirect ¹ |
+| `session_lifecycle` | internal | ✅ |
 | `control_response` | internal | — |
 | `unknown` | — | — |
+
+¹ Team messages are not broadcast directly, but their state changes are broadcast to consumers as `session_update` messages via `emitTeamEvents()`.
 
 **7 content block types** in `UnifiedContent`: `text`, `tool_use`, `tool_result`, `code`, `image`, `thinking`, `refusal`.
 
