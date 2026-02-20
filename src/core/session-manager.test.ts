@@ -1195,32 +1195,34 @@ describe("SessionManager", () => {
       });
       nonClaudeMgr.start();
 
-      // Register an external session (no PID — simulates Codex/ACP)
-      nonClaudeMgr.launcher.registerExternalSession({
-        sessionId: "ext-sess",
-        cwd: "/tmp",
-        createdAt: Date.now(),
-        adapterName: "codex",
-      });
+      try {
+        // Register an external session (no PID — simulates Codex/ACP)
+        nonClaudeMgr.launcher.registerExternalSession({
+          sessionId: "ext-sess",
+          cwd: "/tmp",
+          createdAt: Date.now(),
+          adapterName: "codex",
+        });
 
-      // Seed bridge state
-      nonClaudeMgr.bridge.seedSessionState("ext-sess", { cwd: "/tmp" });
-      nonClaudeMgr.bridge.setAdapterName("ext-sess", "codex" as any);
+        // Seed bridge state
+        nonClaudeMgr.bridge.seedSessionState("ext-sess", { cwd: "/tmp" });
+        nonClaudeMgr.bridge.setAdapterName("ext-sess", "codex" as any);
 
-      const connectSpy = vi.spyOn(nonClaudeMgr.bridge, "connectBackend");
+        const connectSpy = vi.spyOn(nonClaudeMgr.bridge, "connectBackend");
 
-      nonClaudeMgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: "ext-sess" });
+        nonClaudeMgr.bridge.emit("backend:relaunch_needed" as any, { sessionId: "ext-sess" });
 
-      await vi.waitFor(() => {
-        expect(connectSpy).toHaveBeenCalledWith(
-          "ext-sess",
-          expect.objectContaining({
-            adapterOptions: { cwd: "/tmp" },
-          }),
-        );
-      });
-
-      await nonClaudeMgr.stop();
+        await vi.waitFor(() => {
+          expect(connectSpy).toHaveBeenCalledWith(
+            "ext-sess",
+            expect.objectContaining({
+              adapterOptions: { cwd: "/tmp" },
+            }),
+          );
+        });
+      } finally {
+        await nonClaudeMgr.stop();
+      }
     });
   });
 
@@ -1304,11 +1306,13 @@ describe("SessionManager", () => {
       });
       testMgr.start();
 
-      // Verify the session was marked as "exited"
-      const sess = testMgr.launcher.getSession("codex-sess");
-      expect(sess?.state).toBe("exited");
-
-      testMgr.stop();
+      try {
+        // Verify the session was marked as "exited"
+        const sess = testMgr.launcher.getSession("codex-sess");
+        expect(sess?.state).toBe("exited");
+      } finally {
+        testMgr.stop();
+      }
     });
   });
 });
