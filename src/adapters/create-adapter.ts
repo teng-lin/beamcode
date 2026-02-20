@@ -7,9 +7,10 @@ import { CodexAdapter } from "./codex/codex-adapter.js";
 import { GeminiAdapter } from "./gemini/gemini-adapter.js";
 import { OpencodeAdapter } from "./opencode/opencode-adapter.js";
 
-export type { CliAdapterName, AdapterName } from "../core/interfaces/adapter-names.js";
+export type { CliAdapterName } from "../core/interfaces/adapter-names.js";
 export { CLI_ADAPTER_NAMES } from "../core/interfaces/adapter-names.js";
-import type { AdapterName } from "../core/interfaces/adapter-names.js";
+
+import type { CliAdapterName } from "../core/interfaces/adapter-names.js";
 
 export interface CreateAdapterDeps {
   processManager: ProcessManager;
@@ -17,7 +18,7 @@ export interface CreateAdapterDeps {
 }
 
 export function createAdapter(
-  name: AdapterName | undefined,
+  name: CliAdapterName | undefined,
   deps: CreateAdapterDeps,
 ): BackendAdapter {
   const resolved = name ?? "claude";
@@ -39,8 +40,6 @@ export function createAdapter(
         processManager: deps.processManager,
         logger: deps.logger,
       });
-    case "agent-sdk":
-      throw new Error("agent-sdk adapter requires a queryFn and cannot be created via CLI flag");
     default:
       throw new Error(
         `Unknown adapter "${resolved}". Valid adapters: claude, codex, acp, gemini, opencode`,

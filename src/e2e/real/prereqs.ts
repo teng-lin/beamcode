@@ -13,7 +13,7 @@ export interface BackendPrereqState {
 }
 
 // ---------------------------------------------------------------------------
-// SDK-URL (Claude) — legacy export kept for backward compat
+// Claude (Real CLI)
 // ---------------------------------------------------------------------------
 
 export interface RealCliPrereqState extends BackendPrereqState {
@@ -102,30 +102,6 @@ export function getOpencodePrereqState(): BackendPrereqState {
   }
 
   return { ok: true, hasApiKey, canRunPromptTests: true };
-}
-
-// ---------------------------------------------------------------------------
-// Dispatch by adapter name
-// ---------------------------------------------------------------------------
-
-export function getBackendPrereqs(name: string): BackendPrereqState {
-  switch (name) {
-    case "claude":
-      return getRealCliPrereqState();
-    case "codex":
-      return getCodexPrereqState();
-    case "gemini":
-      return getGeminiPrereqState();
-    case "opencode":
-      return getOpencodePrereqState();
-    default:
-      return {
-        ok: false,
-        reason: `Unknown backend: ${name}`,
-        hasApiKey: false,
-        canRunPromptTests: false,
-      };
-  }
 }
 
 // ---------------------------------------------------------------------------

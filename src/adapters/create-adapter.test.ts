@@ -33,12 +33,6 @@ describe("createAdapter", () => {
     expect(adapter.name).toBe("opencode");
   });
 
-  it("throws for 'agent-sdk' (requires queryFn)", () => {
-    expect(() => createAdapter("agent-sdk", { processManager: mockProcessManager })).toThrow(
-      /queryFn/i,
-    );
-  });
-
   it("throws for unknown adapter name", () => {
     expect(() => createAdapter("unknown" as any, { processManager: mockProcessManager })).toThrow(
       /unknown adapter/i,

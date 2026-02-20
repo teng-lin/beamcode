@@ -222,22 +222,28 @@ export function waitForMessage(
       const diagnostics = [
         `Timeout waiting for message after ${timeoutMs}ms`,
         `WebSocket readyState: ${ws.readyState}`,
-        `Prebuffer (${prebuffer.length}): ${prebuffer.slice(-5).map((m) => {
-          try {
-            const p = JSON.parse(m) as { type?: string };
-            return p.type ?? "unknown";
-          } catch {
-            return "unparseable";
-          }
-        }).join(", ")}`,
-        `Received during wait (${receivedDuringWait.length}): ${receivedDuringWait.slice(-10).map((m) => {
-          try {
-            const p = JSON.parse(m) as { type?: string };
-            return p.type ?? "unknown";
-          } catch {
-            return "unparseable";
-          }
-        }).join(", ")}`,
+        `Prebuffer (${prebuffer.length}): ${prebuffer
+          .slice(-5)
+          .map((m) => {
+            try {
+              const p = JSON.parse(m) as { type?: string };
+              return p.type ?? "unknown";
+            } catch {
+              return "unparseable";
+            }
+          })
+          .join(", ")}`,
+        `Received during wait (${receivedDuringWait.length}): ${receivedDuringWait
+          .slice(-10)
+          .map((m) => {
+            try {
+              const p = JSON.parse(m) as { type?: string };
+              return p.type ?? "unknown";
+            } catch {
+              return "unparseable";
+            }
+          })
+          .join(", ")}`,
       ];
       reject(new Error(diagnostics.join("\n")));
     }, timeoutMs);
@@ -262,11 +268,7 @@ export function waitForMessage(
   });
 }
 
-export function drainInitialMessages(ws: WebSocket, count = 2, timeoutMs = 500): Promise<string[]> {
-  return collectMessages(ws, count, timeoutMs);
-}
-
-export function hasType(type: string): (msg: unknown) => boolean {
+function hasType(type: string): (msg: unknown) => boolean {
   return (msg: unknown) =>
     typeof msg === "object" &&
     msg !== null &&
@@ -280,31 +282,6 @@ export function waitForMessageType(
   timeoutMs = 2000,
 ): Promise<unknown> {
   return waitForMessage(ws, hasType(type), timeoutMs);
-}
-
-// ── Assertion Helpers ────────────────────────────────────────────────────────
-
-export function assertValidSessionId(sessionId: string): void {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-  if (!uuidRegex.test(sessionId)) {
-    throw new Error(`Invalid session ID: ${sessionId}`);
-  }
-}
-
-export function parseMessages(messages: string[]): unknown[] {
-  return messages.map((m) => {
-    try {
-      return JSON.parse(m);
-    } catch {
-      return { _raw: m };
-    }
-  });
-}
-
-export function extractMessageTypes(messages: string[]): string[] {
-  return parseMessages(messages)
-    .filter((m) => typeof m === "object" && m !== null && "type" in m)
-    .map((m) => (m as { type: string }).type);
 }
 
 export function getMessageText(msg: unknown): string {
@@ -416,17 +393,6 @@ export function mockResultMessage(
   };
 }
 
-export function mockStreamDelta(text: string) {
-  return {
-    type: "stream_event",
-    event: {
-      type: "content_block_delta",
-      delta: { type: "text_delta", text },
-    },
-    parent_tool_use_id: null,
-  };
-}
-
 export function sendAndWait(
   sender: WebSocket,
   receiver: WebSocket,
@@ -437,23 +403,6 @@ export function sendAndWait(
   const promise = waitForMessageType(receiver, responseType, timeoutMs);
   sender.send(JSON.stringify(message));
   return promise;
-}
-
-export function mockUserMessage(content: string) {
-  return {
-    type: "user_message",
-    content,
-    timestamp: Date.now(),
-  };
-}
-
-export function mockPermissionRequest(toolName: string, params: unknown, requestId = "perm-123") {
-  return {
-    type: "permission_request",
-    request_id: requestId,
-    tool_name: toolName,
-    params,
-  };
 }
 
 // ── Cleanup Helpers ──────────────────────────────────────────────────────────

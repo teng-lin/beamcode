@@ -7,31 +7,31 @@
 ## 1. Protocol Architecture
 
 ```
-┌──────────────┐   ┌─────────────┐    ┌─────────────┐   ┌──────────┐   ┌─────────┐   ┌───────────┐
-│   Claude     │   │   Codex     │    │  OpenCode   │   │   ACP    │   │ Gemini  │   │ Agent SDK │
-│  (CLI/NDJSON)│   │ (JSON-RPC)  │    │   (SSE)     │   │(JSON-RPC)│   │ (→ACP)  │   │ (in-proc) │
-└──────┬───────┘   └──────┬──────┘    └──────┬──────┘   └────┬─────┘   └────┬────┘   └─────┬─────┘
-       │                  │                  │               │              │              │
-       ▼                  ▼                  ▼               ▼              ▼              ▼
-   message-          codex-message-     opencode-message-  outbound-     (delegates      sdk-message-
-   translator.ts     translator.ts      translator.ts      translator.ts  to ACP)        translator.ts
-       │                  │                  │               │                             │
-       └──────────────────┴──────────────────┴───────────────┴─────────────────────────────┘
+┌──────────────┐   ┌─────────────┐    ┌─────────────┐   ┌──────────┐   ┌─────────┐
+│   Claude     │   │   Codex     │    │  OpenCode   │   │   ACP    │   │ Gemini  │
+│  (CLI/NDJSON)│   │ (JSON-RPC)  │    │   (SSE)     │   │(JSON-RPC)│   │ (→ACP)  │
+└──────┬───────┘   └──────┬──────┘    └──────┬──────┘   └────┬─────┘   └────┬────┘
+       │                  │                  │               │              │
+       ▼                  ▼                  ▼               ▼              ▼
+   message-          codex-message-     opencode-message-  outbound-     (delegates
+   translator.ts     translator.ts      translator.ts      translator.ts  to ACP)
+       │                  │                  │               │
+       └──────────────────┴──────────────────┴───────────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │  UnifiedMessage  │  ← 18 types, 5 content types
+                                    │  UnifiedMessage │  ← 18 types, 5 content types
                                     └────────┬────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │  Message Router  │  ← handles 9 of 18 types
+                                    │  Message Router │  ← handles 9 of 18 types
                                     └────────┬────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │ Consumer Mapper  │  ← maps 9 types to consumer
+                                    │ Consumer Mapper │  ← maps 9 types to consumer
                                     └────────┬────────┘
                                              │
                                     ┌────────▼────────┐
-                                    │   Frontend UI    │
+                                    │   Frontend UI   │
                                     └─────────────────┘
 ```
 
@@ -69,8 +69,8 @@
 | Content Type | Used By | Consumer Mapper |
 |---|---|:---:|
 | `text` | All adapters | YES |
-| `tool_use` | Claude, Codex, Agent SDK | YES |
-| `tool_result` | Claude, Codex, Agent SDK | YES |
+| `tool_use` | Claude, Codex | YES |
+| `tool_result` | Claude, Codex | YES |
 | `code` | (none currently) | **NO — erased to empty text** |
 | `image` | ACP inbound | **NO — erased to empty text** |
 
@@ -87,7 +87,6 @@ Consumer mapper `default` case at `consumer-message-mapper.ts:45-46` converts `c
 | **Claude** | `thinking` content block | Downconverted to `{ type: "text" }` | Semantic type lost |
 | **OpenCode** | `reasoning` part | `stream_event` with `reasoning: true` metadata | Not in content system |
 | **ACP/Gemini** | `agent_thought_chunk` | `stream_event` with `thought: true` metadata | Metadata workaround |
-| **Agent SDK** | `thinking` block (if present) | Falls to default → empty text | **Completely erased** |
 
 Consumer types already define `{ type: "thinking"; thinking: string; budget_tokens?: number }` at `consumer-messages.ts:23`. Frontend already renders it. Gap is purely in translation layers.
 
@@ -101,7 +100,6 @@ Consumer types already define `{ type: "thinking"; thinking: string; budget_toke
 | **Codex** | Error object with status | `is_error: true` in `result` |
 | **OpenCode** | `provider_auth`, `output_length`, `aborted`, `context_overflow`, `api_error`, `unknown` | Flattened to `is_error: true` |
 | **ACP/Gemini** | Generic error | `is_error: true` in `result` |
-| **Agent SDK** | Generic `is_error` | No subtypes |
 
 Consumer cannot distinguish rate limits from auth failures from context overflow.
 
@@ -133,38 +131,25 @@ Consumer never knows context was compacted; UI shows stale messages the backend 
 
 ACP agents dynamically update commands. Mapped to `unknown` in `outbound-translator.ts`, router ignores it. Frontend can't show dynamic agent commands.
 
-### GAP 6: Agent SDK Feature-Sparse
-
-**Severity: MEDIUM** — Agent SDK only
-
-| Feature | Claude | Codex | OpenCode | ACP | Agent SDK |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Streaming deltas | — | YES | YES | YES | **NO** |
-| Tool progress | YES | YES | YES | YES | **NO** |
-| Thinking/reasoning | YES | — | YES | YES | **NO** |
-| Error subtypes | YES | YES | YES | — | **NO** |
-| Token usage | YES | — | YES | — | **NO** |
-| Session lifecycle | — | — | YES | — | **NO** |
-
-### GAP 7: Codex Drops Tool Items in Response Payloads
+### GAP 6: Codex Drops Tool Items in Response Payloads
 
 **Severity: MEDIUM** — Codex only
 
 `codex-session.ts` `enqueueResponseItems()`: `if (item.type !== "message") continue` — `function_call` and `function_call_output` items completely lost when Codex uses non-streaming response path.
 
-### GAP 8: Step Boundaries Dropped
+### GAP 7: Step Boundaries Dropped
 
 **Severity: LOW** — OpenCode only
 
 `step-start`/`step-finish` parts return `null`. Consumer can't show step-by-step execution progress.
 
-### GAP 9: No `refusal` Content Type
+### GAP 8: No `refusal` Content Type
 
 **Severity: LOW** — Codex only
 
 `refusal` content parts prefixed as `[Refusal] <text>` and treated as plain text. Semantic signal lost.
 
-### GAP 10: `image`/`code` Content Types Erased
+### GAP 9: `image`/`code` Content Types Erased
 
 **Severity: LOW** — Defined but broken
 
@@ -172,31 +157,31 @@ Both exist in `UnifiedContent` union but consumer mapper default case converts t
 
 ## 5. Cross-Adapter Feature Matrix
 
-| Capability | Claude | Codex | OpenCode | ACP/Gemini | Agent SDK | Unified Protocol |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Text streaming | `stream_event` | `output_text.delta` | `part.updated` | `message_chunk` | NO | `stream_event` (YES) |
-| Thinking/reasoning | `thinking` block | — | `reasoning` part | `thought_chunk` | — | **MISSING** |
-| Tool invocation | `tool_progress` | `item.added` | tool `running` | `tool_call` | — | `tool_progress` (YES) |
-| Tool completion | `tool_use_summary` | `item.done` | tool `completed` | `tool_call_update` | — | `tool_use_summary` (YES) |
-| Tool pending | — | — | tool `pending` | — | — | **DROPPED** |
-| Permission request | `control_request` | `approval_requested` | `permission.updated` | `request_permission` | Promise callback | `permission_request` (YES) |
-| Error subtypes | 5 subtypes | error object | 6 subtypes | generic | generic | **FLATTENED** |
-| Session compaction | `status:compacting` | — | `session.compacted` | — | — | Partial |
-| Message removal | — | — | `message.removed` | — | — | **MISSING** |
-| Step boundaries | — | — | `step-start/finish` | — | — | **MISSING** |
-| Dynamic commands | — | — | — | `commands_update` | — | **SWALLOWED** |
-| Mode/config change | — | — | — | `current_mode_update` | — | **NOT BROADCAST** |
-| Refusal | — | `refusal` part | — | — | — | **FLATTENED** |
-| Token usage | Full | — | Full | — | cost_usd only | Partial |
-| Image content | — | — | — | YES (inbound) | — | Defined, **ERASED** |
-| Code content | — | — | — | — | — | Defined, **ERASED** |
-| Auth flow | `auth_status` | — | — | — | — | Claude-only |
-| Teams | YES | — | — | NO | — | 3 types (state-only) |
-| Session lifecycle | — | `thread/started` | 7 events | — | — | **MISSING** |
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Text streaming | `stream_event` | `output_text.delta` | `part.updated` | `message_chunk` | `stream_event` (YES) |
+| Thinking/reasoning | `thinking` block | — | `reasoning` part | `thought_chunk` | **MISSING** |
+| Tool invocation | `tool_progress` | `item.added` | tool `running` | `tool_call` | `tool_progress` (YES) |
+| Tool completion | `tool_use_summary` | `item.done` | tool `completed` | `tool_call_update` | `tool_use_summary` (YES) |
+| Tool pending | — | — | tool `pending` | — | **DROPPED** |
+| Permission request | `control_request` | `approval_requested` | `permission.updated` | `request_permission` | `permission_request` (YES) |
+| Error subtypes | 5 subtypes | error object | 6 subtypes | generic | **FLATTENED** |
+| Session compaction | `status:compacting` | — | `session.compacted` | — | Partial |
+| Message removal | — | — | `message.removed` | — | **MISSING** |
+| Step boundaries | — | — | `step-start/finish` | — | **MISSING** |
+| Dynamic commands | — | — | — | `commands_update` | **SWALLOWED** |
+| Mode/config change | — | — | — | `current_mode_update` | **NOT BROADCAST** |
+| Refusal | — | `refusal` part | — | — | **FLATTENED** |
+| Token usage | Full | — | Full | — | Partial |
+| Image content | — | — | — | YES (inbound) | Defined, **ERASED** |
+| Code content | — | — | — | — | Defined, **ERASED** |
+| Auth flow | `auth_status` | — | — | — | Claude-only |
+| Teams | YES | — | — | NO | 3 types (state-only) |
+| Session lifecycle | — | `thread/started` | 7 events | — | **MISSING** |
 
 ## 6. Complete Silent Drop Inventory
 
-**25 distinct silent drop points across the stack:**
+**23 distinct silent drop points across the stack:**
 
 | # | Layer | File | What's Dropped |
 |---|---|---|---|
@@ -220,15 +205,13 @@ Both exist in `UnifiedContent` union but consumer mapper default case converts t
 | 18 | OpenCode adapter | `opencode-message-translator.ts:189` | Tool `pending` state → `null` |
 | 19 | ACP adapter | `outbound-translator.ts:60` | Unknown session updates → `unknown` type |
 | 20 | ACP adapter | `acp-session.ts:246` | `fs/*`, `terminal/*` requests → error stub |
-| 21 | Agent SDK adapter | `sdk-message-translator.ts:148` | Unknown content blocks → empty text |
-| 22 | Agent SDK adapter | `sdk-message-translator.ts:108` | All non-`user_message` types → `null` |
-| 23 | Router | `unified-message-router.ts:118` | `configuration_change` — no case |
-| 24 | Router | `unified-message-router.ts:118` | `unknown` — no case |
-| 25 | Consumer mapper | `consumer-message-mapper.ts:46` | `code`/`image` content → empty text |
+| 21 | Router | `unified-message-router.ts:118` | `configuration_change` — no case |
+| 22 | Router | `unified-message-router.ts:118` | `unknown` — no case |
+| 23 | Consumer mapper | `consumer-message-mapper.ts:46` | `code`/`image` content → empty text |
 
 ## 7. Metadata Key Inconsistencies
 
-| Concept | Claude/Codex/OpenCode/SDK | ACP | Issue |
+| Concept | Claude/Codex/OpenCode | ACP | Issue |
 |---|---|---|---|
 | Session ID | `session_id` (snake_case) | `sessionId` (camelCase) | Inconsistent |
 | Tool call ID | `tool_use_id` / `call_id` | `toolCallId` | 3 different keys |
@@ -243,14 +226,13 @@ Both exist in `UnifiedContent` union but consumer mapper default case converts t
 
 ## Context
 
-An audit of all 6 backend adapters (Claude, Codex, OpenCode, ACP, Gemini, Agent SDK) against the unified message protocol revealed **25 silent drop points** where data is discarded without trace. Key findings:
+An audit of all 5 backend adapters (Claude, Codex, OpenCode, ACP, Gemini) against the unified message protocol revealed **23 silent drop points** where data is discarded without trace. Key findings:
 
 - **Thinking/reasoning** content from 4 adapters is downconverted or erased, despite the consumer already supporting `{ type: "thinking" }` blocks
 - **`configuration_change`** messages are produced by adapters but the router has no handler — they vanish
 - **`image`/`code`** content types are defined in `UnifiedContent` but the consumer mapper erases them to empty text
 - **Error semantics** differ wildly across adapters (OpenCode has 6 subtypes, Claude has 5, Codex has objects) — all flattened
 - **Codex** drops `function_call`/`function_call_output` items in non-streaming response payloads
-- **Agent SDK** has no streaming, no tool progress, no thinking support
 - **OpenCode** lifecycle events (compaction, message removal) and step boundaries all silently dropped
 - **ACP** `available_commands_update` mapped to `unknown` and swallowed
 
@@ -274,7 +256,6 @@ The consumer types already define `{ type: "thinking"; thinking: string; budget_
 | `src/adapters/claude/message-translator.ts` | `case "thinking"` → produce `ThinkingContent` instead of `{ type: "text", text: block.thinking }` |
 | `src/adapters/opencode/opencode-message-translator.ts` | `"reasoning"` parts → produce `ThinkingContent` in content array (keep `reasoning: true` metadata for compat) |
 | `src/adapters/acp/outbound-translator.ts` | `agent_thought_chunk` → produce `ThinkingContent` in content array (keep `thought: true` metadata for compat) |
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Add `case "thinking"` to content block switch |
 | `src/core/consumer-message-mapper.ts` | Add `case "thinking"` in `mapAssistantMessage` → `{ type: "thinking", thinking: block.thinking, budget_tokens: block.budget_tokens }` |
 
 **Dependency order:** `unified-message.ts` → adapters (parallel) → `consumer-message-mapper.ts`
@@ -326,7 +307,6 @@ Define a canonical `UnifiedErrorMeta` interface. Normalize each adapter's error 
 | `src/adapters/codex/codex-message-translator.ts` | Map `response.failed` → `error_code: "execution_error"` |
 | `src/adapters/codex/codex-session.ts` | Map `codex/event/error` → canonical error codes |
 | `src/adapters/claude/message-translator.ts` | Map 5 `error_*` subtypes → canonical `error_code` values |
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Extract error details from result metadata |
 | `src/core/consumer-message-mapper.ts` | Update `mapResultMessage` to surface `error_code`/`error_message` |
 | `src/types/consumer-messages.ts` | Add optional `error_code`/`error_message` fields to `ResultData` |
 | `shared/consumer-types.ts` | Mirror the same fields |
@@ -346,15 +326,6 @@ aborted | rate_limit | max_turns | max_budget | execution_error | unknown
 | File | Change |
 |------|--------|
 | `src/adapters/codex/codex-session.ts` | Extend loop to handle `function_call` → `tool_progress` and `function_call_output` → `tool_use_summary` |
-
-### 2.3 Expand Agent SDK Coverage
-
-**Files to modify:**
-
-| File | Change |
-|------|--------|
-| `src/adapters/agent-sdk/sdk-message-translator.ts` | Add `SDKStreamEvent` type + `case "stream"` in dispatcher. Thinking block handling comes from Tier 1.1. |
-| `src/adapters/agent-sdk/sdk-session.ts` | Wire intermediate events from SDK query stream into `stream_event` messages |
 
 ---
 
@@ -420,12 +391,11 @@ Uses existing `status_change` router handler — no router changes needed.
 Tier 1.1 (ThinkingContent) ──────┐
 Tier 1.2 (configuration_change) ─┤── Tier 2.1 (error schema)
 Tier 1.3 (image/code blocks) ────┘   Tier 2.2 (Codex tool items) [standalone]
-                                      Tier 2.3 (Agent SDK) [depends on 1.1]
-                                          │
-Tier 1.2 ──── Tier 3.2 (commands)         │
-              Tier 3.1 (lifecycle) ────────┤
-              Tier 3.3 (steps) [standalone]│
-Tier 1.1 ──── Tier 3.4 (refusal)          │
+
+Tier 1.2 ──── Tier 3.2 (commands)
+              Tier 3.1 (lifecycle)
+              Tier 3.3 (steps) [standalone]
+Tier 1.1 ──── Tier 3.4 (refusal)
 ```
 
 ---

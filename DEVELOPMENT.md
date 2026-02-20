@@ -20,7 +20,7 @@ Architecture reference, adapter guide, configuration, testing, and build.
 
 See [docs/architecture-diagram.md](docs/architecture-diagram.md) for the full architecture diagram, data flows, module decomposition, and package structure.
 
-**Summary:** An HTTP+WS server routes `ConsumerMessage` / `InboundMessage` through `SessionBridge` (a `TypedEventEmitter` orchestrator decomposed into 15+ focused modules) to a `BackendAdapter` — Claude, ACP, Codex, AgentSdk, Gemini, or OpenCode. A daemon layer manages process lifecycle; a relay layer adds Cloudflare Tunnel + E2E encryption for remote access.
+**Summary:** An HTTP+WS server routes `ConsumerMessage` / `InboundMessage` through `SessionBridge` (a `TypedEventEmitter` orchestrator decomposed into 15+ focused modules) to a `BackendAdapter` — Claude, ACP, Codex, Gemini, or OpenCode. A daemon layer manages process lifecycle; a relay layer adds Cloudflare Tunnel + E2E encryption for remote access.
 
 ---
 
@@ -82,7 +82,6 @@ interface Encryptable    { encrypt(msg: UnifiedMessage): EncryptedEnvelope; decr
 | Claude | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
 | ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Cline, ...) | No | Yes | Varies |
 | Codex | JSON-RPC/WebSocket | Codex CLI | Yes | Yes | Yes |
-| AgentSdk | In-process query fn | Anthropic API (teams) | No | Via callback | No |
 | Gemini | JSON-RPC 2.0/stdio | Gemini CLI (wraps ACP) | No | Yes | Varies |
 | OpenCode | REST+SSE | opencode | Yes | Yes | No |
 
@@ -171,25 +170,6 @@ const adapter = new OpencodeAdapter({
 });
 
 const session = await adapter.connect({ sessionId: "my-session" });
-```
-
-#### AgentSdk
-
-In-process — wraps an Anthropic Agent SDK query function. Pass `queryFn` in the constructor or via `adapterOptions`.
-
-```ts
-import { AgentSdkAdapter } from "beamcode/adapters/agent-sdk";
-
-const adapter = new AgentSdkAdapter(myQueryFn);
-// or: new AgentSdkAdapter() and pass queryFn via adapterOptions
-
-const session = await adapter.connect({
-  sessionId: "my-session",
-  adapterOptions: {
-    queryFn: myQueryFn,         // if not in constructor
-    queryOptions: { model: "claude-opus-4-6" },
-  },
-});
 ```
 
 ---

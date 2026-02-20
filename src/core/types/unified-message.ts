@@ -181,14 +181,6 @@ export function isImageContent(block: UnifiedContent): block is ImageContent {
   return block.type === "image";
 }
 
-export function isThinkingContent(block: UnifiedContent): block is ThinkingContent {
-  return block.type === "thinking";
-}
-
-export function isRefusalContent(block: UnifiedContent): block is RefusalContent {
-  return block.type === "refusal";
-}
-
 // ---------------------------------------------------------------------------
 // UnifiedMessage type guard
 // ---------------------------------------------------------------------------

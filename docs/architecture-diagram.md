@@ -104,7 +104,7 @@
 │  │  ║                    UnifiedMessage                          ║      │           │
 │  │  ║  id, timestamp, type, role, content[], metadata            ║      │           │
 │  │  ║  Supports: streaming (Claude), request/response (ACP),     ║      │           │
-│  │  ║  JSON-RPC (Codex/OpenCode), and query-based (AgentSdk)     ║      │           │
+│  │  ║  JSON-RPC (Codex/OpenCode)                                 ║      │           │
 │  │  ║  + metadata escape hatch for adapter-specific data         ║      │           │
 │  │  ║  + parentId for threading support                          ║      │           │
 │  │  ╚════════════════════════════════════════════════════════════╝      │           │
@@ -138,25 +138,25 @@
 │  │  └─────────────────────┬────────────────────────────────────────┘    │           │
 │  └────────────────────────┼─────────────────────────────────────────────┘           │
 │                           │                                                         │
-│        ┌──────────────────┼──────────────────┬──────────┬────────┬───────┐          │
-│        │                  │                  │          │        │       │          │
-│        ▼                  ▼                  ▼          ▼        ▼       ▼          │
-│  ┌──────────┐  ┌────────────┐  ┌──────────────┐  ┌──────────┐  ┌──────┐ ┌──────┐    │
-│  │ Claude   │  │ ACP        │  │ Codex        │  │ AgentSdk │  │Gemini│ │Open- │    │
-│  │ Adapter  │  │ Adapter    │  │ Adapter      │  │ Adapter  │  │Adapt │ │code  │    │
-│  │ ✅ BUILT │  │ ✅ BUILT    │  │ ✅ BUILT     │  │ ✅ BUILT │  │✅     │ │Adapt │    │
-│  │ NDJSON/  │  │ JSON-RPC/  │  │ JSON-RPC/WS  │  │ JS query │  │wraps │ │✅    │    │
-│  │ WS --sdk │  │ stdio      │  │ app-server   │  │ fn       │  │ACP   │ │REST+ │    │
-│  │ stream,  │  │            │  │ Thread/Turn/ │  │ Anthropic│  │      │ │SSE   │    │
-│  │ perms,   │  │            │  │ Item model   │  │ SDK teams│  │      │ │      │    │
-│  │ teams    │  │            │  │              │  │          │  │      │ │      │    │
-│  └────┬─────┘  └─────┬──────┘  └──────┬───────┘  └────┬─────┘  └──┬───┘ └──┬───┘    │
-│       │              │                │               │           │        │        │
-│       ▼              ▼                ▼               ▼           ▼        ▼        │
-│  ╔═════════╗  ╔══════════════╗  ╔═══════════╗  ╔══════════╗ ╔═══════╗ ╔═══════╗     │
-│  ║ Claude  ║  ║ Goose/Kiro/  ║  ║ Codex CLI ║  ║Anthropic ║ ║Gemini ║ ║open-  ║     │
-│  ║ Code CLI║  ║ Gemini (ACP) ║  ║ (OpenAI)  ║  ║ API      ║ ║ CLI   ║ ║ code  ║     │
-│  ║ (child) ║  ╚══════════════╝  ╚═══════════╝  ╚══════════╝ ╚═══════╝ ╚═══════╝     │
+│        ┌──────────────────┼──────────────────┬────────┬───────┐                    │
+│        │                  │                  │        │       │                    │
+│        ▼                  ▼                  ▼        ▼       ▼                    │
+│  ┌──────────┐  ┌────────────┐  ┌──────────────┐  ┌──────┐ ┌──────┐                │
+│  │ Claude   │  │ ACP        │  │ Codex        │  │Gemini│ │Open- │                │
+│  │ Adapter  │  │ Adapter    │  │ Adapter      │  │Adapt │ │code  │                │
+│  │ ✅ BUILT │  │ ✅ BUILT    │  │ ✅ BUILT     │  │✅     │ │Adapt │                │
+│  │ NDJSON/  │  │ JSON-RPC/  │  │ JSON-RPC/WS  │  │wraps │ │✅    │                │
+│  │ WS --sdk │  │ stdio      │  │ app-server   │  │ACP   │ │REST+ │                │
+│  │ stream,  │  │            │  │ Thread/Turn/ │  │      │ │SSE   │                │
+│  │ perms,   │  │            │  │ Item model   │  │      │ │      │                │
+│  │ teams    │  │            │  │              │  │      │ │      │                │
+│  └────┬─────┘  └─────┬──────┘  └──────┬───────┘  └──┬───┘ └──┬───┘                │
+│       │              │                │              │        │                    │
+│       ▼              ▼                ▼              ▼        ▼                    │
+│  ╔═════════╗  ╔══════════════╗  ╔═══════════╗  ╔═══════╗ ╔═══════╗                 │
+│  ║ Claude  ║  ║ Goose/Kiro/  ║  ║ Codex CLI ║  ║Gemini ║ ║open-  ║                 │
+│  ║ Code CLI║  ║ Gemini (ACP) ║  ║ (OpenAI)  ║  ║ CLI   ║ ║ code  ║                 │
+│  ║ (child) ║  ╚══════════════╝  ╚═══════════╝  ╚═══════╝ ╚═══════╝                 │
 │  ╚═════════╝                                                                        │
 │                                                                                     │
 │  ┌───────────────────────────────────────────────────────────────────────┐          │
@@ -576,7 +576,6 @@ Web Consumer                                   Daemon
   ✅ Claude adapter (NDJSON/WS, streaming, teams)
   ✅ ACP adapter (JSON-RPC/stdio)
   ✅ Codex adapter (JSON-RPC/WS, Thread/Turn/Item)
-  ✅ AgentSdk adapter (query fn, teams)
   ✅ Gemini adapter (wraps ACP, spawns gemini --experimental-acp)
   ✅ OpenCode adapter (REST+SSE, demuxed sessions)
   ✅ SessionBridge decomposition (15+ extracted modules, ~629 LOC)
@@ -777,11 +776,6 @@ beamcode/                     ◄── Single npm package (v0.1.0)
 │   │   │   ├── codex-message-translator.ts
 │   │   │   ├── codex-launcher.ts
 │   │   │   └── codex-slash-executor.ts
-│   │   ├── agent-sdk/                 ◄── Anthropic Agent SDK (JS query fn, teams)
-│   │   │   ├── agent-sdk-adapter.ts
-│   │   │   ├── agent-sdk-session.ts
-│   │   │   ├── permission-bridge.ts
-│   │   │   └── sdk-message-translator.ts
 │   │   ├── gemini/                    ◄── Gemini CLI (wraps ACP adapter)
 │   │   │   └── gemini-adapter.ts
 │   │   ├── opencode/                  ◄── OpenCode (REST+SSE, demuxed sessions)
