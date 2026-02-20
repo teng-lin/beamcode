@@ -299,11 +299,16 @@ export class AcpSession implements BackendSession {
   private routeMessage(msg: JsonRpcMessage): UnifiedMessage[] {
     if (isJsonRpcNotification(msg)) {
       if (msg.method === "session/update") {
-        // ACP sends {sessionId, update: {sessionUpdate, ...}} — flatten for translator
-        const params = msg.params as { sessionId: string; update: Record<string, unknown> };
-        const flattened = { sessionId: params.sessionId, ...params.update } as Parameters<
-          typeof translateSessionUpdate
-        >[0];
+        // ACP session/update comes in two shapes:
+        //   nested: {sessionId, update: {sessionUpdate, ...}}
+        //   flat:   {sessionId, sessionUpdate, ...}
+        // Support both by detecting which format was used.
+        const raw = msg.params as Record<string, unknown>;
+        const flattened = (
+          raw.update && typeof raw.update === "object"
+            ? { sessionId: raw.sessionId as string, ...(raw.update as Record<string, unknown>) }
+            : raw
+        ) as Parameters<typeof translateSessionUpdate>[0];
 
         // Accumulate text from agent_message_chunk for synthesizing the final assistant message
         if (flattened.sessionUpdate === "agent_message_chunk") {
