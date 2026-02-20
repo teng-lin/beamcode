@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { ConsumerContentBlock } from "../../../shared/consumer-types";
 import { stripAnsi } from "../utils/ansi-strip";
+import { truncateLines } from "../utils/truncate";
+import { containsUnifiedDiff } from "../utils/unified-diff";
+import { CopyButton } from "./CopyButton";
 import { MarkdownContent } from "./MarkdownContent";
+import { UnifiedDiffBlock } from "./UnifiedDiffBlock";
 
 interface ToolResultBlockProps {
   toolName: string | null;
@@ -16,43 +20,36 @@ function contentToString(content: string | ConsumerContentBlock[]): string {
   return JSON.stringify(content, null, 2);
 }
 
-function truncateLines(text: string, max: number): { text: string; truncated: boolean } {
-  const lines = text.split("\n");
-  if (lines.length <= max) return { text, truncated: false };
-  return { text: lines.slice(0, max).join("\n"), truncated: true };
-}
+/** Render line content with optional line numbers and custom processing. */
+function renderLines(
+  lines: string[],
+  gutterWidth: number,
+  showLineNumbers?: boolean,
+  processLine?: (line: string, index: number) => React.ReactNode,
+): React.ReactNode {
+  if (showLineNumbers) {
+    return lines.map((line, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static line content, never reorders
+      <div key={i} className="flex">
+        <span
+          className="mr-3 inline-block select-none text-right text-bc-text-muted/30"
+          style={{ minWidth: `${gutterWidth}ch` }}
+        >
+          {i + 1}
+        </span>
+        <span className="flex-1">{processLine ? processLine(line, i) : line}</span>
+      </div>
+    ));
+  }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  if (processLine) {
+    return lines.map((line, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static line content, never reorders
+      <div key={i}>{processLine(line, i)}</div>
+    ));
+  }
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API unavailable
-    }
-  }, [text]);
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="absolute right-2 top-2 rounded bg-bc-surface-2 px-1.5 py-0.5 text-[10px] text-bc-text-muted opacity-0 transition-opacity group-hover/pre:opacity-100 hover:bg-bc-hover hover:text-bc-text"
-      aria-label="Copy to clipboard"
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
+  return null;
 }
 
 /** Monospace preformatted block with line numbers, copy button, and optional truncation. */
@@ -68,14 +65,15 @@ function PreBlock({
   processLine?: (line: string, index: number) => React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const allLines = text.split("\n");
-  const totalLineCount = allLines.length;
-  const { text: displayed, truncated } = expanded
-    ? { text, truncated: false }
-    : truncateLines(text, MAX_LINES);
+  const {
+    text: displayed,
+    truncated,
+    totalLines,
+  } = expanded ? { text, truncated: false, totalLines: 0 } : truncateLines(text, MAX_LINES);
 
   const lines = displayed.split("\n");
-  const gutterWidth = String(totalLineCount).length;
+  const gutterWidth = String(totalLines || lines.length).length;
+  const renderedLines = renderLines(lines, gutterWidth, showLineNumbers, processLine);
 
   return (
     <div className="group/pre relative">
@@ -85,24 +83,7 @@ function PreBlock({
           isError ? "text-bc-error/80" : "text-bc-text-muted"
         }`}
       >
-        {/* biome-ignore lint/suspicious/noArrayIndexKey: static line content, never reorders */}
-        {showLineNumbers
-          ? lines.map((line, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: static line content
-              <div key={i} className="flex">
-                <span
-                  className="mr-3 inline-block select-none text-right text-bc-text-muted/30"
-                  style={{ minWidth: `${gutterWidth}ch` }}
-                >
-                  {i + 1}
-                </span>
-                <span className="flex-1">{processLine ? processLine(line, i) : line}</span>
-              </div>
-            ))
-          : processLine
-            ? // biome-ignore lint/suspicious/noArrayIndexKey: static line content
-              lines.map((line, i) => <div key={i}>{processLine(line, i)}</div>)
-            : displayed}
+        {renderedLines ?? displayed}
       </pre>
       {truncated && (
         <button
@@ -110,7 +91,7 @@ function PreBlock({
           onClick={() => setExpanded(true)}
           className="w-full border-t border-bc-border/30 px-3 py-1.5 text-center text-[11px] text-bc-text-muted/70 transition-colors hover:bg-bc-hover hover:text-bc-text"
         >
-          Show all ({totalLineCount} lines)
+          Show all ({totalLines} lines)
         </button>
       )}
     </div>
@@ -200,8 +181,13 @@ function renderContent(
   isError?: boolean,
 ): React.ReactNode {
   switch (toolName) {
-    case "Bash":
-      return <PreBlock text={stripAnsi(text)} isError={isError} showLineNumbers />;
+    case "Bash": {
+      const stripped = stripAnsi(text);
+      if (containsUnifiedDiff(stripped)) {
+        return <UnifiedDiffBlock text={stripped} isError={isError} />;
+      }
+      return <PreBlock text={stripped} isError={isError} showLineNumbers />;
+    }
     case "Read":
     case "Write":
     case "Edit":
