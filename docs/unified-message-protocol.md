@@ -187,7 +187,7 @@ Consumer mapper now has proper `case "code"` and `case "image"` handlers.
 
 ## Context
 
-An audit of all 5 backend adapters (Claude, Codex, OpenCode, ACP, Gemini) against the unified message protocol originally revealed **23 silent drop points** where data was discarded without trace. **All planned gaps have been closed** — 17 remaining drop points, mostly intentional (heartbeats, metadata-only lifecycle events).
+An audit of all 5 backend adapters (Claude, Codex, OpenCode, ACP, Gemini) against the unified message protocol originally revealed **23 silent drop points** where data was discarded without trace. **All planned gaps have been closed** — 15 remaining drop points, mostly intentional (heartbeats, metadata-only lifecycle events).
 
 ## Approach
 
