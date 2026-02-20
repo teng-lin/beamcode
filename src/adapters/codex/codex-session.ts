@@ -362,6 +362,7 @@ export class CodexSession implements BackendSession {
     this.threadId = null;
     this.initializingThread = null;
     this.queuedTurnInputs = [];
+    this.currentTrace = undefined;
     await this.ensureThreadInitialized();
     return this.threadId!;
   }
@@ -478,6 +479,9 @@ export class CodexSession implements BackendSession {
 
   private handleNotification(notification: JsonRpcNotification): void {
     const params = notification.params ?? {};
+    // Capture trace context once at entry so later clears of currentTrace
+    // don't affect trace events emitted within this handler invocation.
+    const trace = this.currentTrace;
 
     if (notification.method === "thread/started") {
       const maybeThreadId = (params as { thread?: { id?: unknown } }).thread?.id;
@@ -645,9 +649,9 @@ export class CodexSession implements BackendSession {
         "Codex notification did not map to UnifiedMessage",
         {
           sessionId: this.sessionId,
-          traceId: this.currentTrace?.traceId,
-          requestId: this.currentTrace?.requestId,
-          command: this.currentTrace?.command,
+          traceId: trace?.traceId,
+          requestId: trace?.requestId,
+          command: trace?.command,
           action: "dropped",
           phase: "t3",
           outcome: "unmapped_type",
@@ -657,6 +661,9 @@ export class CodexSession implements BackendSession {
   }
 
   private handleServerRequest(request: JsonRpcRequest): void {
+    // Capture trace context once so it isn't affected if currentTrace is
+    // cleared by a concurrent notification processed in the same tick.
+    const trace = this.currentTrace;
     const requestId = String(request.id);
     if (
       request.method === "item/commandExecution/requestApproval" ||
@@ -687,7 +694,7 @@ export class CodexSession implements BackendSession {
       request.id,
       `Unsupported server request method: ${request.method}`,
       -32601,
-      this.currentTrace,
+      trace,
     );
   }
 

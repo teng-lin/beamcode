@@ -57,8 +57,9 @@ export class OpencodeSession implements BackendSession {
       } else {
         this.tracer?.error("backend", event.type, "Opencode event did not map to UnifiedMessage", {
           sessionId: this.sessionId,
-          action: "consumed",
+          action: "dropped",
           phase: "t3",
+          outcome: "unmapped_type",
         });
       }
     });

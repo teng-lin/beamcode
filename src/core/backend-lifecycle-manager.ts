@@ -191,7 +191,14 @@ export class BackendLifecycleManager {
       return;
     }
 
-    this.annotateSlashTrace(msg, pending);
+    // Only annotate messages that are part of the passthrough response flow
+    // (stream chunks, assistant, result). Other messages (e.g., concurrent
+    // permission requests) should not be contaminated with slash trace context.
+    const isPassthroughRelevant =
+      msg.type === "stream_event" || msg.type === "assistant" || msg.type === "result";
+    if (isPassthroughRelevant) {
+      this.annotateSlashTrace(msg, pending);
+    }
 
     const streamChunk = this.streamEventTextChunk(msg);
     if (streamChunk) {
@@ -486,11 +493,21 @@ export class BackendLifecycleManager {
       } catch (err) {
         if (signal.aborted) return; // expected shutdown
         this.logger.error(`Backend message stream error for session ${sessionId}`, { error: err });
-        const pending = session.pendingPassthroughs.shift();
-        if (pending) {
-          this.emitSlashSummary(sessionId, pending, "backend_error", "none", [
-            err instanceof Error ? err.message : String(err),
-          ]);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        while (session.pendingPassthroughs.length > 0) {
+          const pending = session.pendingPassthroughs.shift()!;
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_error",
+            command: pending.command,
+            request_id: pending.requestId,
+            error: errorMsg,
+          });
+          this.emitEvent("slash_command:failed", {
+            sessionId,
+            command: pending.command,
+            error: errorMsg,
+          });
+          this.emitSlashSummary(sessionId, pending, "backend_error", "none", [errorMsg]);
         }
         this.emitEvent("error", {
           source: "backendConsumption",
@@ -501,8 +518,19 @@ export class BackendLifecycleManager {
 
       // Stream ended -- backend disconnected (unless we aborted intentionally)
       if (!signal.aborted) {
-        const pending = session.pendingPassthroughs.shift();
-        if (pending) {
+        while (session.pendingPassthroughs.length > 0) {
+          const pending = session.pendingPassthroughs.shift()!;
+          this.broadcaster.broadcast(session, {
+            type: "slash_command_error",
+            command: pending.command,
+            request_id: pending.requestId,
+            error: "Backend stream ended unexpectedly",
+          });
+          this.emitEvent("slash_command:failed", {
+            sessionId,
+            command: pending.command,
+            error: "Backend stream ended unexpectedly",
+          });
           this.emitSlashSummary(sessionId, pending, "backend_error", "none", ["stream ended"]);
         }
         session.backendSession = null;

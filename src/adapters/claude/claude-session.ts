@@ -98,13 +98,6 @@ export class ClaudeSession implements BackendSession {
         phase: "t2_send_native",
       },
     );
-    this.tracer?.send("backend", message.type, message, {
-      sessionId: this.sessionId,
-      traceId: trace.traceId,
-      requestId: trace.requestId,
-      command: trace.command,
-      phase: "send_unified",
-    });
     this.sendToSocket(ndjson);
   }
 

@@ -541,7 +541,24 @@ export class MessageTracerImpl implements MessageTracer {
     }
     if (params.diff) event.diff = params.diff;
 
-    this.writeLine(JSON.stringify(event));
+    try {
+      this.writeLine(JSON.stringify(event));
+    } catch {
+      // Circular references or other stringify failures — emit a minimal fallback
+      // to avoid crashing the session's message processing loop.
+      this.writeLine(
+        JSON.stringify({
+          trace: true,
+          traceId: params.traceId,
+          layer: params.layer,
+          direction: params.direction,
+          messageType: params.messageType,
+          ts: new Date().toISOString(),
+          elapsed_ms: elapsedMs,
+          error: "Failed to serialize trace event (possible circular reference)",
+        }),
+      );
+    }
 
     // Mark traces as complete when they hit a "send" at bridge/frontend layer
     // (response going back out to consumer)
