@@ -225,17 +225,32 @@ describe("message-translator", () => {
       expect(typeof (result.content[0] as { content: string }).content).toBe("string");
     });
 
-    it("converts thinking blocks to text content", () => {
+    it("passes through thinking blocks", () => {
       const msg = makeAssistantMsg({
         message: {
           ...makeAssistantMsg().message,
-          content: [{ type: "thinking", thinking: "Let me think..." }],
+          content: [{ type: "thinking", thinking: "Let me think...", budget_tokens: 2048 }],
         },
       });
       const result = translate(msg)!;
       expect(result.content[0]).toEqual({
         type: "thinking",
         thinking: "Let me think...",
+        budget_tokens: 2048,
+      });
+    });
+
+    it("thinking block budget_tokens is undefined when absent", () => {
+      const msg = makeAssistantMsg({
+        message: {
+          ...makeAssistantMsg().message,
+          content: [{ type: "thinking", thinking: "No budget" }],
+        },
+      });
+      const result = translate(msg)!;
+      expect(result.content[0]).toEqual({
+        type: "thinking",
+        thinking: "No budget",
         budget_tokens: undefined,
       });
     });

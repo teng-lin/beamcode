@@ -117,7 +117,7 @@ function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
         return {
           type: "thinking" as const,
           thinking: block.thinking,
-          budget_tokens: (block as { budget_tokens?: number }).budget_tokens,
+          budget_tokens: block.budget_tokens,
         };
       case "image":
         return {
