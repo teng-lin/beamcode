@@ -47,60 +47,71 @@ export class AcpAdapter implements BackendAdapter {
     const args = (options.adapterOptions?.args as string[]) ?? [];
     const cwd = options.adapterOptions?.cwd as string | undefined;
     const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
+    const initializeTimeoutMs = options.adapterOptions?.initializeTimeoutMs as number | undefined;
 
     const child = this.spawnFn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd,
     });
 
-    const codec = new JsonRpcCodec();
+    try {
+      const codec = new JsonRpcCodec();
 
-    // Initialize handshake
-    const { id: initId, raw: initReq } = codec.createRequest("initialize", {
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-      clientInfo: { name: "beamcode", version: "0.1.0" },
-    });
+      // Initialize handshake
+      const { id: initId, raw: initReq } = codec.createRequest("initialize", {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+        clientInfo: { name: "beamcode", version: "0.1.0" },
+      });
 
-    tracer?.send("backend", "native_outbound", initReq, {
-      sessionId: options.sessionId,
-      phase: "handshake_send",
-    });
-    child.stdin?.write(codec.encode(initReq));
+      tracer?.send("backend", "native_outbound", initReq, {
+        sessionId: options.sessionId,
+        phase: "handshake_send",
+      });
+      child.stdin?.write(codec.encode(initReq));
 
-    const initResult = await waitForResponse<AcpInitializeResult>(
-      child.stdout!,
-      codec,
-      initId,
-      tracer,
-      options.sessionId,
-    );
+      const initResult = await waitForResponse<AcpInitializeResult>(
+        child.stdout!,
+        codec,
+        initId,
+        tracer,
+        options.sessionId,
+        initializeTimeoutMs,
+      );
 
-    // Create or resume session
-    const sessionMethod = options.resume ? "session/load" : "session/new";
-    const { id: sessionReqId, raw: sessionReq } = codec.createRequest(sessionMethod, {
-      sessionId: options.sessionId,
-      cwd: cwd ?? process.cwd(),
-      mcpServers: (options.adapterOptions?.mcpServers as unknown[]) ?? [],
-    });
+      // Create or resume session
+      const sessionMethod = options.resume ? "session/load" : "session/new";
+      const { id: sessionReqId, raw: sessionReq } = codec.createRequest(sessionMethod, {
+        sessionId: options.sessionId,
+        cwd: cwd ?? process.cwd(),
+        mcpServers: (options.adapterOptions?.mcpServers as unknown[]) ?? [],
+      });
 
-    tracer?.send("backend", "native_outbound", sessionReq, {
-      sessionId: options.sessionId,
-      phase: "handshake_send",
-    });
-    child.stdin?.write(codec.encode(sessionReq));
+      tracer?.send("backend", "native_outbound", sessionReq, {
+        sessionId: options.sessionId,
+        phase: "handshake_send",
+      });
+      child.stdin?.write(codec.encode(sessionReq));
 
-    const sessionResult = await waitForResponse<{ sessionId: string }>(
-      child.stdout!,
-      codec,
-      sessionReqId,
-      tracer,
-      options.sessionId,
-    );
+      const sessionResult = await waitForResponse<{ sessionId: string }>(
+        child.stdout!,
+        codec,
+        sessionReqId,
+        tracer,
+        options.sessionId,
+        initializeTimeoutMs,
+      );
 
-    const sessionId = sessionResult.sessionId ?? options.sessionId;
+      const sessionId = sessionResult.sessionId ?? options.sessionId;
 
-    return new AcpSession(sessionId, child, codec, initResult, tracer, this.errorClassifier);
+      return new AcpSession(sessionId, child, codec, initResult, tracer, this.errorClassifier);
+    } catch (err) {
+      // Kill the child process to prevent zombies when handshake fails or times out
+      child.kill("SIGTERM");
+      const killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      killTimer.unref();
+      throw err;
+    }
   }
 }
 
@@ -111,9 +122,11 @@ async function waitForResponse<T>(
   expectedId: number | string,
   tracer?: MessageTracer,
   sessionId?: string,
+  timeoutMs?: number,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let buffer = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString("utf-8");
@@ -157,10 +170,18 @@ async function waitForResponse<T>(
     };
 
     const cleanup = () => {
+      if (timer !== undefined) clearTimeout(timer);
       stdout.removeListener("data", onData);
       stdout.removeListener("error", onError);
       stdout.removeListener("close", onClose);
     };
+
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`ACP handshake timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
 
     stdout.on("data", onData);
     stdout.on("error", onError);
