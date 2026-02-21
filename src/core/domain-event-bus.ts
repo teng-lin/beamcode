@@ -10,6 +10,14 @@ import type {
 import { TypedEventEmitter } from "./typed-emitter.js";
 
 export class DomainEventBus extends TypedEventEmitter<DomainEventMap> {
+  constructor() {
+    super();
+    // Domain event names are derived from bridge/launcher event maps and include
+    // the literal "error" key. In Node EventEmitter, emitting "error" without a
+    // listener throws; the domain bus should never crash the coordinator path.
+    this.on("error", () => {});
+  }
+
   publish<T extends DomainEventType>(
     source: DomainEventSource,
     type: T,

@@ -32,4 +32,24 @@ describe("DomainEventBus", () => {
       payload: { sessionId: "s2", pid: 1234 },
     });
   });
+
+  it("does not throw when publishing error events without explicit listeners", () => {
+    const bus = new DomainEventBus();
+
+    expect(() =>
+      bus.publishBridge("error", {
+        source: "bridge:test",
+        error: new Error("bridge boom"),
+        sessionId: "s3",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      bus.publishLauncher("error", {
+        source: "launcher:test",
+        error: new Error("launcher boom"),
+        sessionId: "s4",
+      }),
+    ).not.toThrow();
+  });
 });
