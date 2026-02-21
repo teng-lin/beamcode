@@ -508,10 +508,9 @@ describe("OpencodeSession", () => {
   // Non-user-facing events are filtered
   // -------------------------------------------------------------------------
 
-  it("session.created events are filtered out (non-user-facing)", async () => {
+  it("session.created events produce session_lifecycle messages", async () => {
     const iter = session.messages[Symbol.asyncIterator]();
 
-    // Push a session.created (returns null from translateEvent)
     sub.push({
       type: "session.created",
       properties: {
@@ -527,14 +526,45 @@ describe("OpencodeSession", () => {
       },
     });
 
-    // Push a real event to verify the above was skipped
     sub.push({
       type: "server.connected",
       properties: {} as Record<string, never>,
     });
 
-    const result = await iter.next();
-    expect(result.value.type).toBe("session_init");
+    const first = await iter.next();
+    expect(first.value.type).toBe("session_lifecycle");
+    expect(first.value.metadata.subtype).toBe("session_created");
+    expect(first.value.metadata.session_id).toBe("opc-session-abc");
+
+    const second = await iter.next();
+    expect(second.value.type).toBe("session_init");
+  });
+
+  // -------------------------------------------------------------------------
+  // Auth: provider_auth errors emit auth_status before result
+  // -------------------------------------------------------------------------
+
+  it("emits auth_status before result for provider_auth errors", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
+    sub.push({
+      type: "session.error",
+      properties: {
+        sessionID: "opc-session-1",
+        error: { name: "provider_auth", data: { message: "Invalid API key" } },
+      },
+    });
+
+    const first = await iter.next();
+    expect(first.value.type).toBe("auth_status");
+    expect(first.value.metadata.isAuthenticating).toBe(false);
+    expect(first.value.metadata.output).toEqual([]);
+    expect(first.value.metadata.error).toBe("Invalid API key");
+
+    const second = await iter.next();
+    expect(second.value.type).toBe("result");
+    expect(second.value.metadata.is_error).toBe(true);
+    expect(second.value.metadata.error_code).toBe("provider_auth");
   });
 
   // -------------------------------------------------------------------------

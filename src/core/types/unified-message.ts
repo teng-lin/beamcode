@@ -48,6 +48,19 @@ export type UnifiedMessageType =
   | "session_lifecycle"
   | "unknown";
 
+/**
+ * Canonical session lifecycle subtypes.
+ *
+ * Not all adapters emit all subtypes — see the feature matrix in
+ * docs/unified-message-protocol.md for per-adapter coverage.
+ */
+export type SessionLifecycleSubtype =
+  | "session_created"
+  | "session_deleted"
+  | "session_compacted"
+  | "message_removed"
+  | "message_part_removed";
+
 // ---------------------------------------------------------------------------
 // UnifiedContent — discriminated union
 // ---------------------------------------------------------------------------

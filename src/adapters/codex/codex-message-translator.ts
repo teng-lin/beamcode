@@ -255,7 +255,6 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
-        done: true,
       },
     });
   }
@@ -270,7 +269,6 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
-        done: true,
       },
     });
   }

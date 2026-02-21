@@ -45,6 +45,8 @@ export class AcpSession implements BackendSession {
   private closed = false;
   /** Accumulated streaming text for synthesizing an assistant message when the prompt completes. */
   private streamedText = "";
+  /** Whether a status_change(running) has been emitted for the current turn. */
+  private turnRunningEmitted = false;
 
   constructor(
     sessionId: string,
@@ -65,9 +67,10 @@ export class AcpSession implements BackendSession {
   send(message: UnifiedMessage): void {
     if (this.closed) throw new Error("Session is closed");
 
-    // Reset accumulated streaming text on new user prompt
+    // Reset turn state on new user prompt
     if (message.type === "user_message") {
       this.streamedText = "";
+      this.turnRunningEmitted = false;
     }
 
     const trace = extractTraceContext(message.metadata);
@@ -314,6 +317,18 @@ export class AcpSession implements BackendSession {
         if (flattened.sessionUpdate === "agent_message_chunk") {
           const content = flattened.content as { text?: string } | undefined;
           if (content?.text) this.streamedText += content.text;
+
+          if (!this.turnRunningEmitted) {
+            this.turnRunningEmitted = true;
+            return [
+              createUnifiedMessage({
+                type: "status_change",
+                role: "system",
+                metadata: { session_id: this.sessionId, status: "running" },
+              }),
+              translateSessionUpdate(flattened),
+            ];
+          }
         }
 
         return [translateSessionUpdate(flattened)];
@@ -354,6 +369,7 @@ export class AcpSession implements BackendSession {
         this.pendingRequests.delete(msg.id);
         if (msg.error) {
           this.streamedText = "";
+          this.turnRunningEmitted = false;
           const result = translatePromptError(this.sessionId, msg.error, this.errorClassifier);
 
           // Emit auth_status before result so the frontend can show auth state
@@ -382,8 +398,9 @@ export class AcpSession implements BackendSession {
               metadata: { sessionId: this.sessionId },
             }),
           );
-          this.streamedText = "";
         }
+        this.streamedText = "";
+        this.turnRunningEmitted = false;
         messages.push(
           translatePromptResult(msg.result as Parameters<typeof translatePromptResult>[0]),
         );

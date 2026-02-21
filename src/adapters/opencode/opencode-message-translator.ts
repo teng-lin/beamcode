@@ -64,13 +64,43 @@ export function translateEvent(event: OpencodeEvent): UnifiedMessage | null {
           message_id: event.properties.messageID,
         },
       });
+    case "session.created": {
+      const session = "info" in event.properties ? event.properties.info : event.properties.session;
+      return createUnifiedMessage({
+        type: "session_lifecycle",
+        role: "system",
+        metadata: {
+          subtype: "session_created",
+          session_id: session.id,
+          title: session.title,
+        },
+      });
+    }
+    case "session.deleted":
+      return createUnifiedMessage({
+        type: "session_lifecycle",
+        role: "system",
+        metadata: {
+          subtype: "session_deleted",
+          session_id: event.properties.sessionID,
+        },
+      });
+    case "message.part.removed":
+      return createUnifiedMessage({
+        type: "session_lifecycle",
+        role: "system",
+        metadata: {
+          subtype: "message_part_removed",
+          session_id: event.properties.sessionID,
+          message_id: event.properties.messageID,
+          part_id: event.properties.partID,
+        },
+      });
+    // Intentionally dropped — no consumer action needed:
     case "server.heartbeat":
     case "permission.replied":
-    case "session.created":
     case "session.updated":
-    case "session.deleted":
     case "session.diff":
-    case "message.part.removed":
       return null;
     default:
       return null;
@@ -340,7 +370,7 @@ function translateSessionStatus(
       return createUnifiedMessage({
         type: "status_change",
         role: "system",
-        metadata: { session_id: sessionID, busy: true },
+        metadata: { session_id: sessionID, status: "running", busy: true },
       });
     case "retry":
       return createUnifiedMessage({
@@ -364,6 +394,7 @@ function translateSessionError(sessionID: string, error: OpencodeMessageError): 
     metadata: {
       session_id: sessionID,
       is_error: true,
+      error: error.data.message,
       error_name: error.name,
       error_message: error.data.message,
       error_code: normalizeOpencodeErrorCode(error.name),

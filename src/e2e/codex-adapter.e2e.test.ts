@@ -126,7 +126,6 @@ describe("E2E: CodexAdapter", () => {
     expect(messages[1].metadata.delta).toBe("human!");
 
     expect(messages[2].type).toBe("assistant");
-    expect(messages[2].metadata.done).toBe(true);
 
     expect(messages[3].type).toBe("result");
     expect(messages[3].metadata.status).toBe("completed");
@@ -995,7 +994,7 @@ describe("E2E: CodexAdapter", () => {
       expect(msg.metadata.status).toBe("in_progress");
     });
 
-    it("function_call item done emits tool_progress with done flag", async () => {
+    it("function_call item done emits tool_progress with completed status", async () => {
       session = createSession();
       await waitForUnifiedMessageType(session, "session_init");
 
@@ -1015,7 +1014,7 @@ describe("E2E: CodexAdapter", () => {
 
       const { target: msg } = await waitForUnifiedMessageType(session, "tool_progress");
       expect(msg.metadata.name).toBe("bash");
-      expect(msg.metadata.done).toBe(true);
+      expect(msg.metadata.status).toBe("completed");
     });
 
     it("function_call_output item done emits tool_use_summary", async () => {
@@ -1087,7 +1086,6 @@ describe("E2E: CodexAdapter", () => {
 
       const { target: msg } = await waitForUnifiedMessageType(session, "assistant");
       expect(msg.content).toEqual([{ type: "refusal", refusal: "I cannot help with that." }]);
-      expect(msg.metadata.done).toBe(true);
     });
 
     it("mixed content with text and refusal", async () => {
