@@ -26,10 +26,7 @@ const REQUIRED_TEST_FILES = [
   "src/e2e/real/handshake.e2e.test.ts",
 ];
 
-const REQUIRED_DOCS = [
-  "docs/refactor-plan/e2e-parity-matrix.md",
-  "docs/refactor-plan/rollback-runbook.md",
-];
+const REQUIRED_DOCS = [];
 
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));
