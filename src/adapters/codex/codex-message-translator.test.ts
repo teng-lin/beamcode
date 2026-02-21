@@ -159,6 +159,7 @@ describe("codex-message-translator", () => {
         expect(result.metadata.name).toBe("shell");
         expect(result.metadata.arguments).toBe('{"command":"ls"}');
         expect(result.metadata.tool_use_id).toBe("call-1");
+        expect(result.metadata.tool_name).toBe("shell");
         expect(result.metadata.item_id).toBe("fc-1");
       });
 
@@ -203,6 +204,7 @@ describe("codex-message-translator", () => {
         expect(result.type).toBe("tool_progress");
         expect(result.metadata.done).toBe(true);
         expect(result.metadata.name).toBe("read_file");
+        expect(result.metadata.tool_name).toBe("read_file");
       });
     });
 

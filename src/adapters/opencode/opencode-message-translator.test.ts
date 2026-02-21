@@ -330,6 +330,7 @@ describe("translateEvent: message.updated with assistant role", () => {
     expect(msg!.type).toBe("assistant");
     expect(msg!.role).toBe("assistant");
     expect(msg!.metadata.model_id).toBe("claude-3-5-sonnet");
+    expect(msg!.metadata.model).toBe("claude-3-5-sonnet");
     expect(msg!.metadata.provider_id).toBe("anthropic");
     expect(msg!.metadata.cost).toBe(0.002);
     expect(msg!.metadata.tokens).toEqual({
