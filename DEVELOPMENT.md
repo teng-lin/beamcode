@@ -740,6 +740,49 @@ Tests are auto-skipped when prerequisites are not met. Detection logic is in `sr
 - PR: `E2E Real CLI Smoke` runs when `ANTHROPIC_API_KEY` secret is configured
 - Nightly: full deterministic + full real CLI (secret-gated)
 
+### Running a single e2e test in isolation
+
+**This is the primary workflow when debugging a failing real backend test.**
+
+The real backend scripts set required env vars (`E2E_PROFILE`, `USE_REAL_CLI`) and point vitest at the real config. To run a single test you must preserve those vars:
+
+```bash
+# Run one test file (e.g. claude) — smoke lane
+E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+  pnpm vitest run src/e2e/real/session-coordinator-claude.e2e.test.ts \
+  --config vitest.e2e.real.config.ts
+
+# Filter further by test name using -t
+E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+  pnpm vitest run src/e2e/real/session-coordinator-claude.e2e.test.ts \
+  --config vitest.e2e.real.config.ts \
+  -t "launch emits process spawn"
+```
+
+**With message tracing** (recommended when the trace dump alone is not enough):
+
+```bash
+# Smart tracing — bodies included, sensitive keys redacted (safe default)
+BEAMCODE_TRACE=1 E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+  pnpm vitest run src/e2e/real/session-coordinator-claude.e2e.test.ts \
+  --config vitest.e2e.real.config.ts \
+  -t "launch emits process spawn" 2>trace.ndjson
+
+# Full tracing — every payload as-is, no redaction
+BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=full BEAMCODE_TRACE_ALLOW_SENSITIVE=1 \
+  E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+  pnpm vitest run src/e2e/real/session-coordinator-claude.e2e.test.ts \
+  --config vitest.e2e.real.config.ts \
+  -t "launch emits process spawn" 2>trace.ndjson
+
+# Then inspect the trace
+pnpm trace:inspect dropped-backend-types trace.ndjson
+```
+
+Replace `session-coordinator-claude` with `session-coordinator-gemini`, `session-coordinator-codex`, or `session-coordinator-opencode` for other backends. Use `real-full` profile to enable full-coverage tests (`it.runIf(runFull)`).
+
+> **Note:** The `-t` flag matches a substring of the test name. Wrap in quotes if the name contains spaces.
+
 ### Architecture Boundary Checks
 
 Run architecture checks locally with:
@@ -803,8 +846,9 @@ Trace levels:
 1. **Run the failing test in isolation** with verbose output:
 
    ```bash
-   pnpm vitest run src/e2e/real/session-manager-gemini.e2e.test.ts \
-     --reporter=verbose 2>&1 | tee test-output.log
+   E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+     pnpm vitest run src/e2e/real/session-coordinator-gemini.e2e.test.ts \
+     --config vitest.e2e.real.config.ts --reporter=verbose 2>&1 | tee test-output.log
    ```
 
    Look for the `[gemini-e2e-debug]` (or `[claude-e2e-debug]`, etc.) prefix in the output — that's the trace dump.
@@ -824,7 +868,9 @@ Trace levels:
 
    ```bash
    BEAMCODE_TRACE=1 BEAMCODE_TRACE_LEVEL=smart \
-     pnpm vitest run src/e2e/real/session-manager-gemini.e2e.test.ts 2>trace.ndjson
+     E2E_PROFILE=real-smoke USE_REAL_CLI=true \
+     pnpm vitest run src/e2e/real/session-coordinator-gemini.e2e.test.ts \
+     --config vitest.e2e.real.config.ts 2>trace.ndjson
 
    # Show translation events with drops
    grep '"boundary"' trace.ndjson | python3 -c "
@@ -852,7 +898,7 @@ Trace levels:
 | File | Purpose |
 |------|---------|
 | `src/e2e/real/helpers.ts` | `attachTrace()`, `dumpTraceOnFailure()`, `getTrace()` |
-| `src/e2e/real/session-manager-setup.ts` | `setupRealSession()` — creates manager with trace attached |
+| `src/e2e/real/session-coordinator-setup.ts` | `setupRealSession()` — creates coordinator with trace attached |
 | `src/e2e/real/prereqs.ts` | Binary/auth detection, auto-skip logic |
 | `src/core/message-tracer.ts` | `MessageTracerImpl` for T1–T4 boundary tracing |
 
