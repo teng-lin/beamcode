@@ -15,9 +15,9 @@ Code from anywhere. Collaborate on any agent session. Drive Claude, Codex, OpenC
   │          │   │                            │                         │
   │          ▼   ▼                            │                         │
   │   ┌──────────────┐                        │  Teammate    Observer   │
-  │   │SessionBridge │◄───────────────────────┤  ┌────────┐  ┌───────┐  │
-  │   │fan-out,      │                        └──│ Laptop │  │ Audit │  │
-  │   │RBAC, replay  │◄──────────────────────────│(collab)│  │(watch)│  │
+  │   │  BeamCode    │◄───────────────────────┤  ┌────────┐  ┌───────┐  │
+  │   │  fan-out,    │                        └──│ Laptop │  │ Audit │  │
+  │   │  RBAC,replay │◄──────────────────────────│(collab)│  │(watch)│  │
   │   └──────────────┘                           └────────┘  └───────┘  │
   │                                                                     │
   │   N consumers ↔ 1 agent session (not 1:1 like everything else)      │
@@ -35,7 +35,7 @@ BeamCode solves both.
 
 **Code from anywhere** — Cloudflare Tunnel + E2E encryption turns your desktop agent into something you can drive from any device. No open ports, no VPN, no SSH. Open a link on your phone and you're in.
 
-**Collaborate on the same session** — BeamCode's session-bridge is N:1, not 1:1:
+**Collaborate on the same session** — BeamCode sessions are N:1, not 1:1:
 
 - **N consumers per session** — `Map<WebSocket, ConsumerIdentity>`, not a single slot
 - **Role gating** — participants drive, observers watch (PARTICIPANT_ONLY message types)
@@ -66,7 +66,7 @@ This unlocks scenarios no existing tool supports:
                 Consumer Protocol (JSON/WS)
                            │
            ┌───────────────┴────────────────┐
-           │         SessionBridge          │
+           │          BeamCode              │
            │  fan-out · RBAC · replay       │
            └───────────────┬────────────────┘
                            │
@@ -153,50 +153,6 @@ pnpm dev:web        # Vite dev server on :5174 (proxies to :9414)
 ```
 
 Then open `http://localhost:5174`.
-
-### Programmatic usage
-
-```ts
-import {
-  SessionCoordinator,
-  ClaudeLauncher,
-  NodeProcessManager,
-  NodeWebSocketServer,
-  FileStorage,
-} from "beamcode";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-const config = { port: 9414 };
-const storage = new FileStorage(join(tmpdir(), "beamcode-sessions"));
-
-const manager = new SessionCoordinator({
-  config,
-  launcher: new ClaudeLauncher({
-    processManager: new NodeProcessManager(),
-    config,
-    storage,
-  }),
-  server: new NodeWebSocketServer({ port: 9414 }),
-  storage,
-});
-
-await manager.start();
-
-const { sessionId } = manager.launcher.launch({ cwd: "/my/project" });
-
-manager.on("permission:requested", ({ sessionId, request }) => {
-  manager.bridge.sendPermissionResponse(sessionId, request.request_id, "allow");
-});
-
-manager.bridge.sendUserMessage(sessionId, "Write a hello world in TypeScript");
-
-manager.on("message:outbound", ({ sessionId, message }) => {
-  if (message.type === "assistant") console.log(message.content);
-});
-
-await manager.stop();
-```
 
 ## Security
 

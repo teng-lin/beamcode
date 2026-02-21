@@ -28,8 +28,8 @@
                                 ▼                             ▼
                        ┌────────────────┐           ┌──────────────────┐
                        │  State Reducer │           │  Message Router  │
-                       │ (team state +  │           │ (12 switch cases │
-                       │  config state) │           │  + default trace)│
+                       │ (5 switch cases│           │ (12 switch cases │
+                       │  + team scan)  │           │  + default trace)│
                        └────────────────┘           └────────┬─────────┘
                                                              │
                                                     ┌────────▼────────┐
@@ -41,7 +41,7 @@
                                                     └─────────────────┘
 ```
 
-Note: The state reducer runs **before** the router switch on every message. It handles `configuration_change`, `session_lifecycle`, and team tool-use correlation (scanning content blocks for team tool invocations). Team state changes are broadcast via `emitTeamEvents()` after reduction, not through the router switch.
+Note: The state reducer runs **before** the router switch on every message. It has explicit switch cases for `session_init`, `status_change`, `result`, `control_response`, and `configuration_change`. All other message types fall through to team tool-use correlation (scanning content blocks for team tool invocations — meaningful only for `assistant` and `tool_use_summary`). Team state changes are broadcast via `emitTeamEvents()` after reduction, not through the router switch.
 
 ## 2. Current UnifiedMessage Type Coverage
 
@@ -49,15 +49,15 @@ Note: The state reducer runs **before** the router switch on every message. It h
 
 | UnifiedMessageType | Router Switch | Consumer Mapper | State Reducer | Broadcast to UI |
 |---|:---:|:---:|:---:|:---:|
-| `session_init` | YES | — (direct) | — | YES |
-| `status_change` | YES | — (direct) | — | YES |
-| `assistant` | YES | YES | — | YES |
-| `result` | YES | YES | — | YES |
+| `session_init` | YES | — (direct) | YES | YES |
+| `status_change` | YES | — (direct) | YES | YES |
+| `assistant` | YES | YES | YES (team scan) | YES |
+| `result` | YES | YES | YES | YES |
 | `stream_event` | YES | YES | — | YES |
 | `permission_request` | YES | YES (filtered) | — | YES |
-| `control_response` | YES (delegates) | — | — | NO |
+| `control_response` | YES (delegates) | — | YES (stub) | NO |
 | `tool_progress` | YES | YES | — | YES |
-| `tool_use_summary` | YES | YES | — | YES |
+| `tool_use_summary` | YES | YES | YES (team scan) | YES |
 | `auth_status` | YES | YES | — | YES |
 | `configuration_change` | YES | YES | YES | YES |
 | `session_lifecycle` | YES | YES | — | YES |
@@ -72,62 +72,96 @@ Note: The state reducer runs **before** the router switch on every message. It h
 **Notes:**
 - `user_message`, `permission_response`, `interrupt` are intentionally consumer→backend only (outbound translation, never routed inbound).
 - `team_*` types are a classification taxonomy used by `team-tool-recognizer.ts` to tag tool_use content blocks. They are **never emitted as standalone routable messages**. Team state is derived by the state reducer scanning `assistant`/`tool_use_summary` messages for team-related tool invocations, then broadcasting diffs as `session_update` events.
-- `permission_request` mapper returns `null` for non-`can_use_tool` subtypes — a silent filter point (see Section 6).
+- `permission_request` mapper returns `null` for non-`can_use_tool` subtypes — a silent filter point (see Section 5).
 - `unknown` falls through to the router's default case and is traced for diagnosability.
+- State reducer `control_response` case is a stub — capabilities are applied by the router handler, not the reducer.
 
 ## 3. UnifiedContent Type Coverage
 
 **7 types defined:**
 
-| Content Type | Produced By (as content blocks) | Consumer Mapper |
+| Content Type | Produced By (as content blocks in `assistant` messages) | Consumer Mapper |
 |---|---|:---:|
 | `text` | All adapters | YES |
-| `tool_use` | Claude, Codex | YES |
-| `tool_result` | Claude, Codex | YES |
+| `tool_use` | Claude | YES |
+| `tool_result` | Claude | YES |
 | `thinking` | Claude, OpenCode, ACP | YES |
-| `refusal` | Codex | YES |
-| `code` | (none currently — mapper ready) | YES |
-| `image` | ACP inbound | YES |
+| `refusal` | Claude, Codex | YES |
+| `code` | Claude (forward-compat) | YES |
+| `image` | Claude (forward-compat), ACP inbound | YES |
 
-**Adapter content block limitations:**
-- **Claude adapter** only passes through `text`, `tool_use`, `tool_result`, and `thinking`. Other block types (`image`, `code`, `refusal`) are converted to empty text blocks with `dropped_content_block_types` tracked in metadata.
+**Adapter content block handling:**
+- **Claude adapter** handles all 7 content types: `text`, `tool_use`, `tool_result`, `thinking`, `image`, `code`, `refusal`. Truly unknown block types (not in the 7-type union) are converted to empty text blocks with `dropped_content_block_types` tracked in metadata.
+- **Codex adapter** produces `text` and `refusal` as content blocks in `assistant` messages. Tool calls (`function_call`, `function_call_output`) are separate Codex items translated to standalone `tool_progress`/`tool_use_summary` messages, not content blocks.
 - **OpenCode adapter** maps tool parts as separate `tool_progress`/`tool_use_summary` messages rather than content blocks. Text and reasoning parts produce `stream_event` messages with text/thinking content.
-- **Codex adapter** handles `text`, `refusal`, `function_call`→`tool_progress`, `function_call_output`→`tool_use_summary`.
+- **ACP adapter** produces `text` and `thinking` content blocks from `agent_message_chunk`/`agent_thought_chunk` events. Tool calls are separate session updates translated to `tool_progress`/`tool_use_summary` messages. Image content is supported inbound (user→backend) only.
 
 ## 4. Cross-Adapter Feature Matrix
 
+### Streaming & Content
+
 | Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Text streaming | `stream_event` | `output_text.delta` | `part.updated` | `message_chunk` | `stream_event` (YES) |
-| Thinking/reasoning | `thinking` block | — | `reasoning` part | `thought_chunk` | `ThinkingContent` (YES) |
-| Tool invocation | `tool_progress` | `item.added` | tool `running` | `tool_call` | `tool_progress` (YES) |
-| Tool completion | `tool_use_summary` | `item.done` | tool `completed` | `tool_call_update` | `tool_use_summary` (YES) |
-| Tool pending | — | — | tool `pending` | — | `tool_progress` (YES) |
-| Permission request | `control_request` | `approval_requested` | `permission.updated` | `request_permission` | `permission_request` (YES) |
-| Error subtypes | 5 subtypes | classified | 6 subtypes | `error_code` | `UnifiedErrorCode` (YES) |
-| Session compaction | `status:compacting` | — | `session.compacted` | — | `session_lifecycle` (YES) |
+| Text streaming | `stream_event` | `response.output_text.delta` + `item/agentMessage/delta` | `message.part.updated` + `message.part.delta` | `agent_message_chunk` | `stream_event` (YES) |
+| Thinking/reasoning | `thinking` block | — | `reasoning` part | `agent_thought_chunk` | `ThinkingContent` (YES) |
+| Refusal | `refusal` block | `refusal` part | — | — | `RefusalContent` (YES) |
+| Image content | (forward-compat) | — | — | YES (inbound user→backend) | `ImageContent` (YES) |
+| Code content | (forward-compat) | — | — | — | `CodeContent` (YES) |
+
+### Tool Execution
+
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Tool invocation | `tool_progress` | `response.output_item.added` (function_call) | tool part `running` | `tool_call` | `tool_progress` (YES) |
+| Tool completion | `tool_use_summary` | `response.output_item.done` (function_call_output) | tool part `completed` | `tool_call_update` (completed) | `tool_use_summary` (YES) |
+| Tool pending | — | — | tool part `pending` | — | `tool_progress` (YES) |
+| Tool error | — | — | tool part `error` | `tool_call_update` (failed) | `tool_use_summary` (YES) |
+
+### Permissions & Control
+
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Permission request | `control_request` | `approval_requested` + `item/commandExecution/requestApproval` + `item/fileChange/requestApproval` | `permission.updated` | `session/request_permission` | `permission_request` (YES) |
+| Interrupt/cancel | `control_request` (interrupt) | `turn/interrupt` (modern) / `turn.cancel` (legacy) | HTTP POST abort | `session/cancel` | `interrupt` (YES) |
+
+### Error Handling
+
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Error subtypes | 3 codes: `max_turns`, `max_budget`, `execution_error` | 4 codes: `rate_limit`, `output_length`, `aborted`, `execution_error` | 6 codes: `provider_auth`, `output_length`, `aborted`, `context_overflow`, `api_error`, `unknown` | Pluggable classifier; Gemini: `provider_auth`, `rate_limit`, `context_overflow`, `api_error` | `UnifiedErrorCode` (YES) |
+
+### Session Lifecycle & Configuration
+
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Session init | `system/init` | `initialize` response | `server.connected` | `initialize` result | `session_init` (YES) |
+| Session compaction | `is_compacting` flag in status | `/compact` slash cmd (outbound only) | `session.compacted` | — | `status_change` (Claude) / `session_lifecycle` (OpenCode) |
 | Message removal | — | — | `message.removed` | — | `session_lifecycle` (YES) |
-| Step boundaries | — | — | `step-start/finish` | — | `status_change` (YES) |
-| Dynamic commands | — | — | — | `commands_update` | `configuration_change` (YES) |
+| Step boundaries | — | — | `step-start`/`step-finish` | — | `status_change` (YES) |
+| Plan display | — | — | — | `plan` session update | `status_change` (YES) |
+| Dynamic commands | slash_commands in init (static) | — | — | `available_commands_update` | `configuration_change` (YES) |
 | Mode/config change | — | — | — | `current_mode_update` | `configuration_change` (YES) |
-| Refusal | — | `refusal` part | — | — | `RefusalContent` (YES) |
-| Token usage | Full | — | Full | — | Partial (not available from Codex/ACP upstream) |
-| Image content | — | — | — | YES (inbound) | `ImageContent` (YES) |
-| Code content | — | — | — | — | `CodeContent` (YES) |
-| Auth flow | `auth_status` | — | — | YES | `auth_status` (YES) |
-| Teams | YES | — | — | NO | 3 types (state-only) |
-| Session lifecycle | — | `thread/started` | 7 events | — | `session_lifecycle` (partial — 2 of 7) |
+| Model switching | `set_model` (outbound) | — | model in prompt params | `session/set_model` | `configuration_change` (YES) |
+| Slash commands | YES (bridge-level) | YES (4 custom: `/compact`, `/new`, `/review`, `/rename`) | NO | YES (via `available_commands_update`) | Adapter-specific |
+
+### Observability & Auth
+
+| Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Token usage | Full (per-turn + per-model + cache) | — | Full (input, output, reasoning, cache + cost) | Passthrough (forwarded from prompt result) | Partial (shape varies by adapter) |
+| Auth flow | `auth_status` messages | — | HTTP Basic (transport-level, no events) | `auth_status` on provider_auth errors + `authMethods` in init | `auth_status` (YES) |
+| Teams | YES (`teams: true`) | — | — | — | 3 types (state-only, Claude-only) |
 
 ## 5. Complete Silent Drop Inventory
 
-**15 remaining silent drop points** (10 resolved since initial audit):
+**14 remaining silent drop points** (11 resolved since initial audit):
 
 | # | Layer | File | What's Dropped | Intentional? |
 |---|---|---|---|:---:|
 | 1 | Claude adapter | `message-translator.ts` | `keep_alive` messages → `null` | YES |
 | 2 | Claude adapter | `message-translator.ts` | `user` echo messages → `null` | YES |
 | 3 | Claude adapter | `message-translator.ts` | Unknown CLI types → `null` | YES |
-| 4 | Claude adapter | `message-translator.ts` | Non-text/tool_use/tool_result/thinking content blocks → empty text (tracked in `dropped_content_block_types` metadata) | PARTIAL |
+| 4 | Claude adapter | `message-translator.ts` | Unknown content block types (outside the 7-type union) → empty text (tracked in `dropped_content_block_types` metadata) | YES |
 | 5 | Codex adapter | `codex-message-translator.ts` | Unknown event types → `null` | YES |
 | 5b | Codex adapter | `codex-message-translator.ts` | Unknown item types in `translateItemAdded`/`translateItemDone` → `null` | YES |
 | ~~6~~ | ~~Codex adapter~~ | ~~`codex-session.ts`~~ | ~~`function_call` + `function_call_output` in responses~~ — **RESOLVED** | |
@@ -149,7 +183,8 @@ Note: The state reducer runs **before** the router switch on every message. It h
 | ~~21~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`configuration_change` — no case~~ — **RESOLVED** | |
 | ~~22~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`unknown` — no case~~ — **RESOLVED** (now traced via default case) | |
 | ~~23~~ | ~~Consumer mapper~~ | ~~`consumer-message-mapper.ts`~~ | ~~`code`/`image` content → empty text~~ — **RESOLVED** | |
-| 24 | Consumer mapper | `consumer-message-mapper.ts` | `permission_request` with subtype ≠ `can_use_tool` → `null` (not broadcast) | YES |
+| ~~24~~ | ~~Claude adapter~~ | ~~`message-translator.ts`~~ | ~~`image`/`code`/`refusal` content blocks → empty text~~ — **RESOLVED** (now passed through) | |
+| 25 | Consumer mapper | `consumer-message-mapper.ts` | `permission_request` with subtype ≠ `can_use_tool` → `null` (not broadcast) | YES |
 
 ## 6. Metadata Key Inconsistencies
 
@@ -163,27 +198,25 @@ Note: The state reducer runs **before** the router switch on every message. It h
 | Model ID | `model` | (not emitted) | `model_id` + `provider_id` | varies | **INCONSISTENT** — no canonical `model` key across adapters |
 | Tool status | `status` (string) | `done` (boolean) + `status` | `status` (string) | `status` (string) | **INCONSISTENT** — Codex uses boolean `done` |
 | Thinking | content block | — | content block | content block | Consistent (via `ThinkingContent`) |
-| Cost/usage | `usage` object | — | `cost` + `tokens` | — | **INCONSISTENT** — only Claude/OpenCode provide usage; different shapes |
+| Cost/usage | `usage` object | — | `cost` + `tokens` | passthrough (`inputTokens` + `outputTokens` if present) | **INCONSISTENT** — Claude/OpenCode/ACP provide usage in different shapes; Codex doesn't provide it |
 
-## 8. Remaining Open Issues
+## 7. Remaining Open Issues
 
-### ISSUE 1: Claude Adapter Drops Rich Content Blocks
+### ISSUE 1: ~~Claude Adapter Drops Rich Content Blocks~~ — RESOLVED
 
-**Severity:** Medium
-**File:** `src/adapters/claude/message-translator.ts`
+~~**Severity:** Medium~~
+~~**File:** `src/adapters/claude/message-translator.ts`~~
 
-The Claude adapter only passes through `text`, `tool_use`, `tool_result`, and `thinking` content blocks in assistant messages. All other block types (`image`, `code`, `refusal`) are silently converted to empty text blocks. The dropped types are tracked in `dropped_content_block_types` metadata, but the original data is lost before it reaches the consumer mapper (which does handle all 7 types).
-
-**Impact:** If Claude CLI adds image/code output blocks in the future, they will be dropped at the adapter layer even though the consumer mapper is ready.
+The Claude adapter now handles all 7 content types (`text`, `tool_use`, `tool_result`, `thinking`, `image`, `code`, `refusal`). Only truly unknown block types outside this union are converted to empty text blocks with `dropped_content_block_types` tracking.
 
 ### ISSUE 2: Metadata Shape Divergence Across Adapters
 
 **Severity:** Medium
 
-Several metadata keys differ across adapters (see Section 7):
+Several metadata keys differ across adapters (see Section 6):
 - **Model ID**: Claude uses `model`, OpenCode uses `model_id` + `provider_id`, Codex doesn't emit it
 - **Tool status**: Codex uses boolean `done`, others use string `status`
-- **Cost/usage**: Claude and OpenCode provide usage data in different shapes; Codex and ACP don't provide it
+- **Cost/usage**: Claude (`usage` object), OpenCode (`cost` + `tokens`), and ACP (passthrough `inputTokens`/`outputTokens`) provide usage in different shapes; Codex doesn't provide it
 - **Error detail**: OpenCode splits into `error_name` + `error_message`; others use `error` string
 
 The consumer mapper has fallback chains (`tool_use_id ?? part_id ?? "unknown"`, `tool_name ?? tool ?? kind ?? "tool"`) to handle these, but this makes the contract implicit rather than explicit.
@@ -195,9 +228,6 @@ The consumer mapper has fallback chains (`tool_use_id ?? part_id ?? "unknown"`, 
 
 The router infers "running" status from `stream_event` messages when `event.type === "message_start"` — a Claude-specific convention. OpenCode and ACP adapters don't send `message_start` events in this format, so the "running" status may not be inferred for those backends. They typically emit explicit `status_change` messages instead.
 
-### ISSUE 4: Test Coverage Gaps for Content Types
+### ~~ISSUE 4: Test Coverage Gaps for Content Types~~ — RESOLVED
 
-**Severity:** Low
-
-The consumer mapper test (`consumer-message-mapper.test.ts`) does not test `code`, `image`, `thinking`, or `refusal` content blocks within assistant messages. These content types are tested in the type guard tests and some adapter tests, but not in the mapper's own test suite.
-
+The consumer mapper test (`consumer-message-mapper.test.ts`) now tests all 7 content types including `code`, `image`, `thinking`, and `refusal` blocks. Characterization and integration tests also cover the full pipeline for these content types.
