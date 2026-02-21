@@ -303,7 +303,7 @@
 │  └──────────────────────────────────────┘                        │
 │                                                                  │
 │  ┌──────────────────────────────────────┐                        │
-│  │ 3. DISPATCH (each handler is 3-8L)  │                        │
+│  │ 3. DISPATCH (each handler is 3-8L)   │                        │
 │  └──────────────────────────────────────┘                        │
 │                                                                  │
 │  ├─ session_init ──────────▶ store backendSessionId              │
@@ -474,7 +474,7 @@ Outbound path:
 ## 8. Policy Services — Observe and Advise Pattern
 
 ```
-  ┌──────────────────────────────────────────────────────────────┐
+  ┌───────────────────────────────────────────────────────────────┐
   │                        Policy Pattern                         │
   │                                                               │
   │  Policies NEVER mutate state.                                 │
@@ -483,7 +483,7 @@ Outbound path:
   │  This replaces the current pattern where ReconnectController  │
   │  and IdleSessionReaper wire into event chains and directly    │
   │  call methods that mutate session state.                      │
-  └──────────────────────────────────────────────────────────────┘
+  └───────────────────────────────────────────────────────────────┘
 
   ┌──────────────┐                    ┌───────────────┐
   │  Reconnect   │    observes        │               │
