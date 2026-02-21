@@ -1,6 +1,6 @@
 {
   "name": "beamcode",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Universal adapter bridging consumers (web, mobile) to coding agent CLIs — code anywhere",
   "type": "module",
   "exports": {

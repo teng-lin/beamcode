@@ -36,7 +36,7 @@ import { TypedEventEmitter } from "./typed-emitter.js";
 
 /**
  * Facade wiring SessionBridge + ClaudeLauncher together.
- * Replaces the manual wiring in the Vibe Companion's index.ts:34-68.
+ * Replaces the manual wiring previously in index.ts:34-68.
  *
  * Auto-wires:
  * - backend:session_id → registry.setBackendSessionId
