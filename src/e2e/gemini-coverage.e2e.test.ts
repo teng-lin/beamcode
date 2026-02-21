@@ -103,8 +103,8 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
     const res1 = await reader1.waitFor("result");
     const res2 = await reader2.waitFor("result");
 
-    expect(res1.target.metadata.sessionId).toBe("sess-1");
-    expect(res2.target.metadata.sessionId).toBe("sess-2");
+    expect(res1.target.metadata.session_id).toBe("sess-1");
+    expect(res2.target.metadata.session_id).toBe("sess-2");
   });
 
   // -------------------------------------------------------------------------
