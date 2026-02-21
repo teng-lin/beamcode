@@ -33,6 +33,11 @@ describe("createAdapter", () => {
     expect(adapter.name).toBe("opencode");
   });
 
+  it("returns AgentSdkAdapter for 'claude:agent-sdk'", () => {
+    const adapter = createAdapter("claude:agent-sdk", { processManager: mockProcessManager });
+    expect(adapter.name).toBe("agent-sdk");
+  });
+
   it("throws for unknown adapter name", () => {
     expect(() => createAdapter("unknown" as any, { processManager: mockProcessManager })).toThrow(
       /unknown adapter/i,

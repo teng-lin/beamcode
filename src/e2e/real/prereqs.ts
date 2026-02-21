@@ -105,6 +105,42 @@ export function getOpencodePrereqState(): BackendPrereqState {
 }
 
 // ---------------------------------------------------------------------------
+// Agent SDK
+// ---------------------------------------------------------------------------
+
+export function getAgentSdkPrereqState(): BackendPrereqState {
+  // The Agent SDK uses the Claude CLI under the hood — no separate API key needed.
+  // Prereqs: Claude CLI available + logged in (SDK uses CLI's auth).
+  const cliAvailable = isClaudeAvailable();
+  const loggedIn = isClaudeLoggedIn();
+  const sdkAvailable = isSdkPackageAvailable();
+
+  if (!cliAvailable) {
+    return {
+      ok: false,
+      reason: "Claude CLI is not available (needed by Agent SDK)",
+      hasApiKey: false,
+      canRunPromptTests: false,
+    };
+  }
+
+  if (!sdkAvailable) {
+    return {
+      ok: false,
+      reason: "@anthropic-ai/claude-agent-sdk package is not installed",
+      hasApiKey: false,
+      canRunPromptTests: false,
+    };
+  }
+
+  return {
+    ok: true,
+    hasApiKey: false, // not needed — SDK uses CLI auth
+    canRunPromptTests: loggedIn,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -128,6 +164,15 @@ function isBinaryAvailable(command: string, args: string[]): boolean {
       timeout: 10_000,
       stdio: "ignore",
     });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isSdkPackageAvailable(): boolean {
+  try {
+    require.resolve("@anthropic-ai/claude-agent-sdk");
     return true;
   } catch {
     return false;

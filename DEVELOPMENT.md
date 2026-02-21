@@ -80,6 +80,7 @@ interface Encryptable    { encrypt(msg: UnifiedMessage): EncryptedEnvelope; decr
 | Adapter | Protocol | Agents | Streaming | Permissions | Session Resume |
 |---------|----------|--------|-----------|-------------|----------------|
 | Claude | NDJSON/WebSocket | Claude Code | Yes | Yes | Yes |
+| Claude Agent SDK | In-process SDK | Claude Code | Yes | Yes | Yes |
 | ACP | JSON-RPC 2.0/stdio | 25+ (Goose, Kiro, Cline, ...) | Yes | Yes | Varies |
 | Codex | JSON-RPC/WebSocket | Codex CLI | Yes | Yes | Yes |
 | Gemini | JSON-RPC 2.0/stdio | Gemini CLI (wraps ACP) | Yes | Yes | Varies |
@@ -703,16 +704,26 @@ pnpm test:e2e:real:full
 
 # Per-backend
 pnpm test:e2e:real:claude
+pnpm test:e2e:real:agent-sdk
 pnpm test:e2e:real:codex
 pnpm test:e2e:real:gemini
 pnpm test:e2e:real:opencode
+
+# Single test by name (-- forwards args to vitest, -t filters by description)
+pnpm test:e2e:real:agent-sdk -- -t "user_message gets an assistant reply"
+pnpm test:e2e:real:claude -- -t "broadcast assistant reply"
+
+# Smoke-only for a single backend
+pnpm test:e2e:real:agent-sdk:smoke
+pnpm test:e2e:real:claude:smoke
 ```
 
 **Real backend prerequisites:**
 
-| Backend | Binary | Auth |
-|---------|--------|------|
+| Backend | Binary / Package | Auth |
+|---------|------------------|------|
 | claude | `claude` | `ANTHROPIC_API_KEY` or `claude auth login` |
+| agent-sdk | `claude` + `@anthropic-ai/claude-agent-sdk` | `claude auth login` (uses CLI auth, no API key needed) |
 | codex | `codex` | handled by CLI |
 | gemini | `gemini` | `GOOGLE_API_KEY` or CLI config |
 | opencode | `opencode` | handled by CLI config |

@@ -66,7 +66,14 @@ describe("createAdapterResolver", () => {
 
   it("returns available adapter names", () => {
     const resolver = createAdapterResolver(mockDeps);
-    expect(resolver.availableAdapters).toEqual(["claude", "codex", "acp", "gemini", "opencode"]);
+    expect(resolver.availableAdapters).toEqual([
+      "claude",
+      "claude:agent-sdk",
+      "codex",
+      "acp",
+      "gemini",
+      "opencode",
+    ]);
   });
 
   it("stopAll() calls stop() on adapters that support it", async () => {
