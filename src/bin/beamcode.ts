@@ -408,16 +408,7 @@ async function main(): Promise<void> {
       if (err.code === "EADDRINUSE") {
         console.error(`Error: Port ${config.port} is already in use.`);
         console.error(`Try a different port: beamcode --port ${config.port + 1}`);
-        try {
-          await cloudflared.stop();
-        } catch {
-          /* best-effort */
-        }
-        try {
-          await daemon.stop();
-        } catch {
-          /* best-effort */
-        }
+        await Promise.allSettled([cloudflared.stop(), daemon.stop()]);
         process.exit(1);
       }
       reject(err);
@@ -450,21 +441,7 @@ async function main(): Promise<void> {
         `Error: Failed to start ${adapter.name} backend: ${err instanceof Error ? err.message : err}`,
       );
       console.error(`Is the ${adapter.name} CLI installed and available on your PATH?`);
-      try {
-        await sessionCoordinator.stop();
-      } catch {
-        /* best-effort */
-      }
-      try {
-        await cloudflared.stop();
-      } catch {
-        /* best-effort */
-      }
-      try {
-        await daemon.stop();
-      } catch {
-        /* best-effort */
-      }
+      await Promise.allSettled([sessionCoordinator.stop(), cloudflared.stop(), daemon.stop()]);
       process.exit(1);
     }
   }
