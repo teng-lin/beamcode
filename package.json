@@ -113,6 +113,7 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.50",
     "libsodium-wrappers-sumo": "0.7.15",
     "ws": "^8.18.0",
     "zod": "3"

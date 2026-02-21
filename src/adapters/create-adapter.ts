@@ -2,6 +2,7 @@ import type { BackendAdapter } from "../core/interfaces/backend-adapter.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { ProcessManager } from "../interfaces/process-manager.js";
 import { AcpAdapter } from "./acp/acp-adapter.js";
+import { AgentSdkAdapter } from "./agent-sdk/agent-sdk-adapter.js";
 import { ClaudeAdapter } from "./claude/claude-adapter.js";
 import { CodexAdapter } from "./codex/codex-adapter.js";
 import { GeminiAdapter } from "./gemini/gemini-adapter.js";
@@ -11,6 +12,7 @@ export type { CliAdapterName } from "../core/interfaces/adapter-names.js";
 export { CLI_ADAPTER_NAMES } from "../core/interfaces/adapter-names.js";
 
 import type { CliAdapterName } from "../core/interfaces/adapter-names.js";
+import { CLI_ADAPTER_NAMES } from "../core/interfaces/adapter-names.js";
 
 export interface CreateAdapterDeps {
   processManager: ProcessManager;
@@ -26,6 +28,8 @@ export function createAdapter(
   switch (resolved) {
     case "claude":
       return new ClaudeAdapter();
+    case "claude:agent-sdk":
+      return new AgentSdkAdapter();
     case "codex":
       return new CodexAdapter({
         processManager: deps.processManager,
@@ -42,7 +46,7 @@ export function createAdapter(
       });
     default:
       throw new Error(
-        `Unknown adapter "${resolved}". Valid adapters: claude, codex, acp, gemini, opencode`,
+        `Unknown adapter "${resolved}". Valid adapters: ${CLI_ADAPTER_NAMES.join(", ")}`,
       );
   }
 }
