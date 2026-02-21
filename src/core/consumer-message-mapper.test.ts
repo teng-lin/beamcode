@@ -13,7 +13,11 @@ import {
 import type { UnifiedContent } from "./types/unified-message.js";
 import { createUnifiedMessage } from "./types/unified-message.js";
 
-function makeAssistantMsg(content: UnifiedContent[], messageId: string) {
+function makeAssistantMsg(
+  content: UnifiedContent[],
+  messageId: string,
+  metadata?: Record<string, unknown>,
+) {
   return createUnifiedMessage({
     type: "assistant",
     role: "assistant",
@@ -29,6 +33,7 @@ function makeAssistantMsg(content: UnifiedContent[], messageId: string) {
         cache_read_input_tokens: 0,
       },
       parent_tool_use_id: null,
+      ...metadata,
     },
   });
 }
@@ -37,21 +42,13 @@ function makeAssistantMsg(content: UnifiedContent[], messageId: string) {
 
 describe("mapAssistantMessage", () => {
   it("maps text content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "text", text: "Hello world" }],
-      metadata: {
-        message_id: "msg-001",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: "end_turn",
-        usage: {
-          input_tokens: 100,
-          output_tokens: 50,
-          cache_creation_input_tokens: 10,
-          cache_read_input_tokens: 5,
-        },
-        parent_tool_use_id: null,
+    const msg = makeAssistantMsg([{ type: "text", text: "Hello world" }], "msg-001", {
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 5,
       },
     });
 
@@ -78,13 +75,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps tool_use content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } }],
-      metadata: {
-        message_id: "msg-002",
-        model: "claude-sonnet-4-5-20250929",
+    const msg = makeAssistantMsg(
+      [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } }],
+      "msg-002",
+      {
         stop_reason: "tool_use",
         usage: {
           input_tokens: 50,
@@ -94,7 +88,7 @@ describe("mapAssistantMessage", () => {
         },
         parent_tool_use_id: "parent-tu-1",
       },
-    });
+    );
 
     const result = mapAssistantMessage(msg);
 
@@ -107,23 +101,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps tool_result content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "file.txt", is_error: false }],
-      metadata: {
-        message_id: "msg-003",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
+    const msg = makeAssistantMsg(
+      [{ type: "tool_result", tool_use_id: "tu-1", content: "file.txt", is_error: false }],
+      "msg-003",
+    );
 
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
@@ -133,16 +114,13 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps mixed content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [
+    const msg = makeAssistantMsg(
+      [
         { type: "text", text: "Let me run that" },
         { type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } },
       ],
-      metadata: {
-        message_id: "msg-004",
-        model: "claude-sonnet-4-5-20250929",
+      "msg-004",
+      {
         stop_reason: "end_turn",
         usage: {
           input_tokens: 100,
@@ -150,9 +128,8 @@ describe("mapAssistantMessage", () => {
           cache_creation_input_tokens: 10,
           cache_read_input_tokens: 5,
         },
-        parent_tool_use_id: null,
       },
-    });
+    );
 
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
@@ -207,23 +184,7 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps unknown content block types to empty text", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "foobar" } as any],
-      metadata: {
-        message_id: "msg-006",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
+    const msg = makeAssistantMsg([{ type: "foobar" } as any], "msg-006");
 
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
