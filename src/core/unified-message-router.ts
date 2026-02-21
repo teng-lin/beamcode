@@ -241,7 +241,7 @@ export class UnifiedMessageRouter {
     const status = msg.metadata.status as string | null | undefined;
     session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
     const { status: _s, ...rest } = msg.metadata;
-    const filtered = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    const filtered = Object.fromEntries(Object.entries(rest).filter(([, v]) => v != null));
     const statusMsg = {
       type: "status_change" as const,
       status: session.lastStatus,

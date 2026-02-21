@@ -300,7 +300,7 @@ function translateFailed(event: CodexTurnEvent): UnifiedMessage {
       response_id: event.response?.id,
       error: status,
       error_code: classifyCodexError(status),
-      error_message: status,
+      error_message: humanizeCodexError(status),
     },
   });
 }
@@ -315,6 +315,19 @@ function classifyCodexError(status: string): UnifiedErrorCode {
       return "aborted";
     default:
       return "execution_error";
+  }
+}
+
+function humanizeCodexError(status: string): string {
+  switch (status) {
+    case "rate_limited":
+      return "Rate limit exceeded";
+    case "incomplete":
+      return "Output truncated (too long)";
+    case "cancelled":
+      return "Request cancelled";
+    default:
+      return `Execution failed: ${status}`;
   }
 }
 
