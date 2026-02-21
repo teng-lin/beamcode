@@ -20,7 +20,12 @@ import {
   noopTracer,
   type TraceLevel,
 } from "../core/message-tracer.js";
-import { SessionManager } from "../core/session-manager.js";
+import {
+  type CoreRuntimeMode,
+  DEFAULT_CORE_RUNTIME_MODE,
+  resolveCoreRuntimeMode,
+} from "../core/runtime-mode.js";
+import { SessionCoordinator } from "../core/session-coordinator.js";
 import { Daemon } from "../daemon/daemon.js";
 import { injectConsumerToken, loadConsumerHtml } from "../http/consumer-html.js";
 import { createBeamcodeServer } from "../http/server.js";
@@ -52,6 +57,7 @@ interface CliConfig {
   traceLevel: TraceLevel;
   traceAllowSensitive: boolean;
   prometheus?: boolean;
+  coreRuntimeMode: CoreRuntimeMode;
 }
 
 // ── Arg parsing ────────────────────────────────────────────────────────────
@@ -72,6 +78,7 @@ function printHelp(): void {
     --claude-binary <path> Path to claude binary (default: "claude")
     --default-adapter <name>  Default backend: claude (default), codex, acp
     --adapter <name>          Alias for --default-adapter
+    --core-runtime-mode <m>   Core runtime mode: legacy (default), vnext_shadow
     --no-auto-launch       Start server without creating an initial session
     --trace                Enable message tracing (NDJSON to stderr)
     --trace-level <level>  Trace detail: smart (default), headers, full
@@ -84,6 +91,7 @@ function printHelp(): void {
     BEAMCODE_TRACE=1
     BEAMCODE_TRACE_LEVEL=smart|headers|full
     BEAMCODE_TRACE_ALLOW_SENSITIVE=1
+    BEAMCODE_CORE_RUNTIME_MODE=legacy|vnext_shadow
 `);
 }
 
@@ -113,6 +121,7 @@ function parseArgs(argv: string[]): CliConfig {
     trace: false,
     traceLevel: "smart",
     traceAllowSensitive: false,
+    coreRuntimeMode: DEFAULT_CORE_RUNTIME_MODE,
   };
   let traceExplicit = false;
   let traceLevelExplicit = false;
@@ -149,6 +158,14 @@ function parseArgs(argv: string[]): CliConfig {
       case "--adapter":
       case "--default-adapter":
         config.adapter = validateAdapterName(argv[++i], arg);
+        break;
+      case "--core-runtime-mode":
+        try {
+          config.coreRuntimeMode = resolveCoreRuntimeMode(argv[++i]);
+        } catch (err) {
+          console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+          process.exit(1);
+        }
         break;
       case "--no-auto-launch":
         config.noAutoLaunch = true;
@@ -212,6 +229,15 @@ function parseArgs(argv: string[]): CliConfig {
 
   if (!traceAllowSensitiveExplicit && process.env.BEAMCODE_TRACE_ALLOW_SENSITIVE) {
     config.traceAllowSensitive = isTruthyEnv(process.env.BEAMCODE_TRACE_ALLOW_SENSITIVE);
+  }
+
+  if (process.env.BEAMCODE_CORE_RUNTIME_MODE) {
+    try {
+      config.coreRuntimeMode = resolveCoreRuntimeMode(process.env.BEAMCODE_CORE_RUNTIME_MODE);
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
   }
 
   if (config.traceLevel === "full" && !config.traceAllowSensitive) {
@@ -294,7 +320,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // 3. Create SessionManager (started after HTTP+WS servers are ready)
+  // 3. Create SessionCoordinator (started after HTTP+WS servers are ready)
   const storage = new FileStorage(config.dataDir);
   const errorAggregator = new ErrorAggregator();
   let metrics: import("../interfaces/metrics.js").MetricsCollector = new ConsoleMetricsCollector(
@@ -352,7 +378,7 @@ async function main(): Promise<void> {
   // protection would be UUID unpredictability without this authenticator.
   const authenticator = tunnelUrl ? new ApiKeyAuthenticator(consumerToken) : undefined;
 
-  const sessionManager = new SessionManager({
+  const sessionCoordinator = new SessionCoordinator({
     config: providerConfig,
     storage,
     logger,
@@ -365,10 +391,11 @@ async function main(): Promise<void> {
     rateLimiterFactory: (burstSize, refillIntervalMs, tokensPerInterval) =>
       new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval),
     tracer,
+    runtimeMode: config.coreRuntimeMode,
   });
 
   const httpServer = createBeamcodeServer({
-    sessionManager,
+    sessionCoordinator,
     activeSessionId: "",
     apiKey: consumerToken,
     healthContext: { version, metrics },
@@ -388,21 +415,21 @@ async function main(): Promise<void> {
     httpServer.listen(config.port, () => resolve());
   });
 
-  // 6. Attach WebSocket server and start SessionManager
+  // 6. Attach WebSocket server and start SessionCoordinator
   const wsServer = new NodeWebSocketServer({
     port: config.port,
     server: httpServer,
     originValidator: new OriginValidator(),
   });
-  sessionManager.setServer(wsServer);
-  await sessionManager.start();
+  sessionCoordinator.setServer(wsServer);
+  await sessionCoordinator.start();
 
   // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
   let activeSessionId = "";
 
   if (!config.noAutoLaunch) {
     try {
-      const session = await sessionManager.createSession({
+      const session = await sessionCoordinator.createSession({
         cwd: config.cwd,
         model: config.model,
         adapterName: adapterResolver.defaultName,
@@ -457,7 +484,7 @@ ${activeSessionId ? `\n  Session: ${activeSessionId}` : ""}
     }, 10_000);
 
     try {
-      await sessionManager.stop();
+      await sessionCoordinator.stop();
     } catch {
       // best-effort
     }

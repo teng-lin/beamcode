@@ -13,7 +13,17 @@ import { MessageQueueHandler } from "./message-queue-handler.js";
 function setup() {
   const broadcaster = new ConsumerBroadcaster(noopLogger);
   const sendUserMessage = vi.fn();
-  const handler = new MessageQueueHandler(broadcaster, sendUserMessage);
+  const handler = new MessageQueueHandler(broadcaster, sendUserMessage, {
+    getLastStatus: (session) => session.lastStatus,
+    setLastStatus: (session, status) => {
+      session.lastStatus = status;
+    },
+    getQueuedMessage: (session) => session.queuedMessage,
+    setQueuedMessage: (session, queued) => {
+      session.queuedMessage = queued;
+    },
+    getConsumerIdentity: (session, ws) => session.consumerSockets.get(ws),
+  });
 
   const ws = createTestSocket();
   const session = createMockSession({ lastStatus: null });
@@ -31,6 +41,45 @@ function setup() {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("MessageQueueHandler", () => {
+  describe("callback-backed queue state", () => {
+    it("uses injected accessors instead of direct session fields", () => {
+      const broadcaster = new ConsumerBroadcaster(noopLogger);
+      const sendUserMessage = vi.fn();
+      let status: "compacting" | "idle" | "running" | null = "running";
+      let queued: any = null;
+      const handler = new MessageQueueHandler(broadcaster, sendUserMessage, {
+        getLastStatus: () => status,
+        setLastStatus: (_session, next) => {
+          status = next;
+        },
+        getQueuedMessage: () => queued,
+        setQueuedMessage: (_session, next) => {
+          queued = next;
+        },
+        getConsumerIdentity: (runtimeSession, ws) => runtimeSession.consumerSockets.get(ws),
+      });
+      const ws = createTestSocket();
+      const session = createMockSession({ lastStatus: null, queuedMessage: null });
+      session.consumerSockets.set(ws, {
+        userId: "user-1",
+        displayName: "Alice",
+        role: "participant",
+        sessionId: "sess-1",
+      });
+
+      handler.handleQueueMessage(session, { type: "queue_message", content: "queued text" }, ws);
+
+      expect(sendUserMessage).not.toHaveBeenCalled();
+      expect(queued).toEqual(expect.objectContaining({ content: "queued text" }));
+      expect(session.queuedMessage).toBeNull();
+
+      status = null;
+      handler.handleQueueMessage(session, { type: "queue_message", content: "immediate" }, ws);
+      expect(sendUserMessage).toHaveBeenCalledWith("sess-1", "immediate", { images: undefined });
+      expect(status).toBe("running");
+    });
+  });
+
   describe("handleQueueMessage", () => {
     it("sends immediately when session status is null (unknown/idle)", () => {
       const { handler, sendUserMessage, session, ws } = setup();

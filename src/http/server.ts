@@ -6,14 +6,14 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { PrometheusMetricsCollector } from "../adapters/prometheus-metrics-collector.js";
-import type { SessionManager } from "../core/session-manager.js";
+import type { SessionCoordinator } from "../core/session-coordinator.js";
 import { handleApiSessions } from "./api-sessions.js";
 import { handleConsumerHtml } from "./consumer-html.js";
 import { type HealthContext, handleHealth } from "./health.js";
 import { handleMetrics } from "./metrics-endpoint.js";
 
 export interface HttpServerOptions {
-  sessionManager: SessionManager;
+  sessionCoordinator: SessionCoordinator;
   activeSessionId: string;
   apiKey?: string;
   healthContext?: HealthContext;
@@ -30,7 +30,11 @@ function timingSafeCompare(a: string, b: string): boolean {
 export function createBeamcodeServer(
   options: HttpServerOptions,
 ): Server & { setActiveSessionId(id: string): void } {
-  const { sessionManager, apiKey } = options;
+  const { sessionCoordinator } = options;
+  if (!sessionCoordinator) {
+    throw new Error("createBeamcodeServer requires sessionCoordinator");
+  }
+  const { apiKey } = options;
   let { activeSessionId } = options;
 
   const server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
@@ -63,7 +67,7 @@ export function createBeamcodeServer(
     }
 
     if (url.pathname.startsWith("/api/sessions")) {
-      handleApiSessions(req, res, url, sessionManager);
+      handleApiSessions(req, res, url, sessionCoordinator);
       return;
     }
 

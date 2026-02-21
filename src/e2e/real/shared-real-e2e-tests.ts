@@ -9,7 +9,7 @@
 
 import { expect, it } from "vitest";
 import type { CliAdapterName } from "../../adapters/create-adapter.js";
-import type { SessionManager } from "../../core/session-manager.js";
+import type { SessionCoordinator } from "../../core/session-coordinator.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import {
   assistantTextContains,
@@ -20,7 +20,7 @@ import {
   waitForMessage,
   waitForMessageType,
 } from "./helpers.js";
-import type { RealSessionContext, SetupRealSessionOptions } from "./session-manager-setup.js";
+import type { RealSessionContext, SetupRealSessionOptions } from "./session-coordinator-setup.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -32,7 +32,7 @@ export interface SharedE2eTestConfig {
   setup: (opts?: SetupRealSessionOptions) => Promise<RealSessionContext>;
   runSmoke: boolean;
   runFull: boolean;
-  activeManagers: SessionManager[];
+  activeCoordinators: SessionCoordinator[];
   connectTimeoutMs?: number;
   requireCliConnected?: boolean;
 }
@@ -47,56 +47,56 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
     tokenPrefix,
     setup,
     runSmoke,
-    activeManagers,
     connectTimeoutMs = 30_000,
     requireCliConnected = true,
   } = config;
+  const activeCoordinators = config.activeCoordinators;
 
   const consumerOpts = requireCliConnected ? undefined : { requireCliConnected: false };
 
   it.runIf(runSmoke)(`createSession connects ${adapterName} backend`, async () => {
-    const { manager, sessionId } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
-    expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
+    expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
   });
 
   it.runIf(runSmoke)("session is registered in launcher after createSession", async () => {
-    const { manager, sessionId } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
-    const info = manager.launcher.getSession(sessionId);
+    const info = coordinator.launcher.getSession(sessionId);
     expect(info).toBeDefined();
     expect(info?.state).toBe("connected");
   });
 
   it.runIf(runSmoke)("consumer gets session_init + cli_connected", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
     } finally {
       await closeWebSockets(consumer);
     }
   });
 
   it.runIf(runSmoke)("two consumers on same session both receive session_init", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer1 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     const consumer2 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
     } finally {
       await closeWebSockets(consumer1, consumer2);
     }
@@ -105,20 +105,20 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
   it.runIf(runSmoke)(
     "backend stays connected across consumer disconnect and reconnect",
     async () => {
-      const { manager, sessionId, port } = await setup();
-      activeManagers.push(manager);
+      const { coordinator, sessionId, port } = await setup();
+      activeCoordinators.push(coordinator);
 
-      await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+      await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
       const consumer1 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
       await closeWebSockets(consumer1);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
 
       const consumer2 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
       try {
-        expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+        expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
       } finally {
         await closeWebSockets(consumer2);
       }
@@ -126,56 +126,56 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
   );
 
   it.runIf(runSmoke)("consumer reconnects without restarting the backend", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const first = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
 
     const disconnected = new Promise<void>((resolve) => {
-      manager.once("consumer:disconnected", ({ sessionId: sid }) => {
+      coordinator.once("consumer:disconnected", ({ sessionId: sid }) => {
         if (sid === sessionId) resolve();
       });
     });
     await closeWebSockets(first);
     await disconnected;
 
-    expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+    expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
 
     const second = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
     } finally {
       await closeWebSockets(second);
     }
   });
 
   it.runIf(runSmoke)("deleteSession removes a live connected session", async () => {
-    const { manager, sessionId } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
-    expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
-    const deleted = await manager.deleteSession(sessionId);
+    expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
+    const deleted = await coordinator.deleteSession(sessionId);
     expect(deleted).toBe(true);
-    expect(manager.launcher.getSession(sessionId)).toBeUndefined();
-    expect(manager.bridge.getSession(sessionId)).toBeUndefined();
+    expect(coordinator.launcher.getSession(sessionId)).toBeUndefined();
+    expect(coordinator.bridge.getSession(sessionId)).toBeUndefined();
   });
 
   it.runIf(runSmoke)(
     "consumer attaching immediately after createSession reaches ready state",
     async () => {
-      const { manager, sessionId, port } = await setup();
-      activeManagers.push(manager);
+      const { coordinator, sessionId, port } = await setup();
+      activeCoordinators.push(coordinator);
 
       const consumer = await connectConsumerAndWaitReady(port, sessionId, {
         requireCliConnected: false,
       });
       try {
-        await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
-        expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+        await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
+        expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
       } finally {
         await closeWebSockets(consumer);
       }
@@ -187,39 +187,39 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
     async () => {
       const session1 = await setup();
       const session2 = await setup();
-      activeManagers.push(session1.manager, session2.manager);
+      activeCoordinators.push(session1.coordinator, session2.coordinator);
 
       await Promise.all([
-        waitForBackendConnectedOrExit(session1.manager, session1.sessionId, connectTimeoutMs),
-        waitForBackendConnectedOrExit(session2.manager, session2.sessionId, connectTimeoutMs),
+        waitForBackendConnectedOrExit(session1.coordinator, session1.sessionId, connectTimeoutMs),
+        waitForBackendConnectedOrExit(session2.coordinator, session2.sessionId, connectTimeoutMs),
       ]);
 
-      expect(session1.manager.bridge.isBackendConnected(session1.sessionId)).toBe(true);
-      expect(session2.manager.bridge.isBackendConnected(session2.sessionId)).toBe(true);
+      expect(session1.coordinator.bridge.isBackendConnected(session1.sessionId)).toBe(true);
+      expect(session2.coordinator.bridge.isBackendConnected(session2.sessionId)).toBe(true);
     },
   );
 
   it.runIf(runSmoke)(
-    "second createSession on same manager yields independent session",
+    "second createSession on same coordinator yields independent session",
     async () => {
-      const { manager, sessionId } = await setup();
-      activeManagers.push(manager);
+      const { coordinator, sessionId } = await setup();
+      activeCoordinators.push(coordinator);
 
-      await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+      await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
-      const second = await manager.createSession({
+      const second = await coordinator.createSession({
         adapterName,
         cwd: process.cwd(),
       });
 
       try {
-        await waitForBackendConnectedOrExit(manager, second.sessionId, connectTimeoutMs);
+        await waitForBackendConnectedOrExit(coordinator, second.sessionId, connectTimeoutMs);
 
-        expect(manager.bridge.isBackendConnected(second.sessionId)).toBe(true);
+        expect(coordinator.bridge.isBackendConnected(second.sessionId)).toBe(true);
         expect(second.sessionId).not.toBe(sessionId);
         expect(second.adapterName).toBe(adapterName);
       } finally {
-        await manager.deleteSession(second.sessionId);
+        await coordinator.deleteSession(second.sessionId);
       }
     },
   );
@@ -228,13 +228,13 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
     `stress: sequential ${adapterName} sessions connect and teardown (x3)`,
     async () => {
       for (let i = 0; i < 3; i++) {
-        const { manager, sessionId } = await setup();
-        activeManagers.push(manager);
+        const { coordinator, sessionId } = await setup();
+        activeCoordinators.push(coordinator);
 
-        await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
-        expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+        await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
+        expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
 
-        const deleted = await manager.deleteSession(sessionId);
+        const deleted = await coordinator.deleteSession(sessionId);
         expect(deleted).toBe(true);
       }
     },
@@ -255,9 +255,9 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
         },
       };
 
-      const { manager, sessionId, port } = await setup({ authenticator });
-      activeManagers.push(manager);
-      await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+      const { coordinator, sessionId, port } = await setup({ authenticator });
+      activeCoordinators.push(coordinator);
+      await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
       const participant = await connectConsumerWithQueryAndWaitReady(
         port,
@@ -273,7 +273,7 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
       );
       try {
         const partOutput = waitForMessageType(participant, "process_output", 20_000);
-        manager.bridge.broadcastProcessOutput(
+        coordinator.bridge.broadcastProcessOutput(
           sessionId,
           "stderr",
           `${tokenPrefix}_RBAC_OUTPUT_CHECK`,
@@ -289,10 +289,10 @@ export function registerSharedSmokeTests(config: SharedE2eTestConfig): void {
   );
 
   it.runIf(runSmoke)("deleteSession on non-existent session returns false", async () => {
-    const { manager } = await setup();
-    activeManagers.push(manager);
+    const { coordinator } = await setup();
+    activeCoordinators.push(coordinator);
 
-    const deleted = await manager.deleteSession("non-existent-session-id");
+    const deleted = await coordinator.deleteSession("non-existent-session-id");
     expect(deleted).toBe(false);
   });
 }
@@ -307,18 +307,18 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
     tokenPrefix,
     setup,
     runFull,
-    activeManagers,
     connectTimeoutMs = 30_000,
     requireCliConnected = true,
   } = config;
+  const activeCoordinators = config.activeCoordinators;
 
   const consumerOpts = requireCliConnected ? undefined : { requireCliConnected: false };
 
   it.runIf(runFull)(`user_message gets an assistant reply from real ${adapterName}`, async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -341,10 +341,10 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("response includes stream_event messages before result", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -383,10 +383,10 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("result message carries completion metadata", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -410,10 +410,10 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("assistant response content contains expected token", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -438,10 +438,10 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("same session supports a second turn", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -460,13 +460,13 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
 
       // Diagnostic: log session state between turns
       {
-        const snapshot = manager.bridge.getSession(sessionId);
-        const launcherInfo = manager.launcher.getSession(sessionId);
+        const snapshot = coordinator.bridge.getSession(sessionId);
+        const launcherInfo = coordinator.launcher.getSession(sessionId);
         console.log(
           `[${adapterName}-second-turn] between turns: lastStatus=${snapshot?.lastStatus ?? "n/a"} ` +
             `cliConnected=${snapshot?.cliConnected ?? "n/a"} ` +
             `launcherState=${launcherInfo?.state ?? "n/a"} ` +
-            `backendConnected=${manager.bridge.isBackendConnected(sessionId)} ` +
+            `backendConnected=${coordinator.bridge.isBackendConnected(sessionId)} ` +
             `messageHistoryLen=${snapshot?.messageHistoryLength ?? "n/a"}`,
         );
       }
@@ -490,10 +490,10 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("broadcast assistant reply to two consumers", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer1 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     const consumer2 = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
@@ -532,25 +532,25 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
   });
 
   it.runIf(runFull)("set_permission_mode keeps real backend healthy", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
       consumer.send(JSON.stringify({ type: "set_permission_mode", mode: "delegate" }));
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
     } finally {
       await closeWebSockets(consumer);
     }
   });
 
   it.runIf(runFull)("interrupt mid-turn does not crash", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -588,17 +588,17 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
       ).catch(() => {});
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
     } finally {
       await closeWebSockets(consumer);
     }
   });
 
   it.runIf(runFull)("interrupt mid-turn then fresh prompt yields valid response", async () => {
-    const { manager, sessionId, port } = await setup();
-    activeManagers.push(manager);
+    const { coordinator, sessionId, port } = await setup();
+    activeCoordinators.push(coordinator);
 
-    await waitForBackendConnectedOrExit(manager, sessionId, connectTimeoutMs);
+    await waitForBackendConnectedOrExit(coordinator, sessionId, connectTimeoutMs);
 
     const consumer = await connectConsumerAndWaitReady(port, sessionId, consumerOpts);
     try {
@@ -634,7 +634,7 @@ export function registerSharedFullTests(config: SharedE2eTestConfig): void {
       ).catch(() => {});
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      expect(manager.bridge.isBackendConnected(sessionId)).toBe(true);
+      expect(coordinator.bridge.isBackendConnected(sessionId)).toBe(true);
 
       consumer.send(
         JSON.stringify({

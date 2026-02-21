@@ -1,30 +1,30 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TestSessionManager } from "./helpers/test-utils.js";
+import type { TestSessionCoordinator } from "./helpers/test-utils.js";
 import {
-  cleanupSessionManager,
+  cleanupSessionCoordinator,
   closeWebSockets,
   connectTestCLI,
   connectTestConsumer,
   createTestSession,
   mockAssistantMessage,
   mockResultMessage,
-  setupTestSessionManager,
+  setupTestSessionCoordinator,
   waitForMessage,
   waitForMessageType,
 } from "./helpers/test-utils.js";
 
 describe("E2E: Streaming Conversation", () => {
-  let tm: TestSessionManager | undefined;
+  let tm: TestSessionCoordinator | undefined;
 
   afterEach(async () => {
     if (tm) {
-      await cleanupSessionManager(tm);
+      await cleanupSessionCoordinator(tm);
       tm = undefined;
     }
   });
 
   it("forwards stream_event deltas from CLI to consumer", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const cli = await connectTestCLI(port, sessionId);
     const consumer = await connectTestConsumer(port, sessionId);
@@ -51,7 +51,7 @@ describe("E2E: Streaming Conversation", () => {
   });
 
   it("supports two-turn conversation ordering", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const cli = await connectTestCLI(port, sessionId);
     const consumer = await connectTestConsumer(port, sessionId);

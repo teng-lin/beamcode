@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionTransportHubDeps } from "./interfaces/session-manager-coordination.js";
+import type { SessionTransportHubDeps } from "./interfaces/session-coordinator-coordination.js";
 import { SessionTransportHub } from "./session-transport-hub.js";
 
 // ---------------------------------------------------------------------------

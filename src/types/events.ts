@@ -109,4 +109,4 @@ export interface LauncherEventMap {
   error: { source: string; error: Error; sessionId?: string };
 }
 
-export type SessionManagerEventMap = BridgeEventMap & LauncherEventMap;
+export type SessionCoordinatorEventMap = BridgeEventMap & LauncherEventMap;

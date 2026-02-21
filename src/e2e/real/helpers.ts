@@ -9,16 +9,16 @@ import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { expect } from "vitest";
 import { WebSocket } from "ws";
-import type { SessionManager } from "../../core/session-manager.js";
+import type { SessionCoordinator } from "../../core/session-coordinator.js";
 import { attachPrebuffer, collectMessages, waitForMessageType } from "../helpers/test-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type SessionManagerEventPayload = { sessionId: string };
+export type SessionCoordinatorEventPayload = { sessionId: string };
 export type TestContextLike = { task?: { name?: string; result?: { state?: string } } };
-export type ManagerTrace = {
+export type CoordinatorTrace = {
   events: string[];
   stdout: string[];
   stderr: string[];
@@ -28,51 +28,51 @@ export type ManagerTrace = {
 // Trace infrastructure
 // ---------------------------------------------------------------------------
 
-const traceByManager = new Map<SessionManager, ManagerTrace>();
+const traceByCoordinator = new Map<SessionCoordinator, CoordinatorTrace>();
 
-export function attachTrace(manager: SessionManager): void {
-  if (traceByManager.has(manager)) return;
-  const trace: ManagerTrace = { events: [], stdout: [], stderr: [] };
+export function attachTrace(coordinator: SessionCoordinator): void {
+  if (traceByCoordinator.has(coordinator)) return;
+  const trace: CoordinatorTrace = { events: [], stdout: [], stderr: [] };
   const stamp = () => new Date().toISOString();
-  manager.on("process:spawned", ({ sessionId, pid }) => {
+  coordinator.on("process:spawned", ({ sessionId, pid }) => {
     trace.events.push(`${stamp()} process:spawned session=${sessionId} pid=${pid}`);
   });
-  manager.on("process:exited", ({ sessionId, exitCode, uptimeMs }) => {
+  coordinator.on("process:exited", ({ sessionId, exitCode, uptimeMs }) => {
     trace.events.push(
       `${stamp()} process:exited session=${sessionId} code=${exitCode} uptimeMs=${uptimeMs}`,
     );
   });
-  manager.on("backend:connected", ({ sessionId }) => {
+  coordinator.on("backend:connected", ({ sessionId }) => {
     trace.events.push(`${stamp()} backend:connected session=${sessionId}`);
   });
-  manager.on("backend:disconnected", ({ sessionId, reason }) => {
+  coordinator.on("backend:disconnected", ({ sessionId, reason }) => {
     trace.events.push(`${stamp()} backend:disconnected session=${sessionId} reason=${reason}`);
   });
-  manager.on("capabilities:ready", ({ sessionId }) => {
+  coordinator.on("capabilities:ready", ({ sessionId }) => {
     trace.events.push(`${stamp()} capabilities:ready session=${sessionId}`);
   });
-  manager.on("error", ({ source, sessionId, error }) => {
+  coordinator.on("error", ({ source, sessionId, error }) => {
     trace.events.push(
       `${stamp()} error source=${source} session=${sessionId ?? "n/a"} msg=${String(error)}`,
     );
   });
-  manager.on("process:stdout", ({ data }) => {
+  coordinator.on("process:stdout", ({ data }) => {
     trace.stdout.push(data.trim());
     if (trace.stdout.length > 40) trace.stdout.splice(0, trace.stdout.length - 40);
   });
-  manager.on("process:stderr", ({ data }) => {
+  coordinator.on("process:stderr", ({ data }) => {
     trace.stderr.push(data.trim());
     if (trace.stderr.length > 40) trace.stderr.splice(0, trace.stderr.length - 40);
   });
-  traceByManager.set(manager, trace);
+  traceByCoordinator.set(coordinator, trace);
 }
 
-function getTrace(manager: SessionManager): ManagerTrace | undefined {
-  return traceByManager.get(manager);
+function getTrace(coordinator: SessionCoordinator): CoordinatorTrace | undefined {
+  return traceByCoordinator.get(coordinator);
 }
 
-export function deleteTrace(manager: SessionManager): void {
-  traceByManager.delete(manager);
+export function deleteTrace(coordinator: SessionCoordinator): void {
+  traceByCoordinator.delete(coordinator);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,23 +116,23 @@ export function canBindLocalhostSync(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Manager event waiters
+// Coordinator event waiters
 // ---------------------------------------------------------------------------
 
-export function waitForManagerEvent(
-  manager: SessionManager,
+export function waitForCoordinatorEvent(
+  coordinator: SessionCoordinator,
   eventName: "process:spawned" | "backend:connected" | "backend:session_id" | "capabilities:ready",
   sessionId: string,
   isSatisfied: () => boolean,
   timeoutMs = 45_000,
-): Promise<SessionManagerEventPayload> {
+): Promise<SessionCoordinatorEventPayload> {
   if (isSatisfied()) {
     return Promise.resolve({ sessionId });
   }
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      manager.off(eventName, handler);
+      coordinator.off(eventName, handler);
       reject(new Error(`Timed out waiting for ${eventName} for session ${sessionId}`));
     }, timeoutMs);
 
@@ -141,25 +141,25 @@ export function waitForManagerEvent(
         typeof payload === "object" &&
         payload !== null &&
         "sessionId" in payload &&
-        (payload as SessionManagerEventPayload).sessionId === sessionId
+        (payload as SessionCoordinatorEventPayload).sessionId === sessionId
       ) {
         if (!isSatisfied()) return;
         clearTimeout(timer);
-        manager.off(eventName, handler);
-        resolve(payload as SessionManagerEventPayload);
+        coordinator.off(eventName, handler);
+        resolve(payload as SessionCoordinatorEventPayload);
       }
     };
 
-    manager.on(eventName, handler);
+    coordinator.on(eventName, handler);
   });
 }
 
 export function waitForBackendConnectedOrExit(
-  manager: SessionManager,
+  coordinator: SessionCoordinator,
   sessionId: string,
   timeoutMs = 20_000,
 ): Promise<void> {
-  if (manager.bridge.isBackendConnected(sessionId)) {
+  if (coordinator.bridge.isBackendConnected(sessionId)) {
     return Promise.resolve();
   }
 
@@ -169,8 +169,8 @@ export function waitForBackendConnectedOrExit(
         typeof payload === "object" &&
         payload !== null &&
         "sessionId" in payload &&
-        (payload as SessionManagerEventPayload).sessionId === sessionId &&
-        manager.bridge.isBackendConnected(sessionId)
+        (payload as SessionCoordinatorEventPayload).sessionId === sessionId &&
+        coordinator.bridge.isBackendConnected(sessionId)
       ) {
         cleanup();
         resolve();
@@ -182,9 +182,9 @@ export function waitForBackendConnectedOrExit(
         typeof payload === "object" &&
         payload !== null &&
         "sessionId" in payload &&
-        (payload as SessionManagerEventPayload).sessionId === sessionId
+        (payload as SessionCoordinatorEventPayload).sessionId === sessionId
       ) {
-        const info = manager.launcher.getSession(sessionId);
+        const info = coordinator.launcher.getSession(sessionId);
         cleanup();
         reject(
           new Error(
@@ -201,12 +201,12 @@ export function waitForBackendConnectedOrExit(
     }, timeoutMs);
 
     const poll = setInterval(() => {
-      if (manager.bridge.isBackendConnected(sessionId)) {
+      if (coordinator.bridge.isBackendConnected(sessionId)) {
         cleanup();
         resolve();
         return;
       }
-      const info = manager.launcher.getSession(sessionId);
+      const info = coordinator.launcher.getSession(sessionId);
       if (info?.state === "exited") {
         cleanup();
         reject(
@@ -221,23 +221,23 @@ export function waitForBackendConnectedOrExit(
     const cleanup = () => {
       clearTimeout(timer);
       clearInterval(poll);
-      manager.off("backend:connected", onConnected);
-      manager.off("process:exited", onExited);
+      coordinator.off("backend:connected", onConnected);
+      coordinator.off("process:exited", onExited);
     };
 
-    manager.on("backend:connected", onConnected);
-    manager.on("process:exited", onExited);
+    coordinator.on("backend:connected", onConnected);
+    coordinator.on("process:exited", onExited);
   });
 }
 
 export async function waitForSessionExited(
-  manager: SessionManager,
+  coordinator: SessionCoordinator,
   sessionId: string,
   timeoutMs = 10_000,
 ): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (manager.launcher.getSession(sessionId)?.state === "exited") {
+    if (coordinator.launcher.getSession(sessionId)?.state === "exited") {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -343,19 +343,19 @@ export function assistantTextContains(msg: unknown, token: string): boolean {
 
 export function dumpTraceOnFailure(
   context: TestContextLike,
-  managers: SessionManager[],
+  coordinators: SessionCoordinator[],
   prefix = "real-e2e-debug",
 ): void {
   if (context?.task?.result?.state !== "fail") return;
 
   console.error(
-    `[${prefix}] failed test: ${context.task?.name ?? "unknown"} managers=${managers.length}`,
+    `[${prefix}] failed test: ${context.task?.name ?? "unknown"} coordinators=${coordinators.length}`,
   );
-  for (const manager of managers) {
+  for (const coordinator of coordinators) {
     // Dump session state for each active session
-    for (const info of manager.launcher.listSessions()) {
-      const connected = manager.bridge.isBackendConnected(info.sessionId);
-      const snapshot = manager.bridge.getSession(info.sessionId);
+    for (const info of coordinator.launcher.listSessions()) {
+      const connected = coordinator.bridge.isBackendConnected(info.sessionId);
+      const snapshot = coordinator.bridge.getSession(info.sessionId);
       console.error(
         `[${prefix}] session=${info.sessionId} backendConnected=${connected} ` +
           `launcherState=${info.state} exitCode=${info.exitCode ?? "n/a"} ` +
@@ -366,7 +366,7 @@ export function dumpTraceOnFailure(
       );
     }
 
-    const trace = getTrace(manager);
+    const trace = getTrace(coordinator);
     if (!trace) continue;
     const recentEvents = trace.events.slice(-20);
     const recentStderr = trace.stderr.slice(-15);

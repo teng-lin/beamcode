@@ -5,13 +5,14 @@
  * broadcasting to participants only, and sending to individual consumers.
  */
 
+import type { ConsumerIdentity } from "../interfaces/auth.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { ConsumerMessage } from "../types/consumer-messages.js";
 import type { SessionState } from "../types/session-state.js";
 import type { MessageTracer } from "./message-tracer.js";
-import type { Session } from "./session-store.js";
-import { toPresenceEntry } from "./session-store.js";
+import type { Session } from "./session-repository.js";
+import { toPresenceEntry } from "./session-repository.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -21,6 +22,12 @@ export const BACKPRESSURE_THRESHOLD = 1_048_576; // 1 MB
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type BroadcastCallback = (sessionId: string, msg: ConsumerMessage) => void;
+export type SocketFailureCallback = (session: Session, socket: WebSocketLike) => void;
+export type ConsumerSocketAccessors = {
+  getConsumerSockets: (
+    session: Session,
+  ) => ReadonlyMap<WebSocketLike, ConsumerIdentity> | Map<WebSocketLike, ConsumerIdentity>;
+};
 
 // ─── ConsumerBroadcaster ─────────────────────────────────────────────────────
 
@@ -28,11 +35,27 @@ export class ConsumerBroadcaster {
   private logger: Logger;
   private onBroadcast?: BroadcastCallback;
   private tracer?: MessageTracer;
+  private onSocketFailure?: SocketFailureCallback;
+  private readonly socketAccessors?: ConsumerSocketAccessors;
 
-  constructor(logger: Logger, onBroadcast?: BroadcastCallback, tracer?: MessageTracer) {
+  constructor(
+    logger: Logger,
+    onBroadcast?: BroadcastCallback,
+    tracer?: MessageTracer,
+    onSocketFailure?: SocketFailureCallback,
+    socketAccessors?: ConsumerSocketAccessors,
+  ) {
     this.logger = logger;
     this.onBroadcast = onBroadcast;
     this.tracer = tracer;
+    this.onSocketFailure = onSocketFailure;
+    this.socketAccessors = socketAccessors;
+  }
+
+  private getConsumerSockets(
+    session: Session,
+  ): ReadonlyMap<WebSocketLike, ConsumerIdentity> | Map<WebSocketLike, ConsumerIdentity> {
+    return this.socketAccessors?.getConsumerSockets(session) ?? session.consumerSockets;
   }
 
   /** Broadcast a message to all consumers in a session (with backpressure protection). */
@@ -40,7 +63,7 @@ export class ConsumerBroadcaster {
     this.tracer?.send("bridge", msg.type, msg, { sessionId: session.id });
     const json = JSON.stringify(msg);
     const failed: WebSocketLike[] = [];
-    for (const ws of session.consumerSockets.keys()) {
+    for (const ws of this.getConsumerSockets(session).keys()) {
       if (ws.bufferedAmount !== undefined && ws.bufferedAmount > BACKPRESSURE_THRESHOLD) {
         this.logger.warn(
           `Dropping message to consumer in session ${session.id}: backpressure (buffered=${ws.bufferedAmount})`,
@@ -57,7 +80,7 @@ export class ConsumerBroadcaster {
       }
     }
     for (const ws of failed) {
-      session.consumerSockets.delete(ws);
+      this.onSocketFailure?.(session, ws);
     }
     this.onBroadcast?.(session.id, msg);
   }
@@ -70,7 +93,7 @@ export class ConsumerBroadcaster {
   broadcastToParticipants(session: Session, msg: ConsumerMessage): void {
     const json = JSON.stringify(msg);
     const failed: WebSocketLike[] = [];
-    for (const [ws, identity] of session.consumerSockets.entries()) {
+    for (const [ws, identity] of this.getConsumerSockets(session).entries()) {
       if (identity.role === "observer") continue;
       try {
         ws.send(json);
@@ -82,7 +105,7 @@ export class ConsumerBroadcaster {
       }
     }
     for (const ws of failed) {
-      session.consumerSockets.delete(ws);
+      this.onSocketFailure?.(session, ws);
     }
     this.onBroadcast?.(session.id, msg);
   }
@@ -100,7 +123,7 @@ export class ConsumerBroadcaster {
 
   /** Broadcast presence update to all consumers. */
   broadcastPresence(session: Session): void {
-    const consumers = Array.from(session.consumerSockets.values()).map(toPresenceEntry);
+    const consumers = Array.from(this.getConsumerSockets(session).values()).map(toPresenceEntry);
     this.broadcast(session, { type: "presence_update", consumers });
   }
 

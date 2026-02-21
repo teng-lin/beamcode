@@ -1,28 +1,28 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TestSessionManager } from "./helpers/test-utils.js";
+import type { TestSessionCoordinator } from "./helpers/test-utils.js";
 import {
-  cleanupSessionManager,
+  cleanupSessionCoordinator,
   closeWebSockets,
   connectTestConsumer,
   createTestSession,
   mockSlashCommand,
   sendAndWait,
-  setupTestSessionManager,
+  setupTestSessionCoordinator,
   waitForMessageType,
 } from "./helpers/test-utils.js";
 
 describe("E2E: Slash Commands", () => {
-  let tm: TestSessionManager | undefined;
+  let tm: TestSessionCoordinator | undefined;
 
   afterEach(async () => {
     if (tm) {
-      await cleanupSessionManager(tm);
+      await cleanupSessionCoordinator(tm);
       tm = undefined;
     }
   });
 
   it("/help returns slash_command_result without requiring a CLI connection", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const consumer = await connectTestConsumer(port, sessionId);
     await waitForMessageType(consumer, "session_init");
@@ -44,7 +44,7 @@ describe("E2E: Slash Commands", () => {
   });
 
   it("/help echoes request_id in slash_command_result", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const consumer = await connectTestConsumer(port, sessionId);
     await waitForMessageType(consumer, "session_init");

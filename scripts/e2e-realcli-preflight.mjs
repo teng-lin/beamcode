@@ -79,7 +79,7 @@ if (!hasApiKey && !hasAuthSession) {
 const localhostBindOk = await canBindLocalhost();
 if (!localhostBindOk) {
   console.warn(
-    "[e2e-realcli-preflight] Localhost bind (127.0.0.1) is not permitted in this environment; SessionManager real-CLI socket tests will be skipped.",
+    "[e2e-realcli-preflight] Localhost bind (127.0.0.1) is not permitted in this environment; SessionCoordinator real-CLI socket tests will be skipped.",
   );
 }
 

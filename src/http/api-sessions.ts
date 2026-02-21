@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
-import type { SessionManager } from "../core/session-manager.js";
+import type { SessionCoordinator } from "../core/session-coordinator.js";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
@@ -43,14 +43,14 @@ export function handleApiSessions(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
-  sessionManager: SessionManager,
+  sessionCoordinator: SessionCoordinator,
 ): void {
   const segments = url.pathname.split("/").filter(Boolean); // ["api", "sessions", ...]
   const method = req.method ?? "GET";
 
   // GET /api/sessions — list all sessions
   if (segments.length === 2 && method === "GET") {
-    const sessions = sessionManager.registry.listSessions();
+    const sessions = sessionCoordinator.registry.listSessions();
     json(res, 200, sessions);
     return;
   }
@@ -87,7 +87,7 @@ export function handleApiSessions(
         }
 
         try {
-          const result = await sessionManager.createSession({
+          const result = await sessionCoordinator.createSession({
             cwd,
             model: opts.model as string | undefined,
             adapterName: adapterName as CliAdapterName | undefined,
@@ -115,7 +115,7 @@ export function handleApiSessions(
 
   // GET /api/sessions/:id — get session info
   if (method === "GET") {
-    const session = sessionManager.registry.getSession(sessionId);
+    const session = sessionCoordinator.registry.getSession(sessionId);
     if (!session) {
       json(res, 404, { error: "Session not found" });
       return;
@@ -126,7 +126,7 @@ export function handleApiSessions(
 
   // DELETE /api/sessions/:id — delete session (kill + remove from storage)
   if (method === "DELETE" && segments.length === 3) {
-    sessionManager
+    sessionCoordinator
       .deleteSession(sessionId)
       .then((deleted) => {
         if (deleted) {
@@ -145,12 +145,12 @@ export function handleApiSessions(
   // PUT /api/sessions/:id/unarchive — unarchive a session
   const action = segments[3];
   if (method === "PUT" && (action === "archive" || action === "unarchive")) {
-    const session = sessionManager.registry.getSession(sessionId);
+    const session = sessionCoordinator.registry.getSession(sessionId);
     if (!session) {
       json(res, 404, { error: "Session not found" });
       return;
     }
-    sessionManager.registry.setArchived(sessionId, action === "archive");
+    sessionCoordinator.registry.setArchived(sessionId, action === "archive");
     json(res, 200, { ...session, archived: action === "archive" });
     return;
   }
@@ -174,14 +174,14 @@ export function handleApiSessions(
 
         const name = parsed.name.trim().slice(0, 100);
 
-        const session = sessionManager.registry.getSession(sessionId);
+        const session = sessionCoordinator.registry.getSession(sessionId);
         if (!session) {
           json(res, 404, { error: "Session not found" });
           return;
         }
 
-        sessionManager.registry.setSessionName(sessionId, name);
-        sessionManager.bridge.broadcastNameUpdate(sessionId, name);
+        sessionCoordinator.registry.setSessionName(sessionId, name);
+        sessionCoordinator.bridge.broadcastNameUpdate(sessionId, name);
         json(res, 200, { ...session, name });
       })
       .catch((err) => {

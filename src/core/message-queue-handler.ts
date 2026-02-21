@@ -6,9 +6,10 @@
  * becomes idle.
  */
 
+import type { ConsumerIdentity } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
-import type { Session } from "./session-store.js";
+import type { QueuedMessage, Session } from "./session-repository.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,13 +21,46 @@ type SendUserMessage = (
   options?: { images?: ImageAttachment[] },
 ) => void;
 
+type QueueStateAccessors = {
+  getLastStatus: (session: Session) => Session["lastStatus"];
+  setLastStatus: (session: Session, status: Session["lastStatus"]) => void;
+  getQueuedMessage: (session: Session) => QueuedMessage | null;
+  setQueuedMessage: (session: Session, queued: QueuedMessage | null) => void;
+  getConsumerIdentity: (session: Session, ws: WebSocketLike) => ConsumerIdentity | undefined;
+};
+
 // ─── MessageQueueHandler ──────────────────────────────────────────────────────
 
 export class MessageQueueHandler {
+  private readonly queueState: QueueStateAccessors;
+
   constructor(
     private broadcaster: ConsumerBroadcaster,
     private sendUserMessage: SendUserMessage,
-  ) {}
+    queueState: QueueStateAccessors,
+  ) {
+    this.queueState = queueState;
+  }
+
+  private getLastStatus(session: Session): Session["lastStatus"] {
+    return this.queueState.getLastStatus(session);
+  }
+
+  private setLastStatus(session: Session, status: Session["lastStatus"]): void {
+    this.queueState.setLastStatus(session, status);
+  }
+
+  private getQueuedMessage(session: Session): QueuedMessage | null {
+    return this.queueState.getQueuedMessage(session);
+  }
+
+  private setQueuedMessage(session: Session, queued: QueuedMessage | null): void {
+    this.queueState.setQueuedMessage(session, queued);
+  }
+
+  private getConsumerIdentity(session: Session, ws: WebSocketLike): ConsumerIdentity | undefined {
+    return this.queueState.getConsumerIdentity(session, ws);
+  }
 
   handleQueueMessage(
     session: Session,
@@ -39,19 +73,19 @@ export class MessageQueueHandler {
   ): void {
     // If session is idle or its status is unknown, send immediately as user_message.
     // Otherwise (e.g. "running", "compacting"), proceed to queue it.
-    const status = session.lastStatus;
+    const status = this.getLastStatus(session);
     if (!status || status === "idle") {
       // Optimistically mark running — the CLI will process this message, but
       // message_start won't arrive until the API starts streaming (1-5s gap).
       // Without this, queue_message arriving in that gap sees lastStatus as
       // null/idle and bypasses the queue.
-      session.lastStatus = "running";
+      this.setLastStatus(session, "running");
       this.sendUserMessage(session.id, msg.content, { images: msg.images });
       return;
     }
 
     // Reject if a message is already queued
-    if (session.queuedMessage) {
+    if (this.getQueuedMessage(session)) {
       this.broadcaster.sendTo(ws, {
         type: "error",
         message: "A message is already queued for this session",
@@ -59,16 +93,17 @@ export class MessageQueueHandler {
       return;
     }
 
-    const identity = session.consumerSockets.get(ws);
+    const identity = this.getConsumerIdentity(session, ws);
     if (!identity) return;
 
-    session.queuedMessage = {
+    const queued: QueuedMessage = {
       consumerId: identity.userId,
       displayName: identity.displayName,
       content: msg.content,
       images: msg.images,
       queuedAt: Date.now(),
     };
+    this.setQueuedMessage(session, queued);
 
     this.broadcaster.broadcast(session, {
       type: "message_queued",
@@ -76,7 +111,7 @@ export class MessageQueueHandler {
       display_name: identity.displayName,
       content: msg.content,
       images: msg.images,
-      queued_at: session.queuedMessage.queuedAt,
+      queued_at: queued.queuedAt,
     });
   }
 
@@ -89,10 +124,11 @@ export class MessageQueueHandler {
     },
     ws: WebSocketLike,
   ): void {
-    if (!session.queuedMessage) return;
+    const existing = this.getQueuedMessage(session);
+    if (!existing) return;
 
-    const identity = session.consumerSockets.get(ws);
-    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
+    const identity = this.getConsumerIdentity(session, ws);
+    if (!identity || identity.userId !== existing.consumerId) {
       this.broadcaster.sendTo(ws, {
         type: "error",
         message: "Only the message author can edit a queued message",
@@ -100,8 +136,11 @@ export class MessageQueueHandler {
       return;
     }
 
-    session.queuedMessage.content = msg.content;
-    session.queuedMessage.images = msg.images;
+    this.setQueuedMessage(session, {
+      ...existing,
+      content: msg.content,
+      images: msg.images,
+    });
 
     this.broadcaster.broadcast(session, {
       type: "queued_message_updated",
@@ -111,10 +150,11 @@ export class MessageQueueHandler {
   }
 
   handleCancelQueuedMessage(session: Session, ws: WebSocketLike): void {
-    if (!session.queuedMessage) return;
+    const existing = this.getQueuedMessage(session);
+    if (!existing) return;
 
-    const identity = session.consumerSockets.get(ws);
-    if (!identity || identity.userId !== session.queuedMessage.consumerId) {
+    const identity = this.getConsumerIdentity(session, ws);
+    if (!identity || identity.userId !== existing.consumerId) {
       this.broadcaster.sendTo(ws, {
         type: "error",
         message: "Only the message author can cancel a queued message",
@@ -122,14 +162,14 @@ export class MessageQueueHandler {
       return;
     }
 
-    session.queuedMessage = null;
+    this.setQueuedMessage(session, null);
     this.broadcaster.broadcast(session, { type: "queued_message_cancelled" });
   }
 
   autoSendQueuedMessage(session: Session): void {
-    if (!session.queuedMessage) return;
-    const queued = session.queuedMessage;
-    session.queuedMessage = null;
+    const queued = this.getQueuedMessage(session);
+    if (!queued) return;
+    this.setQueuedMessage(session, null);
     this.broadcaster.broadcast(session, { type: "queued_message_sent" });
     this.sendUserMessage(session.id, queued.content, {
       images: queued.images,

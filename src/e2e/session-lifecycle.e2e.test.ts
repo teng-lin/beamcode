@@ -8,7 +8,7 @@ import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { FileStorage } from "../adapters/file-storage.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SessionManager } from "../core/session-manager.js";
+import { SessionCoordinator } from "../core/session-coordinator.js";
 import {
   closeWebSockets,
   collectMessages,
@@ -23,15 +23,15 @@ import {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 interface TestEnv {
-  manager: SessionManager;
+  coordinator: SessionCoordinator;
   port: number;
   sessionId: string;
 }
 
 /**
- * Sets up a test environment with a SessionManager, WebSocket server, and session.
+ * Sets up a test environment with a SessionCoordinator, WebSocket server, and session.
  *
- * Cleanup: Calling `manager.stop()` will also close the injected `wsServer`,
+ * Cleanup: Calling `coordinator.stop()` will also close the injected `wsServer`,
  * so there's no need to manually clean up the WebSocket server separately.
  */
 async function setupTestEnv(): Promise<TestEnv> {
@@ -40,19 +40,19 @@ async function setupTestEnv(): Promise<TestEnv> {
   const storage = new MemoryStorage();
   const processManager = createProcessManager();
   const config = { port: 0 };
-  const manager = new SessionManager({
+  const coordinator = new SessionCoordinator({
     config,
     storage,
     server: wsServer,
     adapter,
     launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
-  await manager.start();
+  await coordinator.start();
 
   const port = wsServer.port!;
-  const { sessionId } = await manager.createSession({ cwd: process.cwd() });
+  const { sessionId } = await coordinator.createSession({ cwd: process.cwd() });
 
-  return { manager, port, sessionId };
+  return { coordinator, port, sessionId };
 }
 
 async function connectConsumers(
@@ -67,7 +67,7 @@ async function connectConsumers(
 
 describe("E2E: Full Session Lifecycle", () => {
   it("complete flow: create session -> CLI connects -> consumer connects -> message exchange", async () => {
-    const { manager, port, sessionId } = await setupTestEnv();
+    const { coordinator, port, sessionId } = await setupTestEnv();
 
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
@@ -101,56 +101,56 @@ describe("E2E: Full Session Lifecycle", () => {
 
     // Cleanup
     await closeWebSockets(cliWs, consumerWs);
-    await manager.launcher.kill(sessionId);
-    await manager.stop();
+    await coordinator.launcher.kill(sessionId);
+    await coordinator.stop();
   });
 
-  it("session state persisted to storage and restored after manager restart", async () => {
+  it("session state persisted to storage and restored after coordinator restart", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "beamcode-lifecycle-"));
     const storage = new FileStorage(tempDir);
 
     try {
       const processManager1 = createProcessManager();
       const config1 = { port: 3457 };
-      const manager1 = new SessionManager({
+      const coordinator1 = new SessionCoordinator({
         config: config1,
         storage,
         launcher: new ClaudeLauncher({ processManager: processManager1, config: config1, storage }),
       });
-      await manager1.start();
+      await coordinator1.start();
 
-      const { sessionId } = manager1.launcher.launch({
+      const { sessionId } = coordinator1.launcher.launch({
         cwd: process.cwd(),
         model: "test-model-id",
       });
       expect(sessionId).toBeTruthy();
 
       await new Promise((resolve) => setTimeout(resolve, 200));
-      await manager1.stop();
+      await coordinator1.stop();
 
       // Restart with same storage
       const processManager2 = createProcessManager();
       const config2 = { port: 3457 };
-      const manager2 = new SessionManager({
+      const coordinator2 = new SessionCoordinator({
         config: config2,
         storage,
         launcher: new ClaudeLauncher({ processManager: processManager2, config: config2, storage }),
       });
-      await manager2.start();
+      await coordinator2.start();
 
-      const sessions = manager2.launcher.listSessions();
+      const sessions = coordinator2.launcher.listSessions();
       const restored = sessions.find((s) => s.sessionId === sessionId);
       expect(restored).toBeDefined();
       expect(restored?.sessionId).toBe(sessionId);
 
-      await manager2.stop();
+      await coordinator2.stop();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
   it("multiple consumers receive same messages from CLI", async () => {
-    const { manager, port, sessionId } = await setupTestEnv();
+    const { coordinator, port, sessionId } = await setupTestEnv();
 
     const consumers = await connectConsumers(port, sessionId, 3);
     await Promise.all(consumers.map((c) => collectMessages(c, 3, 500)));
@@ -172,11 +172,11 @@ describe("E2E: Full Session Lifecycle", () => {
     }
 
     await closeWebSockets(cliWs, ...consumers);
-    await manager.stop();
+    await coordinator.stop();
   });
 
   it("consumer disconnect does not affect other consumers", async () => {
-    const { manager, port, sessionId } = await setupTestEnv();
+    const { coordinator, port, sessionId } = await setupTestEnv();
 
     const consumer1 = await connectTestConsumer(port, sessionId);
     const consumer2 = await connectTestConsumer(port, sessionId);
@@ -196,11 +196,11 @@ describe("E2E: Full Session Lifecycle", () => {
     expect(getMessageText(msg)).toBe("Still here");
 
     await closeWebSockets(cliWs, consumer2);
-    await manager.stop();
+    await coordinator.stop();
   });
 
   it("session termination broadcasts cli_disconnected to all consumers", async () => {
-    const { manager, port, sessionId } = await setupTestEnv();
+    const { coordinator, port, sessionId } = await setupTestEnv();
 
     const consumers = await connectConsumers(port, sessionId, 2);
     await Promise.all(consumers.map((c) => collectMessages(c, 2, 500)));
@@ -224,6 +224,6 @@ describe("E2E: Full Session Lifecycle", () => {
     }
 
     await closeWebSockets(...consumers);
-    await manager.stop();
+    await coordinator.stop();
   });
 });

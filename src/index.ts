@@ -19,12 +19,20 @@ export { NodeWebSocketServer } from "./adapters/node-ws-server.js";
 export { CURRENT_SCHEMA_VERSION, migrateSession } from "./adapters/state-migrator.js";
 export type { StructuredLoggerOptions } from "./adapters/structured-logger.js";
 export { LogLevel, StructuredLogger } from "./adapters/structured-logger.js";
+export { CapabilitiesPolicy } from "./core/capabilities-policy.js";
+export { DomainEventBus } from "./core/domain-event-bus.js";
 export type {
   BackendAdapter,
   BackendCapabilities,
   BackendSession,
   ConnectOptions,
 } from "./core/interfaces/backend-adapter.js";
+export type {
+  DomainEvent,
+  DomainEventMap,
+  DomainEventSource,
+  DomainEventType,
+} from "./core/interfaces/domain-events.js";
 export type {
   Configurable,
   Encryptable,
@@ -37,8 +45,25 @@ export type {
 export type { RegisterSessionInput, SessionRegistry } from "./core/interfaces/session-registry.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
+export type { CoreRuntimeMode } from "./core/runtime-mode.js";
+export {
+  CORE_RUNTIME_MODES,
+  DEFAULT_CORE_RUNTIME_MODE,
+  isCoreRuntimeMode,
+  resolveCoreRuntimeMode,
+} from "./core/runtime-mode.js";
+export type {
+  SessionRuntimeShadowSnapshot,
+  ShadowBackendSignal,
+  ShadowLifecycleState,
+} from "./core/runtime-shadow.js";
+export { SessionRuntimeShadow, SHADOW_LIFECYCLE_STATES } from "./core/runtime-shadow.js";
 export { SessionBridge } from "./core/session-bridge.js";
-export { SessionManager } from "./core/session-manager.js";
+export type { SessionCoordinatorOptions } from "./core/session-coordinator.js";
+export { SessionCoordinator } from "./core/session-coordinator.js";
+export type { LifecycleState } from "./core/session-lifecycle.js";
+export { isLifecycleTransitionAllowed, LIFECYCLE_STATES } from "./core/session-lifecycle.js";
+export { SessionRuntime } from "./core/session-runtime.js";
 export { SimpleSessionRegistry } from "./core/simple-session-registry.js";
 export type { SlashCommandResult } from "./core/slash-command-executor.js";
 export { SlashCommandExecutor } from "./core/slash-command-executor.js";
@@ -179,7 +204,7 @@ export type { ConsumerMessage } from "./types/consumer-messages.js";
 export type {
   BridgeEventMap,
   LauncherEventMap,
-  SessionManagerEventMap,
+  SessionCoordinatorEventMap,
 } from "./types/events.js";
 export type { InboundMessage } from "./types/inbound-messages.js";
 export type {

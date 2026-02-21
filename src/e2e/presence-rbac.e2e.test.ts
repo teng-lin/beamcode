@@ -1,27 +1,27 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TestSessionManager } from "./helpers/test-utils.js";
+import type { TestSessionCoordinator } from "./helpers/test-utils.js";
 import {
-  cleanupSessionManager,
+  cleanupSessionCoordinator,
   closeWebSockets,
   connectTestConsumerWithQuery,
   createTestSession,
-  setupTestSessionManager,
+  setupTestSessionCoordinator,
   waitForMessage,
   waitForMessageType,
 } from "./helpers/test-utils.js";
 
 describe("E2E: Presence & RBAC", () => {
-  let tm: TestSessionManager | undefined;
+  let tm: TestSessionCoordinator | undefined;
 
   afterEach(async () => {
     if (tm) {
-      await cleanupSessionManager(tm);
+      await cleanupSessionCoordinator(tm);
       tm = undefined;
     }
   });
 
   it("sends identity with observer role when authenticator marks observer", async () => {
-    tm = await setupTestSessionManager({
+    tm = await setupTestSessionCoordinator({
       authenticator: {
         async authenticate(context) {
           const query = context.transport.query as Record<string, string> | undefined;
@@ -49,7 +49,7 @@ describe("E2E: Presence & RBAC", () => {
   });
 
   it("broadcasts presence_update and supports presence_query", async () => {
-    tm = await setupTestSessionManager({
+    tm = await setupTestSessionCoordinator({
       authenticator: {
         async authenticate(context) {
           const query = context.transport.query as Record<string, string> | undefined;

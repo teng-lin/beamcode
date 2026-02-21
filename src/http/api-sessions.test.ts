@@ -8,7 +8,7 @@ vi.mock("node:fs", () => ({
 }));
 
 import { existsSync, statSync } from "node:fs";
-import type { SessionManager } from "../core/session-manager.js";
+import type { SessionCoordinator } from "../core/session-coordinator.js";
 import { handleApiSessions } from "./api-sessions.js";
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ function makeUrl(path: string): URL {
   return new URL(path, "http://localhost");
 }
 
-function mockSessionManager(
+function mockSessionCoordinator(
   overrides: Partial<{
     listSessions: () => unknown[];
     getSession: (id: string) => unknown;
@@ -59,7 +59,7 @@ function mockSessionManager(
     deleteSession: (id: string) => Promise<boolean>;
     createSession: (opts: unknown) => Promise<unknown>;
   }> = {},
-): SessionManager {
+): SessionCoordinator {
   const registry = {
     listSessions: vi.fn(overrides.listSessions ?? (() => [])),
     getSession: vi.fn(overrides.getSession ?? (() => undefined)),
@@ -88,7 +88,7 @@ function mockSessionManager(
       broadcastNameUpdate: vi.fn(),
       seedSessionState: vi.fn(),
     },
-  } as unknown as SessionManager;
+  } as unknown as SessionCoordinator;
 }
 
 function parseBody(res: ReturnType<typeof mockRes>): unknown {
@@ -122,11 +122,11 @@ describe("handleApiSessions", () => {
       { sessionId: "s1", state: "connected", cwd: "/tmp" },
       { sessionId: "s2", state: "starting", cwd: "/home" },
     ];
-    const sm = mockSessionManager({ listSessions: () => sessions });
+    const coordinator = mockSessionCoordinator({ listSessions: () => sessions });
     const req = mockReq("GET");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
 
     expect(res._status).toBe(200);
     expect(parseBody(res)).toEqual(sessions);
@@ -142,18 +142,18 @@ describe("handleApiSessions", () => {
       state: "starting",
       createdAt: 1000,
     };
-    const sm = mockSessionManager({ createSession: async () => created });
+    const coordinator = mockSessionCoordinator({ createSession: async () => created });
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
     emitBody(req, JSON.stringify({ cwd: "/tmp", model: "opus" }));
 
     await vi.waitFor(() => {
       expect(res._status).toBe(201);
     });
     expect(parseBody(res)).toEqual(created);
-    expect(sm.createSession).toHaveBeenCalledWith({
+    expect(coordinator.createSession).toHaveBeenCalledWith({
       cwd: "/tmp",
       model: "opus",
       adapterName: undefined,
@@ -161,17 +161,17 @@ describe("handleApiSessions", () => {
   });
 
   it("POST /api/sessions with empty body creates a session with defaults", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
     emitEmptyBody(req);
 
     await vi.waitFor(() => {
       expect(res._status).toBe(201);
     });
-    expect(sm.createSession).toHaveBeenCalledWith({
+    expect(coordinator.createSession).toHaveBeenCalledWith({
       cwd: undefined,
       model: undefined,
       adapterName: undefined,
@@ -179,11 +179,11 @@ describe("handleApiSessions", () => {
   });
 
   it("POST /api/sessions with invalid JSON returns 400", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
     emitBody(req, "not-valid-json{{{");
 
     await vi.waitFor(() => {
@@ -194,11 +194,11 @@ describe("handleApiSessions", () => {
 
   it("POST /api/sessions with invalid cwd returns 400", async () => {
     vi.mocked(existsSync).mockReturnValueOnce(false);
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
     emitBody(req, JSON.stringify({ cwd: "/nonexistent" }));
 
     await vi.waitFor(() => {
@@ -212,11 +212,11 @@ describe("handleApiSessions", () => {
     vi.mocked(statSync).mockReturnValueOnce({ isDirectory: () => false } as ReturnType<
       typeof statSync
     >);
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
     emitBody(req, JSON.stringify({ cwd: "/some/file.txt" }));
 
     await vi.waitFor(() => {
@@ -226,11 +226,11 @@ describe("handleApiSessions", () => {
   });
 
   it("POST /api/sessions with body too large returns 413", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("POST");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
 
     // Emit a chunk larger than 1 MB
     const bigChunk = Buffer.alloc(1024 * 1024 + 1, "x");
@@ -248,33 +248,33 @@ describe("handleApiSessions", () => {
 
   it("GET /api/sessions/:id returns session when found", () => {
     const session = { sessionId: "abc", status: "running" };
-    const sm = mockSessionManager({ getSession: () => session });
+    const coordinator = mockSessionCoordinator({ getSession: () => session });
     const req = mockReq("GET");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     expect(res._status).toBe(200);
     expect(parseBody(res)).toEqual(session);
   });
 
   it("GET /api/sessions/:id returns 404 when registry has no match", () => {
-    const sm = mockSessionManager({ getSession: () => undefined });
+    const coordinator = mockSessionCoordinator({ getSession: () => undefined });
     const req = mockReq("GET");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     expect(res._status).toBe(404);
     expect(parseBody(res)).toEqual({ error: "Session not found" });
   });
 
   it("GET /api/sessions/:id returns 404 when not found", () => {
-    const sm = mockSessionManager({ getSession: () => undefined });
+    const coordinator = mockSessionCoordinator({ getSession: () => undefined });
     const req = mockReq("GET");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/nonexistent"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/nonexistent"), coordinator);
 
     expect(res._status).toBe(404);
     expect(parseBody(res)).toEqual({ error: "Session not found" });
@@ -283,25 +283,25 @@ describe("handleApiSessions", () => {
   // ---- DELETE /api/sessions/:id ----
 
   it("DELETE /api/sessions/:id returns deleted status", async () => {
-    const sm = mockSessionManager({ deleteSession: async () => true });
+    const coordinator = mockSessionCoordinator({ deleteSession: async () => true });
     const req = mockReq("DELETE");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     await vi.waitFor(() => {
       expect(res._status).toBe(200);
     });
     expect(parseBody(res)).toEqual({ status: "deleted" });
-    expect(sm.deleteSession).toHaveBeenCalledWith("abc");
+    expect(coordinator.deleteSession).toHaveBeenCalledWith("abc");
   });
 
   it("DELETE /api/sessions/:id returns 404 when session not found", async () => {
-    const sm = mockSessionManager({ deleteSession: async () => false });
+    const coordinator = mockSessionCoordinator({ deleteSession: async () => false });
     const req = mockReq("DELETE");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     await vi.waitFor(() => {
       expect(res._status).toBe(404);
@@ -310,7 +310,7 @@ describe("handleApiSessions", () => {
   });
 
   it("DELETE /api/sessions/:id returns 500 on error", async () => {
-    const sm = mockSessionManager({
+    const coordinator = mockSessionCoordinator({
       deleteSession: async () => {
         throw new Error("Delete failed");
       },
@@ -318,7 +318,7 @@ describe("handleApiSessions", () => {
     const req = mockReq("DELETE");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     await vi.waitFor(() => {
       expect(res._status).toBe(500);
@@ -330,27 +330,27 @@ describe("handleApiSessions", () => {
 
   it("PUT /api/sessions/:id/rename renames a session", async () => {
     const session = { sessionId: "abc", name: "old-name", state: "running" };
-    const sm = mockSessionManager({ getSession: () => session });
+    const coordinator = mockSessionCoordinator({ getSession: () => session });
     const req = mockReq("PUT");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, JSON.stringify({ name: "new-name" }));
 
     await vi.waitFor(() => {
       expect(res._status).toBe(200);
     });
     expect(parseBody(res)).toEqual({ ...session, name: "new-name" });
-    expect(sm.registry.setSessionName).toHaveBeenCalledWith("abc", "new-name");
-    expect(sm.bridge.broadcastNameUpdate).toHaveBeenCalledWith("abc", "new-name");
+    expect(coordinator.registry.setSessionName).toHaveBeenCalledWith("abc", "new-name");
+    expect(coordinator.bridge.broadcastNameUpdate).toHaveBeenCalledWith("abc", "new-name");
   });
 
   it("PUT /api/sessions/:id/rename returns 400 for empty name", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("PUT");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, JSON.stringify({ name: "   " }));
 
     await vi.waitFor(() => {
@@ -362,11 +362,11 @@ describe("handleApiSessions", () => {
   });
 
   it("PUT /api/sessions/:id/rename returns 400 for missing name", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("PUT");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, JSON.stringify({}));
 
     await vi.waitFor(() => {
@@ -378,11 +378,11 @@ describe("handleApiSessions", () => {
   });
 
   it("PUT /api/sessions/:id/rename returns 404 when session not found", async () => {
-    const sm = mockSessionManager({ getSession: () => undefined });
+    const coordinator = mockSessionCoordinator({ getSession: () => undefined });
     const req = mockReq("PUT");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, JSON.stringify({ name: "new-name" }));
 
     await vi.waitFor(() => {
@@ -392,11 +392,11 @@ describe("handleApiSessions", () => {
   });
 
   it("PUT /api/sessions/:id/rename returns 400 for invalid JSON", async () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("PUT");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, "not-json{{{");
 
     await vi.waitFor(() => {
@@ -407,12 +407,12 @@ describe("handleApiSessions", () => {
 
   it("PUT /api/sessions/:id/rename trims and truncates name", async () => {
     const session = { sessionId: "abc", name: "old", state: "running" };
-    const sm = mockSessionManager({ getSession: () => session });
+    const coordinator = mockSessionCoordinator({ getSession: () => session });
     const req = mockReq("PUT");
     const res = mockRes();
 
     const longName = `  ${"a".repeat(120)}  `;
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc/rename"), coordinator);
     emitBody(req, JSON.stringify({ name: longName }));
 
     await vi.waitFor(() => {
@@ -420,17 +420,17 @@ describe("handleApiSessions", () => {
     });
     const body = parseBody(res) as { name: string };
     expect(body.name).toHaveLength(100);
-    expect(sm.registry.setSessionName).toHaveBeenCalledWith("abc", "a".repeat(100));
+    expect(coordinator.registry.setSessionName).toHaveBeenCalledWith("abc", "a".repeat(100));
   });
 
   // ---- Unknown method ----
 
   it("returns 405 for unsupported method on /api/sessions/:id", () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("PATCH");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions/abc"), coordinator);
 
     expect(res._status).toBe(405);
     expect(parseBody(res)).toEqual({ error: "Method not allowed" });
@@ -439,11 +439,11 @@ describe("handleApiSessions", () => {
   // ---- Unsupported method on collection ----
 
   it("returns 404 for unsupported method on /api/sessions (no sessionId)", () => {
-    const sm = mockSessionManager();
+    const coordinator = mockSessionCoordinator();
     const req = mockReq("PATCH");
     const res = mockRes();
 
-    handleApiSessions(req, res, makeUrl("/api/sessions"), sm);
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
 
     expect(res._status).toBe(404);
     expect(parseBody(res)).toEqual({ error: "Not found" });

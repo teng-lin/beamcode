@@ -8,14 +8,21 @@ import {
   createTestSocket,
 } from "../testing/cli-message-factories.js";
 import { resolveConfig } from "../types/config.js";
-import { ConsumerGatekeeper, PARTICIPANT_ONLY_TYPES, type RateLimiterFactory } from "./consumer-gatekeeper.js";
+import {
+  ConsumerGatekeeper,
+  PARTICIPANT_ONLY_TYPES,
+  type RateLimiterFactory,
+} from "./consumer-gatekeeper.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const defaultConfig = resolveConfig({ port: 3456 });
 
-const defaultRateLimiterFactory: RateLimiterFactory = (burstSize, refillIntervalMs, tokensPerInterval) =>
-  new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval);
+const defaultRateLimiterFactory: RateLimiterFactory = (
+  burstSize,
+  refillIntervalMs,
+  tokensPerInterval,
+) => new TokenBucketLimiter(burstSize, refillIntervalMs, tokensPerInterval);
 
 function createGatekeeper(authenticator?: Authenticator | null) {
   return new ConsumerGatekeeper(authenticator ?? null, defaultConfig, defaultRateLimiterFactory);
@@ -175,8 +182,14 @@ describe("ConsumerGatekeeper", () => {
       const gk = createGatekeeper();
       const ws = createTestSocket();
       const session = createMockSession();
+      const accessors = {
+        getRateLimiter: (socket: typeof ws) => session.consumerRateLimiters.get(socket),
+        setRateLimiter: (socket: typeof ws, limiter: any) => {
+          session.consumerRateLimiters.set(socket, limiter);
+        },
+      };
 
-      expect(gk.checkRateLimit(ws, session)).toBe(true);
+      expect(gk.checkRateLimit(ws, accessors)).toBe(true);
       expect(session.consumerRateLimiters.size).toBe(1);
     });
 
@@ -184,12 +197,18 @@ describe("ConsumerGatekeeper", () => {
       const gk = createGatekeeper();
       const ws = createTestSocket();
       const session = createMockSession();
+      const accessors = {
+        getRateLimiter: (socket: typeof ws) => session.consumerRateLimiters.get(socket),
+        setRateLimiter: (socket: typeof ws, limiter: any) => {
+          session.consumerRateLimiters.set(socket, limiter);
+        },
+      };
 
       // Default burst size is 20 — exhaust it
       for (let i = 0; i < 20; i++) {
-        gk.checkRateLimit(ws, session);
+        gk.checkRateLimit(ws, accessors);
       }
-      expect(gk.checkRateLimit(ws, session)).toBe(false);
+      expect(gk.checkRateLimit(ws, accessors)).toBe(false);
     });
 
     it("limiter refills after time advances", () => {
@@ -198,16 +217,22 @@ describe("ConsumerGatekeeper", () => {
         const gk = createGatekeeper();
         const ws = createTestSocket();
         const session = createMockSession();
+        const accessors = {
+          getRateLimiter: (socket: typeof ws) => session.consumerRateLimiters.get(socket),
+          setRateLimiter: (socket: typeof ws, limiter: any) => {
+            session.consumerRateLimiters.set(socket, limiter);
+          },
+        };
 
         // Exhaust burst
         for (let i = 0; i < 20; i++) {
-          gk.checkRateLimit(ws, session);
+          gk.checkRateLimit(ws, accessors);
         }
-        expect(gk.checkRateLimit(ws, session)).toBe(false);
+        expect(gk.checkRateLimit(ws, accessors)).toBe(false);
 
         // Advance time to refill tokens (50 tokens/sec = 1 token per 20ms)
         vi.advanceTimersByTime(1000);
-        expect(gk.checkRateLimit(ws, session)).toBe(true);
+        expect(gk.checkRateLimit(ws, accessors)).toBe(true);
       } finally {
         vi.useRealTimers();
       }
