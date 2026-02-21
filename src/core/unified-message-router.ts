@@ -426,6 +426,13 @@ export class UnifiedMessageRouter {
     // Derive "running" status from message_start (main session only).
     // The CLI only sends status_change for "compacting" | null — it never
     // reports "running", so the bridge must infer it from stream events.
+    //
+    // This inference is Claude-specific:
+    // - OpenCode: emits "busy" via session.status → handled by handleStatusChange()
+    // - ACP/Gemini: no explicit "running" — activity implied by stream_event/tool_progress
+    // Generalizing (e.g. treating first stream_event as "running") was rejected
+    // due to false positives from sub-agent streams. See ISSUE 3 in
+    // docs/unified-message-protocol.md.
     if (event?.type === "message_start" && !m.parent_tool_use_id) {
       this.setLastStatus(session, "running");
       this.broadcaster.broadcast(session, {
