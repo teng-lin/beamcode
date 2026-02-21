@@ -1,9 +1,9 @@
-export type E2EProfile = "deterministic" | "real-smoke" | "real-full";
+export type E2EProfile = "mock" | "real-smoke" | "real-full";
 
 function normalizeProfile(value: string | undefined): E2EProfile {
   if (value === "real-smoke") return "real-smoke";
   if (value === "real-full") return "real-full";
-  return "deterministic";
+  return "mock";
 }
 
 export function getE2EProfile(): E2EProfile {

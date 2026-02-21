@@ -47,7 +47,7 @@ function removeFirstRaw(prebuffer: string[], raw: string): void {
  * 1. USE_MOCK_CLI=true -> MockProcessManager
  * 2. USE_REAL_CLI=true -> NodeProcessManager
  * 3. E2E_PROFILE in {real-smoke, real-full} -> NodeProcessManager
- * 4. deterministic profile -> auto-detect Claude availability
+ * 4. mock profile -> auto-detect Claude availability
  */
 export function createProcessManager(): ProcessManager {
   if (process.env.USE_MOCK_CLI === "true") {

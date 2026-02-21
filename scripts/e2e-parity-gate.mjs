@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 
 const REQUIRED_SCRIPTS = [
-  "test:e2e:deterministic",
+  "test:e2e:mock",
   "test:e2e:realcli:smoke:process",
   "test:e2e:real:claude:smoke",
 ];
