@@ -48,6 +48,7 @@ export class AcpAdapter implements BackendAdapter {
     const cwd = options.adapterOptions?.cwd as string | undefined;
     const tracer = options.adapterOptions?.tracer as MessageTracer | undefined;
     const initializeTimeoutMs = options.adapterOptions?.initializeTimeoutMs as number | undefined;
+    const killGracePeriodMs = (options.adapterOptions?.killGracePeriodMs as number) ?? 5000;
 
     const child = this.spawnFn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -108,7 +109,8 @@ export class AcpAdapter implements BackendAdapter {
     } catch (err) {
       // Kill the child process to prevent zombies when handshake fails or times out
       child.kill("SIGTERM");
-      const killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      const killTimer = setTimeout(() => child.kill("SIGKILL"), killGracePeriodMs);
+      child.once("exit", () => clearTimeout(killTimer));
       killTimer.unref();
       throw err;
     }

@@ -196,7 +196,11 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
 
     try {
       await this.bridge.connectBackend(sessionId, {
-        adapterOptions: { cwd, initializeTimeoutMs: this.config.initializeTimeoutMs },
+        adapterOptions: {
+          cwd,
+          initializeTimeoutMs: this.config.initializeTimeoutMs,
+          killGracePeriodMs: this.config.killGracePeriodMs,
+        },
       });
       this.registry.markConnected(sessionId);
     } catch (err) {
@@ -372,7 +376,11 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       );
       try {
         await this.bridge.connectBackend(sessionId, {
-          adapterOptions: { cwd: info.cwd, initializeTimeoutMs: this.config.initializeTimeoutMs },
+          adapterOptions: {
+            cwd: info.cwd,
+            initializeTimeoutMs: this.config.initializeTimeoutMs,
+            killGracePeriodMs: this.config.killGracePeriodMs,
+          },
         });
         this.registry.markConnected(sessionId);
       } catch (err) {
