@@ -136,7 +136,7 @@ export function getAgentSdkPrereqState(): BackendPrereqState {
   return {
     ok: true,
     hasApiKey: false, // not needed — SDK uses CLI auth
-    canRunPromptTests: loggedIn || Boolean(process.env.ANTHROPIC_API_KEY),
+    canRunPromptTests: loggedIn,
   };
 }
 
