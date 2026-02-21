@@ -84,4 +84,6 @@ export interface BackendAdapter {
   connect(options: ConnectOptions): Promise<BackendSession>;
   /** Optionally create an adapter-specific slash command executor for a session. */
   createSlashExecutor?(session: BackendSession): AdapterSlashExecutor | null;
+  /** Gracefully tear down adapter resources (child processes, connections, etc.). */
+  stop?(): Promise<void>;
 }

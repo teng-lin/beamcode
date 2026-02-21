@@ -239,6 +239,7 @@ export class SessionManager extends TypedEventEmitter<SessionManagerEventMap> {
 
     await this.launcher.killAll();
     await this.bridge.close();
+    await this.adapterResolver?.stopAll?.();
     this.started = false;
   }
 

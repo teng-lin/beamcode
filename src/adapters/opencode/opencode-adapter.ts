@@ -89,6 +89,24 @@ export class OpencodeAdapter implements BackendAdapter {
   }
 
   // -------------------------------------------------------------------------
+  // BackendAdapter -- stop
+  // -------------------------------------------------------------------------
+
+  async stop(): Promise<void> {
+    // 1. Abort the SSE reconnect loop so it doesn't restart after kill
+    this.sseAbortController?.abort();
+
+    // 2. Kill the opencode serve process (SIGTERM → SIGKILL via ProcessSupervisor)
+    await this.launcher.killAllProcesses();
+
+    // 3. Clear state so the adapter could be reused if needed
+    this.launchPromise = undefined;
+    this.serverInfo = undefined;
+    this.httpClient = undefined;
+    this.subscribers.clear();
+  }
+
+  // -------------------------------------------------------------------------
   // BackendAdapter -- connect
   // -------------------------------------------------------------------------
 
