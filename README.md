@@ -5,10 +5,10 @@ Code from anywhere. Collaborate on any agent session. Drive Claude, Codex, OpenC
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
   │                                                                     │
-  │   Your desktop                    You (phone on the couch)          │
+  │   Your computer (work/home)       You (anywhere, any device)        │
   │   ┌─────────────┐                ┌──────────────────┐               │
-  │   │ Claude Code │                │ Mobile App       │               │
-  │   │ (running)   │                │ Mobile Browser   │◄── E2E encrypted
+  │   │ Claude Code │                │ Phone / Tablet   │               │
+  │   │ (running)   │                │ Laptop Browser   │◄── E2E encrypted
   │   └──────┬──────┘                └────────┬─────────┘   via CF Tunnel
   │          │                                │                         │
   │          │   ┌────────────────────────────┤                         │
@@ -48,7 +48,7 @@ This unlocks scenarios no existing tool supports:
 
 | Scenario | How it works |
 |----------|-------------|
-| **Code from the couch** | Start Claude on your desktop, drive it from your phone via encrypted tunnel |
+| **Code from anywhere** | Start Claude at work or home, drive it remotely from your phone, tablet, or laptop via encrypted tunnel |
 | **Pair programming with AI** | One person drives Claude, others observe and learn |
 | **Real-time code review** | Reviewer watches the agent work, sees permission requests live |
 | **Teaching / onboarding** | Instructor drives, students observe the full agent workflow |
@@ -213,7 +213,7 @@ See [SECURITY.md](./SECURITY.md) for the full threat model and cryptographic det
 ## Documentation
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — Architecture, adapters, configuration, events, testing
-- [docs/architecture-diagram.md](./docs/architecture-diagram.md) — End-to-end system diagram and module map
+- [docs/architecture.md](./docs/architecture.md) — End-to-end system diagram and module map
 - [SECURITY.md](./SECURITY.md) — Threat model and cryptographic details
 
 ## License
