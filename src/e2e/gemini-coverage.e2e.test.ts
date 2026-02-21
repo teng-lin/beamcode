@@ -338,7 +338,7 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("think about this"));
 
-    const msgs = await reader.collect(4);
+    const msgs = await reader.collect(5);
     // First: thought chunk
     expect(msgs[0].type).toBe("stream_event");
     expect(msgs[0].metadata.thought).toBe(true);
@@ -346,13 +346,16 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
       type: "thinking",
       thinking: "Thinking about this...",
     });
-    // Second: regular message chunk
-    expect(msgs[1].type).toBe("stream_event");
-    expect(msgs[1].metadata.thought).toBeUndefined();
-    // Third: synthesized assistant message
-    expect(msgs[2].type).toBe("assistant");
-    // Fourth: result
-    expect(msgs[3].type).toBe("result");
+    // Second: status_change(running) from first agent_message_chunk
+    expect(msgs[1].type).toBe("status_change");
+    expect(msgs[1].metadata.status).toBe("running");
+    // Third: regular message chunk
+    expect(msgs[2].type).toBe("stream_event");
+    expect(msgs[2].metadata.thought).toBeUndefined();
+    // Fourth: synthesized assistant message
+    expect(msgs[3].type).toBe("assistant");
+    // Fifth: result
+    expect(msgs[4].type).toBe("result");
   });
 
   // -------------------------------------------------------------------------
@@ -982,11 +985,16 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("split test"));
 
-    const msgs = await reader.collect(3);
-    expect(msgs[0].type).toBe("stream_event");
-    expect(msgs[0].content[0]).toEqual({ type: "text", text: "Split message" });
-    expect(msgs[1].type).toBe("assistant");
-    expect(msgs[2].type).toBe("result");
+    const msgs = await reader.collect(4);
+    // First: status_change(running) from first agent_message_chunk
+    expect(msgs[0].type).toBe("status_change");
+    expect(msgs[0].metadata.status).toBe("running");
+    // Second: the split message content
+    expect(msgs[1].type).toBe("stream_event");
+    expect(msgs[1].content[0]).toEqual({ type: "text", text: "Split message" });
+    // Third: synthesized assistant message
+    expect(msgs[2].type).toBe("assistant");
+    expect(msgs[3].type).toBe("result");
   });
 
   // -------------------------------------------------------------------------
@@ -1016,8 +1024,12 @@ describe("E2E: GeminiAdapter Coverage Expansion", () => {
 
     session.send(createUserMessage("crash now"));
 
-    const msgs = await reader.collect(1, 2000);
-    expect(msgs[0].type).toBe("stream_event");
+    const msgs = await reader.collect(2, 2000);
+    // First: status_change(running) from first agent_message_chunk
+    expect(msgs[0].type).toBe("status_change");
+    expect(msgs[0].metadata.status).toBe("running");
+    // Second: the partial message content
+    expect(msgs[1].type).toBe("stream_event");
   });
 
   // -------------------------------------------------------------------------

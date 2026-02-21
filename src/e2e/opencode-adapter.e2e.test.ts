@@ -1060,7 +1060,7 @@ describe("E2E: OpencodeAdapter", () => {
   // Event filtering
   // ---------------------------------------------------------------------------
 
-  it("drops non-user-facing opencode events", async () => {
+  it("drops non-user-facing opencode events (heartbeat, permission.replied)", async () => {
     session = createSession();
     const iter = session.messages[Symbol.asyncIterator]();
 
@@ -1068,10 +1068,6 @@ describe("E2E: OpencodeAdapter", () => {
     sub.push({
       type: "permission.replied",
       properties: { id: "perm-1", sessionID: "opc-session-1", reply: "once" },
-    });
-    sub.push({
-      type: "message.part.removed",
-      properties: { partID: "p-1", messageID: "m-1", sessionID: "opc-session-1" },
     });
 
     const outcome = await Promise.race([
@@ -1082,7 +1078,22 @@ describe("E2E: OpencodeAdapter", () => {
     expect(outcome).toBe("timeout");
   });
 
-  it("drops session.created, session.updated, session.deleted, session.diff", async () => {
+  it("message.part.removed emits session_lifecycle", async () => {
+    session = createSession();
+
+    sub.push({
+      type: "message.part.removed",
+      properties: { partID: "p-1", messageID: "m-1", sessionID: "opc-session-1" },
+    });
+
+    const { target: msg } = await waitForUnifiedMessageType(session, "session_lifecycle");
+    expect(msg.metadata.subtype).toBe("message_part_removed");
+    expect(msg.metadata.message_id).toBe("m-1");
+    expect(msg.metadata.part_id).toBe("p-1");
+    expect(msg.metadata.session_id).toBe("opc-session-1");
+  });
+
+  it("session.created and session.deleted emit session_lifecycle; session.updated and session.diff are dropped", async () => {
     session = createSession();
     const iter = session.messages[Symbol.asyncIterator]();
 
@@ -1123,11 +1134,23 @@ describe("E2E: OpencodeAdapter", () => {
       properties: { sessionID: "s-1", diffs: [] },
     });
 
+    // session.created → session_lifecycle
+    const created = await iter.next();
+    expect(created.value.type).toBe("session_lifecycle");
+    expect(created.value.metadata.subtype).toBe("session_created");
+    expect(created.value.metadata.session_id).toBe("s-1");
+
+    // session.deleted → session_lifecycle
+    const deleted = await iter.next();
+    expect(deleted.value.type).toBe("session_lifecycle");
+    expect(deleted.value.metadata.subtype).toBe("session_deleted");
+    expect(deleted.value.metadata.session_id).toBe("s-1");
+
+    // session.updated and session.diff should be dropped — no more messages
     const outcome = await Promise.race([
       iter.next().then(() => "message"),
       new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 30)),
     ]);
-
     expect(outcome).toBe("timeout");
   });
 

@@ -88,14 +88,16 @@ describe("E2E: GeminiAdapter", () => {
 
     session.send(createUserMessage("Hello Gemini"));
 
-    const messages = await reader.collect(4);
-    expect(messages[0].type).toBe("stream_event");
-    expect(messages[0].content[0]).toEqual({ type: "text", text: "Hello " });
+    const messages = await reader.collect(5);
+    expect(messages[0].type).toBe("status_change");
+    expect(messages[0].metadata.status).toBe("running");
     expect(messages[1].type).toBe("stream_event");
-    expect(messages[1].content[0]).toEqual({ type: "text", text: "world!" });
-    expect(messages[2].type).toBe("assistant");
-    expect(messages[3].type).toBe("result");
-    expect(messages[3].metadata.stopReason).toBe("end_turn");
+    expect(messages[1].content[0]).toEqual({ type: "text", text: "Hello " });
+    expect(messages[2].type).toBe("stream_event");
+    expect(messages[2].content[0]).toEqual({ type: "text", text: "world!" });
+    expect(messages[3].type).toBe("assistant");
+    expect(messages[4].type).toBe("result");
+    expect(messages[4].metadata.stopReason).toBe("end_turn");
   });
 
   it("uses custom geminiBinary", async () => {
@@ -139,19 +141,23 @@ describe("E2E: GeminiAdapter", () => {
 
     // Turn 1
     session.send(createUserMessage("Turn 1"));
-    const turn1 = await reader.collect(3);
-    expect(turn1[0].type).toBe("stream_event");
-    expect(turn1[0].content[0]).toEqual({ type: "text", text: "Response 1" });
-    expect(turn1[1].type).toBe("assistant");
-    expect(turn1[2].type).toBe("result");
+    const turn1 = await reader.collect(4);
+    expect(turn1[0].type).toBe("status_change");
+    expect(turn1[0].metadata.status).toBe("running");
+    expect(turn1[1].type).toBe("stream_event");
+    expect(turn1[1].content[0]).toEqual({ type: "text", text: "Response 1" });
+    expect(turn1[2].type).toBe("assistant");
+    expect(turn1[3].type).toBe("result");
 
     // Turn 2
     session.send(createUserMessage("Turn 2"));
-    const turn2 = await reader.collect(3);
-    expect(turn2[0].type).toBe("stream_event");
-    expect(turn2[0].content[0]).toEqual({ type: "text", text: "Response 2" });
-    expect(turn2[1].type).toBe("assistant");
-    expect(turn2[2].type).toBe("result");
+    const turn2 = await reader.collect(4);
+    expect(turn2[0].type).toBe("status_change");
+    expect(turn2[0].metadata.status).toBe("running");
+    expect(turn2[1].type).toBe("stream_event");
+    expect(turn2[1].content[0]).toEqual({ type: "text", text: "Response 2" });
+    expect(turn2[2].type).toBe("assistant");
+    expect(turn2[3].type).toBe("result");
 
     expect(promptCount).toBe(2);
   });
