@@ -119,6 +119,22 @@ function translateAssistant(msg: CLIAssistantMessage): UnifiedMessage {
           thinking: block.thinking,
           budget_tokens: (block as { budget_tokens?: number }).budget_tokens,
         };
+      case "image":
+        return {
+          type: "image" as const,
+          source: block.source,
+        };
+      case "code":
+        return {
+          type: "code" as const,
+          language: block.language,
+          code: block.code,
+        };
+      case "refusal":
+        return {
+          type: "refusal" as const,
+          refusal: block.refusal,
+        };
       default:
         droppedContentBlockTypes.push(
           typeof (block as { type?: unknown }).type === "string"

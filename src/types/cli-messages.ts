@@ -212,7 +212,10 @@ export type ContentBlock =
       content: string | ContentBlock[];
       is_error?: boolean;
     }
-  | { type: "thinking"; thinking: string; budget_tokens?: number };
+  | { type: "thinking"; thinking: string; budget_tokens?: number }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "code"; language: string; code: string }
+  | { type: "refusal"; refusal: string };
 
 // Permission types
 export type PermissionDestination =

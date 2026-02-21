@@ -258,6 +258,69 @@ describe("message-translator", () => {
       const result = translate(msg)!;
       expect(result.metadata.parent_tool_use_id).toBe("ptu-1");
     });
+
+    it("passes through image content blocks", () => {
+      const msg = makeAssistantMsg({
+        message: {
+          ...makeAssistantMsg().message,
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "abc123" },
+            },
+          ],
+        },
+      });
+      const result = translate(msg)!;
+      expect(result.content[0]).toEqual({
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "abc123" },
+      });
+      expect(result.metadata.dropped_content_block_types).toBeUndefined();
+    });
+
+    it("passes through code content blocks", () => {
+      const msg = makeAssistantMsg({
+        message: {
+          ...makeAssistantMsg().message,
+          content: [{ type: "code", language: "python", code: "print('hi')" }],
+        },
+      });
+      const result = translate(msg)!;
+      expect(result.content[0]).toEqual({
+        type: "code",
+        language: "python",
+        code: "print('hi')",
+      });
+      expect(result.metadata.dropped_content_block_types).toBeUndefined();
+    });
+
+    it("passes through refusal content blocks", () => {
+      const msg = makeAssistantMsg({
+        message: {
+          ...makeAssistantMsg().message,
+          content: [{ type: "refusal", refusal: "I cannot do that" }],
+        },
+      });
+      const result = translate(msg)!;
+      expect(result.content[0]).toEqual({
+        type: "refusal",
+        refusal: "I cannot do that",
+      });
+      expect(result.metadata.dropped_content_block_types).toBeUndefined();
+    });
+
+    it("drops truly unknown content blocks with metadata tracking", () => {
+      const msg = makeAssistantMsg({
+        message: {
+          ...makeAssistantMsg().message,
+          content: [{ type: "experimental_widget" } as any],
+        },
+      });
+      const result = translate(msg)!;
+      expect(result.content[0]).toEqual({ type: "text", text: "" });
+      expect(result.metadata.dropped_content_block_types).toEqual(["experimental_widget"]);
+    });
   });
 
   describe("result → result", () => {
