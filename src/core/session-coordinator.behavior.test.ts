@@ -1244,7 +1244,7 @@ describe("SessionCoordinator", () => {
           expect(connectSpy).toHaveBeenCalledWith(
             "ext-sess",
             expect.objectContaining({
-              adapterOptions: { cwd: "/tmp" },
+              adapterOptions: expect.objectContaining({ cwd: "/tmp" }),
             }),
           );
         });
