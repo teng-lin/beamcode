@@ -141,6 +141,7 @@ Note: The state reducer runs **before** the router switch on every message. It h
 | Plan display | — | — | — | `plan` session update | `status_change` (YES) |
 | Dynamic commands | slash_commands in init (static) | — | — | `available_commands_update` | `configuration_change` (YES) |
 | Mode/config change | — | — | — | `current_mode_update` | `configuration_change` (YES) |
+| Session lifecycle | — | `thread/started` → `session_created` | 5 of 7 events | — | `session_lifecycle` (YES) |
 | Model switching | `set_model` (outbound) | — | model in prompt params | `session/set_model` | `configuration_change` (YES) |
 | Slash commands | YES (bridge-level) | YES (4 custom: `/compact`, `/new`, `/review`, `/rename`) | NO | YES (via `available_commands_update`) | Adapter-specific |
 
@@ -149,42 +150,75 @@ Note: The state reducer runs **before** the router switch on every message. It h
 | Capability | Claude | Codex | OpenCode | ACP/Gemini | Unified Protocol |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Token usage | Full (per-turn + per-model + cache) | — | Full (input, output, reasoning, cache + cost) | Passthrough (forwarded from prompt result) | Partial (shape varies by adapter) |
-| Auth flow | `auth_status` messages | — | HTTP Basic (transport-level, no events) | `auth_status` on provider_auth errors + `authMethods` in init | `auth_status` (YES) |
+| Auth flow | `auth_status` messages | — | `provider_auth` → `auth_status` | `auth_status` on provider_auth errors + `authMethods` in init | `auth_status` (YES) |
 | Teams | YES (`teams: true`) | — | — | — | 3 types (state-only, Claude-only) |
 
 ## 5. Complete Silent Drop Inventory
 
-**14 remaining silent drop points** (11 resolved since initial audit):
+**14 remaining drop points** (14 resolved since initial audit). All remaining drops are intentional — categorized below.
 
-| # | Layer | File | What's Dropped | Intentional? |
-|---|---|---|---|:---:|
-| 1 | Claude adapter | `message-translator.ts` | `keep_alive` messages → `null` | YES |
-| 2 | Claude adapter | `message-translator.ts` | `user` echo messages → `null` | YES |
-| 3 | Claude adapter | `message-translator.ts` | Unknown CLI types → `null` | YES |
-| 4 | Claude adapter | `message-translator.ts` | Unknown content block types (outside the 7-type union) → empty text (tracked in `dropped_content_block_types` metadata) | YES |
-| 5 | Codex adapter | `codex-message-translator.ts` | Unknown event types → `null` | YES |
-| 5b | Codex adapter | `codex-message-translator.ts` | Unknown item types in `translateItemAdded`/`translateItemDone` → `null` | YES |
+| # | Layer | File | What's Dropped | Category |
+|---|---|---|---|---|
+| 1 | Claude adapter | `message-translator.ts` | `keep_alive` messages → `null` | Heartbeat |
+| 2 | Claude adapter | `message-translator.ts` | `user` echo messages → `null` | Intentional |
+| 3 | Claude adapter | `message-translator.ts` | Unknown CLI types → `null` | Defensive |
+| 4 | Claude adapter | `message-translator.ts` | Unknown content block types (outside the 7-type union) → empty text (tracked in `dropped_content_block_types` metadata) | Defensive |
+| 5 | Codex adapter | `codex-message-translator.ts` | Unknown event types → `null` | Defensive |
+| 5b | Codex adapter | `codex-message-translator.ts` | Unknown item types in `translateItemAdded`/`translateItemDone` → `null` | Defensive |
 | ~~6~~ | ~~Codex adapter~~ | ~~`codex-session.ts`~~ | ~~`function_call` + `function_call_output` in responses~~ — **RESOLVED** | |
-| 7 | OpenCode adapter | `opencode-message-translator.ts` | `server.heartbeat` → `null` | YES |
-| 8 | OpenCode adapter | `opencode-message-translator.ts` | `permission.replied` → `null` | YES |
+| 7 | OpenCode adapter | `opencode-message-translator.ts` | `server.heartbeat` → `null` | Heartbeat |
+| 8 | OpenCode adapter | `opencode-message-translator.ts` | `permission.replied` → `null` | Intentional |
 | ~~9~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`session.compacted` → `null`~~ — **RESOLVED** (now → `session_lifecycle`) | |
-| 10 | OpenCode adapter | `opencode-message-translator.ts` | `session.created` → `null` | YES |
-| 11 | OpenCode adapter | `opencode-message-translator.ts` | `session.updated` → `null` | YES |
-| 12 | OpenCode adapter | `opencode-message-translator.ts` | `session.deleted` → `null` | YES |
-| 13 | OpenCode adapter | `opencode-message-translator.ts` | `session.diff` → `null` | YES |
+| ~~10~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`session.created` → `null`~~ — **RESOLVED** (now → `session_lifecycle`) | |
+| 11 | OpenCode adapter | `opencode-message-translator.ts` | `session.updated` → `null` | Future |
+| ~~12~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`session.deleted` → `null`~~ — **RESOLVED** (now → `session_lifecycle`) | |
+| 13 | OpenCode adapter | `opencode-message-translator.ts` | `session.diff` → `null` | Intentional |
 | ~~14~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`message.removed` → `null`~~ — **RESOLVED** (now → `session_lifecycle`) | |
-| 15 | OpenCode adapter | `opencode-message-translator.ts` | `message.part.removed` → `null` | YES |
-| 15b | OpenCode adapter | `opencode-message-translator.ts` | Non-text field deltas (`translateDelta` returns `null` if `field !== "text"`) | YES |
-| 16 | OpenCode adapter | `opencode-message-translator.ts` | Unknown event types → `null` | YES |
+| ~~15~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`message.part.removed` → `null`~~ — **RESOLVED** (now → `session_lifecycle`) | |
+| 15b | OpenCode adapter | `opencode-message-translator.ts` | Non-text field deltas (`translateDelta` returns `null` if `field !== "text"`) | Intentional |
+| 16 | OpenCode adapter | `opencode-message-translator.ts` | Unknown event types → `null` | Defensive |
 | ~~17~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~`step-start`/`step-finish` → `null`~~ — **RESOLVED** (now → `status_change`) | |
 | ~~18~~ | ~~OpenCode adapter~~ | ~~`opencode-message-translator.ts`~~ | ~~Tool `pending` state → `null`~~ — **RESOLVED** (now → `tool_progress`) | |
-| 19 | ACP adapter | `outbound-translator.ts` | Unknown session updates → `unknown` type (passthrough, not truly silent) | YES |
-| 20 | ACP adapter | `acp-session.ts` | `fs/*`, `terminal/*` requests → error stub response | YES |
+| 19 | ACP adapter | `outbound-translator.ts` | Unknown session updates → `unknown` type (passthrough, not truly silent) | Defensive |
+| 20 | ACP adapter | `acp-session.ts` | `fs/*`, `terminal/*` requests → error stub response | Feature gap |
 | ~~21~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`configuration_change` — no case~~ — **RESOLVED** | |
 | ~~22~~ | ~~Router~~ | ~~`unified-message-router.ts`~~ | ~~`unknown` — no case~~ — **RESOLVED** (now traced via default case) | |
 | ~~23~~ | ~~Consumer mapper~~ | ~~`consumer-message-mapper.ts`~~ | ~~`code`/`image` content → empty text~~ — **RESOLVED** | |
 | ~~24~~ | ~~Claude adapter~~ | ~~`message-translator.ts`~~ | ~~`image`/`code`/`refusal` content blocks → empty text~~ — **RESOLVED** (now passed through) | |
-| 25 | Consumer mapper | `consumer-message-mapper.ts` | `permission_request` with subtype ≠ `can_use_tool` → `null` (not broadcast) | YES |
+| 25 | Consumer mapper | `consumer-message-mapper.ts` | `permission_request` with subtype ≠ `can_use_tool` → `null` (not broadcast) | Intentional |
+
+### Drop Categories
+
+**Intentional** (5 drops: #2, #8, #13, #15b, #25) — Correctly dropped, no future action needed.
+- **#2** `user` echo: The bridge already sent this message; echoing it would duplicate in the UI.
+- **#8** `permission.replied`: Server-side ack that our permission reply was received. UI already updated optimistically.
+- **#13** `session.diff`: Incremental state diffs. Full state arrives via `message.updated`, `part.updated`, etc. Consuming diffs would require a diff-apply engine for no consumer benefit.
+- **#15b** Non-text field deltas: Only text deltas are meaningful for streaming display.
+- **#25** Non-`can_use_tool` permissions: Currently the only permission subtype; others are filtered as a safety measure.
+
+**Defensive** (6 drops: #3, #4, #5, #5b, #16, #19) — Catch-all fallbacks for unknown/future wire types. Traced at the session level.
+
+**Heartbeat** (2 drops: #1, #7) — Connection keepalives with future potential. See "Future: Connection Health" below.
+
+**Future** (1 drop: #11) — Actionable in future work. See "Future: Session Title Updates" below.
+
+**Feature gap** (1 drop: #20) — Requires new feature development. See "Future: ACP Host Capabilities" below.
+
+### Future: Connection Health (#1, #7)
+
+Claude's `keep_alive` and OpenCode's `server.heartbeat` are periodic signals that confirm the backend connection is alive. Today they are dropped silently. These could:
+- Feed a **connection watchdog** — if heartbeats stop arriving, the consumer knows the backend is unresponsive and can show a "reconnecting" indicator.
+- Emit a lightweight `status_change` with `status: "connected"` or a dedicated `heartbeat` message type.
+
+**When to implement**: When the frontend adds a connection health indicator or stale-session detection.
+
+### Future: Session Title Updates (#11)
+
+OpenCode's `session.updated` carries the full `OpencodeSession` object including `title`, `summary`, and `share` fields. The session title is auto-generated from the first prompt and changes mid-session. Today this event is dropped because the title doesn't surface in the UI. Could map to `session_lifecycle(session_updated)` with `title` metadata when the frontend supports dynamic session titles.
+
+### Future: ACP Host Capabilities (#20)
+
+ACP agents (e.g., Goose) send `fs/read_text_file`, `fs/write_text_file`, `terminal/execute` JSON-RPC requests asking the host to perform file/terminal operations on their behalf. BeamCode currently stubs these with `-32601 Method not supported`. Implementing this would mean BeamCode acts as a sandboxed execution host for ACP agents — a significant feature that goes beyond the unified message protocol.
 
 ## 6. Metadata Key Inconsistencies
 
@@ -193,10 +227,10 @@ Note: The state reducer runs **before** the router switch on every message. It h
 | Session ID | `session_id` | `session_id` | `session_id` | `session_id` | **RESOLVED** |
 | Tool call ID | `tool_use_id` | `tool_use_id` | `tool_use_id` | `tool_use_id` | **RESOLVED** |
 | Error flag | `is_error` | `is_error` | `is_error` | `is_error` | Consistent |
-| Error detail | `error` (string) | `error` (string) | `error_name` + `error_message` | — | **INCONSISTENT** — OpenCode uses split keys |
+| Error detail | `error` (string) | `error` (string) | `error` + `error_name` + `error_message` | — | **RESOLVED** — OpenCode now emits canonical `error` key alongside adapter-specific keys |
 | Error code | `error_code` | `error_code` | `error_code` | `error_code` | **RESOLVED** |
 | Model ID | `model` | (not emitted) | `model_id` + `provider_id` | varies | **INCONSISTENT** — no canonical `model` key across adapters |
-| Tool status | `status` (string) | `done` (boolean) + `status` | `status` (string) | `status` (string) | **INCONSISTENT** — Codex uses boolean `done` |
+| Tool status | `status` (string) | `status` (string) | `status` (string) | `status` (string) | **RESOLVED** — Codex `done: true` removed; all adapters use `status` string |
 | Thinking | content block | — | content block | content block | Consistent (via `ThinkingContent`) |
 | Cost/usage | `usage` object | — | `cost` + `tokens` | passthrough (`inputTokens` + `outputTokens` if present) | **INCONSISTENT** — Claude/OpenCode/ACP provide usage in different shapes; Codex doesn't provide it |
 
@@ -209,24 +243,29 @@ Note: The state reducer runs **before** the router switch on every message. It h
 
 The Claude adapter now handles all 7 content types (`text`, `tool_use`, `tool_result`, `thinking`, `image`, `code`, `refusal`). Only truly unknown block types outside this union are converted to empty text blocks with `dropped_content_block_types` tracking.
 
-### ISSUE 2: Metadata Shape Divergence Across Adapters
+### ISSUE 2: ~~Metadata Shape Divergence Across Adapters~~ — PARTIALLY RESOLVED
 
-**Severity:** Medium
+~~**Severity:** Medium~~
 
-Several metadata keys differ across adapters (see Section 6):
+Most metadata keys are now consistent across adapters:
+- **Error detail**: OpenCode now emits canonical `error` key alongside `error_name`/`error_message`
+- **Tool status**: Codex `done: true` removed; all adapters use `status` string
+- **Error code**: All adapters produce canonical `UnifiedErrorCode` values
+
+Remaining inconsistencies (lower priority):
 - **Model ID**: Claude uses `model`, OpenCode uses `model_id` + `provider_id`, Codex doesn't emit it
-- **Tool status**: Codex uses boolean `done`, others use string `status`
 - **Cost/usage**: Claude (`usage` object), OpenCode (`cost` + `tokens`), and ACP (passthrough `inputTokens`/`outputTokens`) provide usage in different shapes; Codex doesn't provide it
-- **Error detail**: OpenCode splits into `error_name` + `error_message`; others use `error` string
 
-The consumer mapper has fallback chains (`tool_use_id ?? part_id ?? "unknown"`, `tool_name ?? tool ?? kind ?? "tool"`) to handle these, but this makes the contract implicit rather than explicit.
+### ISSUE 3: ~~Status Inference is Claude-Specific~~ — RESOLVED
 
-### ISSUE 3: Status Inference is Claude-Specific
+~~**Severity:** Low~~
+~~**File:** `src/core/unified-message-router.ts`~~
 
-**Severity:** Low
-**File:** `src/core/unified-message-router.ts`
+The router infers "running" status from `stream_event` messages when `event.type === "message_start"` — a Claude-specific convention. This is now supplemented by:
+- **OpenCode**: `session.status(busy)` now emits `status_change` with `status: "running"` (previously only had `busy: true`)
+- **ACP**: `agent_message_chunk` now emits `status_change(running)` on the first chunk per turn via `turnRunningEmitted` flag
 
-The router infers "running" status from `stream_event` messages when `event.type === "message_start"` — a Claude-specific convention. OpenCode and ACP adapters don't send `message_start` events in this format, so the "running" status may not be inferred for those backends. They typically emit explicit `status_change` messages instead.
+All three adapters now produce a `status: "running"` signal the router can consume.
 
 ### ~~ISSUE 4: Test Coverage Gaps for Content Types~~ — RESOLVED
 

@@ -312,6 +312,12 @@ describe("AcpSession", () => {
 
       emitStdout(child, updateMsg);
 
+      // First agent_message_chunk also emits status_change(running)
+      const statusMsg = await iter.next();
+      expect(statusMsg.done).toBe(false);
+      expect(statusMsg.value.type).toBe("status_change");
+      expect(statusMsg.value.metadata.status).toBe("running");
+
       const msg = await iter.next();
       expect(msg.done).toBe(false);
       expect(msg.value.type).toBe("stream_event");
@@ -406,6 +412,112 @@ describe("AcpSession", () => {
 
       const msg = await iter.next();
       expect(msg.value.type).toBe("status_change");
+    });
+
+    it("emits status_change(running) before first agent_message_chunk", async () => {
+      const chunk = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { text: "Hello" } },
+        },
+      };
+      mockDecode(codec).mockReturnValueOnce(chunk);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, chunk);
+
+      const statusMsg = await iter.next();
+      expect(statusMsg.value.type).toBe("status_change");
+      expect(statusMsg.value.metadata.status).toBe("running");
+
+      const streamMsg = await iter.next();
+      expect(streamMsg.value.type).toBe("stream_event");
+    });
+
+    it("does not emit running on subsequent agent_message_chunk", async () => {
+      const chunk1 = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { text: "Hello" } },
+        },
+      };
+      const chunk2 = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { text: " world" } },
+        },
+      };
+      mockDecode(codec).mockReturnValueOnce(chunk1).mockReturnValueOnce(chunk2);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, chunk1);
+
+      const statusMsg = await iter.next();
+      expect(statusMsg.value.type).toBe("status_change");
+      expect(statusMsg.value.metadata.status).toBe("running");
+
+      const streamMsg1 = await iter.next();
+      expect(streamMsg1.value.type).toBe("stream_event");
+
+      emitStdout(child, chunk2);
+
+      // Second chunk should NOT produce status_change — only stream_event
+      const streamMsg2 = await iter.next();
+      expect(streamMsg2.value.type).toBe("stream_event");
+    });
+
+    it("emits running again on next turn after send()", async () => {
+      const chunk = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { text: "First turn" } },
+        },
+      };
+      mockDecode(codec).mockReturnValueOnce(chunk);
+
+      const iter = session.messages[Symbol.asyncIterator]();
+      await iter.next(); // init
+
+      emitStdout(child, chunk);
+
+      await iter.next(); // status_change(running)
+      await iter.next(); // stream_event
+
+      // Start a new turn
+      session.send(
+        createUnifiedMessage({
+          type: "user_message",
+          role: "user",
+          content: [{ type: "text", text: "next turn" }],
+        }),
+      );
+
+      const chunk2 = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "sess-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { text: "Second turn" } },
+        },
+      };
+      mockDecode(codec).mockReturnValueOnce(chunk2);
+      emitStdout(child, chunk2);
+
+      const statusMsg = await iter.next();
+      expect(statusMsg.value.type).toBe("status_change");
+      expect(statusMsg.value.metadata.status).toBe("running");
     });
 
     it("returns null for non-session/update notifications", async () => {

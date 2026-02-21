@@ -488,6 +488,18 @@ export class CodexSession implements BackendSession {
       if (typeof maybeThreadId === "string" && maybeThreadId.length > 0) {
         this.threadId = maybeThreadId;
       }
+      this.enqueueTranslated(
+        notification,
+        createUnifiedMessage({
+          type: "session_lifecycle",
+          role: "system",
+          metadata: {
+            subtype: "session_created",
+            session_id: this.threadId ?? undefined,
+          },
+        }),
+        "codex.thread_started",
+      );
       return;
     }
 
@@ -855,7 +867,6 @@ export class CodexSession implements BackendSession {
             tool_use_id: item.call_id,
             item_id: item.id,
             status: item.status,
-            done: true,
           },
         });
       case "function_call_output":

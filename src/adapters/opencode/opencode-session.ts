@@ -57,6 +57,23 @@ export class OpencodeSession implements BackendSession {
           { format: "UnifiedMessage", body: normalized },
           { sessionId: this.sessionId, phase: "t3" },
         );
+
+        // Emit auth_status before provider_auth errors so the frontend can show auth state
+        if (normalized.metadata.error_code === "provider_auth") {
+          this.queue.enqueue(
+            createUnifiedMessage({
+              type: "auth_status",
+              role: "system",
+              metadata: {
+                session_id: this.sessionId,
+                isAuthenticating: false,
+                output: [],
+                error: normalized.metadata.error_message as string,
+              },
+            }),
+          );
+        }
+
         this.queue.enqueue(normalized);
       } else {
         this.tracer?.error("backend", event.type, "Opencode event did not map to UnifiedMessage", {

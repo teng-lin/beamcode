@@ -202,7 +202,6 @@ describe("codex-message-translator", () => {
         };
         const result = translateCodexEvent(event)!;
         expect(result.type).toBe("tool_progress");
-        expect(result.metadata.done).toBe(true);
         expect(result.metadata.name).toBe("read_file");
         expect(result.metadata.tool_name).toBe("read_file");
       });
@@ -222,7 +221,6 @@ describe("codex-message-translator", () => {
         };
         const result = translateCodexEvent(event)!;
         expect(result.type).toBe("assistant");
-        expect(result.metadata.done).toBe(true);
         expect(result.content[0]).toEqual({ type: "text", text: "Final text" });
       });
     });

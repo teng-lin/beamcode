@@ -88,7 +88,13 @@ describe("CodexSession — notification handlers", () => {
       params: { thread: { id: "new-thread-id" } },
     });
 
-    // thread/started does not enqueue — send a follow-up to verify iteration works
+    // thread/started now enqueues a session_lifecycle message
+    const lifecycle = await iter.next();
+    expect(lifecycle.value.type).toBe("session_lifecycle");
+    expect(lifecycle.value.metadata.subtype).toBe("session_created");
+    expect(lifecycle.value.metadata.session_id).toBe("new-thread-id");
+
+    // Send a follow-up to verify iteration continues
     emitMsg(ws, {
       jsonrpc: "2.0",
       method: "item/agentMessage/delta",
@@ -99,13 +105,20 @@ describe("CodexSession — notification handlers", () => {
     expect(result.value.type).toBe("stream_event");
   });
 
-  it("handles thread/started with missing thread id gracefully", () => {
+  it("handles thread/started with missing thread id gracefully", async () => {
+    const iter = session.messages[Symbol.asyncIterator]();
+
     emitMsg(ws, {
       jsonrpc: "2.0",
       method: "thread/started",
       params: { thread: { id: "" } },
     });
-    // Should not throw
+
+    // threadId stays "t-1" (from beforeEach) — empty string does not override
+    const lifecycle = await iter.next();
+    expect(lifecycle.value.type).toBe("session_lifecycle");
+    expect(lifecycle.value.metadata.subtype).toBe("session_created");
+    expect(lifecycle.value.metadata.session_id).toBe("t-1");
   });
 
   it("handles turn/started notification", async () => {

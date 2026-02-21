@@ -186,6 +186,11 @@ describe("AcpAdapter", () => {
         },
       });
 
+      // First agent_message_chunk also emits status_change(running)
+      const statusMsg = await iter.next();
+      expect(statusMsg.value.type).toBe("status_change");
+      expect(statusMsg.value.metadata.status).toBe("running");
+
       const result = await iter.next();
       expect(result.value.type).toBe("stream_event");
       expect(result.value.role).toBe("assistant");

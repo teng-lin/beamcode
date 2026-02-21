@@ -424,6 +424,7 @@ describe("translateEvent: session.status busy", () => {
     const msg = translateEvent(event);
     expect(msg).not.toBeNull();
     expect(msg!.type).toBe("status_change");
+    expect(msg!.metadata.status).toBe("running");
     expect(msg!.metadata.busy).toBe(true);
   });
 });
@@ -464,6 +465,7 @@ describe("translateEvent: session.error", () => {
     expect(msg).not.toBeNull();
     expect(msg!.type).toBe("result");
     expect(msg!.metadata.is_error).toBe(true);
+    expect(msg!.metadata.error).toBe("Something went wrong");
     expect(msg!.metadata.error_name).toBe("unknown");
     expect(msg!.metadata.error_message).toBe("Something went wrong");
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
@@ -478,6 +480,7 @@ describe("translateEvent: session.error", () => {
       },
     };
     const msg = translateEvent(event);
+    expect(msg!.metadata.error).toBe("Invalid API key");
     expect(msg!.metadata.error_name).toBe("provider_auth");
     expect(msg!.metadata.error_message).toBe("Invalid API key");
   });
@@ -572,7 +575,7 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 
-  it("session.created → null", () => {
+  it("session.created → session_lifecycle", () => {
     const event: OpencodeEvent = {
       type: "session.created",
       properties: {
@@ -587,7 +590,35 @@ describe("translateEvent: non-user-facing events return null", () => {
         },
       },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("session_created");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
+    expect(msg!.metadata.title).toBe("Test");
+  });
+
+  it("session.created with info shape → session_lifecycle", () => {
+    const event: OpencodeEvent = {
+      type: "session.created",
+      properties: {
+        info: {
+          id: SESSION_ID,
+          slug: "test",
+          projectID: "proj-1",
+          directory: "/tmp",
+          title: "Info Shape",
+          version: "1.0.0",
+          time: { created: 1000, updated: 1001 },
+        },
+      },
+    };
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("session_created");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
+    expect(msg!.metadata.title).toBe("Info Shape");
   });
 
   it("session.updated → null", () => {
@@ -608,12 +639,16 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(translateEvent(event)).toBeNull();
   });
 
-  it("session.deleted → null", () => {
+  it("session.deleted → session_lifecycle", () => {
     const event: OpencodeEvent = {
       type: "session.deleted",
       properties: { sessionID: SESSION_ID },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("session_deleted");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
   });
 
   it("message.removed → session_lifecycle", () => {
@@ -629,12 +664,18 @@ describe("translateEvent: non-user-facing events return null", () => {
     expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
   });
 
-  it("message.part.removed → null", () => {
+  it("message.part.removed → session_lifecycle", () => {
     const event: OpencodeEvent = {
       type: "message.part.removed",
       properties: { partID: PART_ID, messageID: MESSAGE_ID, sessionID: SESSION_ID },
     };
-    expect(translateEvent(event)).toBeNull();
+    const msg = translateEvent(event);
+    expect(msg).not.toBeNull();
+    expect(msg!.type).toBe("session_lifecycle");
+    expect(msg!.metadata.subtype).toBe("message_part_removed");
+    expect(msg!.metadata.session_id).toBe(SESSION_ID);
+    expect(msg!.metadata.message_id).toBe(MESSAGE_ID);
+    expect(msg!.metadata.part_id).toBe(PART_ID);
   });
 
   it("session.diff → null", () => {
