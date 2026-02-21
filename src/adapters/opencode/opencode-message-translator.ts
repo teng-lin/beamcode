@@ -302,6 +302,7 @@ function translateMessageUpdated(
         message_id: info.id,
         session_id: info.sessionID,
         model_id: info.modelID,
+        model: info.modelID,
         provider_id: info.providerID,
         cost: info.cost,
         tokens: info.tokens,

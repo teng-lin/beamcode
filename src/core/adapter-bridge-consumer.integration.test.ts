@@ -9,6 +9,7 @@ import {
   tick,
 } from "../testing/adapter-test-helpers.js";
 import type { SessionBridge } from "./session-bridge.js";
+import { createUnifiedMessage } from "./types/unified-message.js";
 
 // ── Mock WebSocket ───────────────────────────────────────────────────────────
 
@@ -474,6 +475,123 @@ describe("Adapter → SessionBridge → Consumer Integration", () => {
       const errors = sentOfType(socket, "error") as Array<{ message: string }>;
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toContain("Observers cannot send");
+    });
+  });
+
+  // ── 7. Content type round-trip ───────────────────────────────────────────
+
+  describe("content type round-trip through adapter path", () => {
+    it("image content block reaches consumer with flattened source", async () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
+
+      socket.sentMessages.length = 0;
+
+      backendSession.pushMessage(
+        createUnifiedMessage({
+          type: "assistant",
+          role: "assistant",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "iVBOR..." },
+            },
+          ],
+          metadata: {
+            message_id: "msg-img-rt",
+            model: "claude-sonnet-4-5-20250929",
+            stop_reason: "end_turn",
+            parent_tool_use_id: null,
+            usage: {
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
+      );
+      await tick();
+
+      const assistantMsgs = sentOfType(socket, "assistant") as any[];
+      expect(assistantMsgs).toHaveLength(1);
+      expect(assistantMsgs[0].message.content).toEqual([
+        { type: "image", media_type: "image/png", data: "iVBOR..." },
+      ]);
+    });
+
+    it("code content block reaches consumer", async () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
+
+      socket.sentMessages.length = 0;
+
+      backendSession.pushMessage(
+        createUnifiedMessage({
+          type: "assistant",
+          role: "assistant",
+          content: [{ type: "code", language: "typescript", code: "const x = 1;" }],
+          metadata: {
+            message_id: "msg-code-rt",
+            model: "claude-sonnet-4-5-20250929",
+            stop_reason: "end_turn",
+            parent_tool_use_id: null,
+            usage: {
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
+      );
+      await tick();
+
+      const assistantMsgs = sentOfType(socket, "assistant") as any[];
+      expect(assistantMsgs).toHaveLength(1);
+      expect(assistantMsgs[0].message.content).toEqual([
+        { type: "code", language: "typescript", code: "const x = 1;" },
+      ]);
+    });
+
+    it("refusal content block reaches consumer", async () => {
+      const socket = createMockSocket();
+      bridge.handleConsumerOpen(socket, { sessionId, transport: {} });
+      await bridge.connectBackend(sessionId);
+      const backendSession = adapter.getSession(sessionId)!;
+
+      socket.sentMessages.length = 0;
+
+      backendSession.pushMessage(
+        createUnifiedMessage({
+          type: "assistant",
+          role: "assistant",
+          content: [{ type: "refusal", refusal: "I cannot assist with that." }],
+          metadata: {
+            message_id: "msg-ref-rt",
+            model: "claude-sonnet-4-5-20250929",
+            stop_reason: "end_turn",
+            parent_tool_use_id: null,
+            usage: {
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
+      );
+      await tick();
+
+      const assistantMsgs = sentOfType(socket, "assistant") as any[];
+      expect(assistantMsgs).toHaveLength(1);
+      expect(assistantMsgs[0].message.content).toEqual([
+        { type: "refusal", refusal: "I cannot assist with that." },
+      ]);
     });
   });
 

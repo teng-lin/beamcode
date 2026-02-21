@@ -638,6 +638,165 @@ describe("SessionBridge Characterization - Backend → Consumer Message Shapes",
     expect(events[0].firstUserMessage).toBe("Hello there");
   });
 
+  // ── Content block type tests (image, code, refusal) ──────────────────────
+
+  it("assistant with image content → consumer receives flattened source", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
+
+    translateAndPush(
+      backendSession,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-img",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "iVBOR..." },
+            },
+          ],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        uuid: "uuid-img",
+        session_id: "cli-abc",
+      }),
+    );
+    await tick();
+
+    const msgs = lastMessages(consumer);
+    expect(msgs[0].type).toBe("assistant");
+    // Consumer flattens source: { source: { media_type, data } } → { media_type, data }
+    expect((msgs[0] as any).message.content).toEqual([
+      { type: "image", media_type: "image/png", data: "iVBOR..." },
+    ]);
+  });
+
+  it("assistant with code content → consumer receives code block", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
+
+    translateAndPush(
+      backendSession,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-code",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "code", language: "typescript", code: "const x = 1;" }],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        uuid: "uuid-code",
+        session_id: "cli-abc",
+      }),
+    );
+    await tick();
+
+    const msgs = lastMessages(consumer);
+    expect(msgs[0].type).toBe("assistant");
+    expect((msgs[0] as any).message.content).toEqual([
+      { type: "code", language: "typescript", code: "const x = 1;" },
+    ]);
+  });
+
+  it("assistant with refusal content → consumer receives refusal block", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
+
+    translateAndPush(
+      backendSession,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-ref",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "refusal", refusal: "I cannot assist with that." }],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        uuid: "uuid-ref",
+        session_id: "cli-abc",
+      }),
+    );
+    await tick();
+
+    const msgs = lastMessages(consumer);
+    expect(msgs[0].type).toBe("assistant");
+    expect((msgs[0] as any).message.content).toEqual([
+      { type: "refusal", refusal: "I cannot assist with that." },
+    ]);
+  });
+
+  it("assistant with mixed content types → consumer receives all block types", async () => {
+    const { backendSession, consumer } = await setupSession(bridge, adapter);
+
+    translateAndPush(
+      backendSession,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-mixed",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [
+            { type: "text", text: "Here is the analysis:" },
+            { type: "code", language: "python", code: "print('hello')" },
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/jpeg", data: "/9j/4AAQ..." },
+            },
+            { type: "refusal", refusal: "Cannot show private data" },
+          ],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        uuid: "uuid-mixed",
+        session_id: "cli-abc",
+      }),
+    );
+    await tick();
+
+    const msgs = lastMessages(consumer);
+    expect(msgs[0].type).toBe("assistant");
+    const content = (msgs[0] as any).message.content;
+    expect(content).toHaveLength(4);
+    expect(content[0]).toEqual({ type: "text", text: "Here is the analysis:" });
+    expect(content[1]).toEqual({ type: "code", language: "python", code: "print('hello')" });
+    expect(content[2]).toEqual({
+      type: "image",
+      media_type: "image/jpeg",
+      data: "/9j/4AAQ...",
+    });
+    expect(content[3]).toEqual({ type: "refusal", refusal: "Cannot show private data" });
+  });
+
   it("system.status with permissionMode → updates state", async () => {
     const { backendSession } = await setupSession(bridge, adapter);
 

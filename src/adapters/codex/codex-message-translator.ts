@@ -212,6 +212,7 @@ function translateItemAdded(event: CodexTurnEvent): UnifiedMessage | null {
       role: "tool",
       metadata: {
         name: item.name,
+        tool_name: item.name,
         arguments: item.arguments,
         tool_use_id: item.call_id,
         item_id: item.id,
@@ -248,6 +249,7 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
       role: "tool",
       metadata: {
         name: item.name,
+        tool_name: item.name,
         arguments: item.arguments,
         tool_use_id: item.call_id,
         item_id: item.id,
