@@ -1,3 +1,4 @@
+import type { LifecycleState } from "../core/session-lifecycle.js";
 import type { DevToolSessionState } from "../core/types/core-session-state.js";
 import type { TeamState } from "../core/types/team-types.js";
 import type { ConsumerRole } from "./auth.js";
@@ -73,6 +74,7 @@ export type ClaudeSessionState = SessionState;
 export interface SessionSnapshot {
   id: string;
   state: SessionState;
+  lifecycle?: LifecycleState;
   cliConnected: boolean;
   consumerCount: number;
   consumers: Array<{ userId: string; displayName: string; role: ConsumerRole }>;

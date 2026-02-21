@@ -579,6 +579,9 @@ pnpm build:web
 # Type check
 pnpm typecheck
 
+# Architecture boundary checks
+pnpm check:arch
+
 # Lint
 pnpm lint
 ```
@@ -725,6 +728,31 @@ Tests are auto-skipped when prerequisites are not met. Detection logic is in `sr
 - PR: `E2E Deterministic` is required
 - PR: `E2E Real CLI Smoke` runs when `ANTHROPIC_API_KEY` secret is configured
 - Nightly: full deterministic + full real CLI (secret-gated)
+
+### Architecture Boundary Checks
+
+Run architecture checks locally with:
+
+```bash
+pnpm check:arch
+```
+
+Current checks focus on migration guardrails:
+- transport modules must not import backend lifecycle modules directly
+- policy modules must not import transport/backend lifecycle modules directly
+- transport modules must not emit `backend:*` events directly
+- when `src/core/runtime/session-runtime.ts` exists, mutation guardrails activate for `session.state`
+
+Temporary exceptions must be tracked in:
+
+`docs/refactor-plan/architecture-waivers.json`
+
+Waiver entries require:
+- `rule`
+- `file`
+- `reason`
+- optional `pattern`
+- optional `expires_on` (recommended)
 
 ### Debugging real E2E test failures
 

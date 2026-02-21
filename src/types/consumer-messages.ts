@@ -1,6 +1,9 @@
 import type { ConsumerRole } from "./auth.js";
 import type { SessionState } from "./session-state.js";
 
+/** Version for bridge -> consumer protocol envelopes. */
+export const CONSUMER_PROTOCOL_VERSION = 1 as const;
+
 // ── Consumer-facing normalized types (adapter-agnostic) ──────────────────────
 // These types decouple consumer-facing APIs from any specific backend (e.g. CLI).
 // They mirror the relevant data shapes without importing backend-specific modules.
@@ -124,7 +127,11 @@ interface InitializeAccount {
 
 /** Messages the bridge sends to consumers (browser, agent, etc.) */
 export type ConsumerMessage =
-  | { type: "session_init"; session: SessionState }
+  | {
+      type: "session_init";
+      session: SessionState;
+      protocol_version?: typeof CONSUMER_PROTOCOL_VERSION;
+    }
   | { type: "session_update"; session: Partial<SessionState> }
   | {
       type: "assistant";

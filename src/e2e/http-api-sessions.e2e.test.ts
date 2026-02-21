@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeLauncher } from "../adapters/claude/claude-launcher.js";
 import { MemoryStorage } from "../adapters/memory-storage.js";
 import { NodeWebSocketServer } from "../adapters/node-ws-server.js";
-import { SessionManager } from "../core/session-manager.js";
+import { SessionCoordinator } from "../core/session-coordinator.js";
 import { createBeamcodeServer } from "../http/server.js";
 import { createProcessManager } from "./helpers/test-utils.js";
 
@@ -12,7 +12,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 describe("E2E: HTTP API /api/sessions", () => {
   let server: ReturnType<typeof createBeamcodeServer>;
-  let sessionManager: SessionManager;
+  let sessionCoordinator: SessionCoordinator;
   let baseUrl: string;
   const apiKey = `test-api-key-${randomBytes(8).toString("hex")}`;
 
@@ -41,16 +41,16 @@ describe("E2E: HTTP API /api/sessions", () => {
     const storage = new MemoryStorage();
     const processManager = createProcessManager();
     const config = { port: 0 };
-    sessionManager = new SessionManager({
+    sessionCoordinator = new SessionCoordinator({
       config,
       storage,
       server: new NodeWebSocketServer({ port: 0 }),
       launcher: new ClaudeLauncher({ processManager, config, storage }),
     });
-    await sessionManager.start();
+    await sessionCoordinator.start();
 
     server = createBeamcodeServer({
-      sessionManager,
+      sessionCoordinator,
       activeSessionId: "placeholder",
       apiKey,
     });
@@ -64,7 +64,7 @@ describe("E2E: HTTP API /api/sessions", () => {
   });
 
   afterEach(async () => {
-    await sessionManager.stop();
+    await sessionCoordinator.stop();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });

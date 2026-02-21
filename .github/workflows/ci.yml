@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Architecture boundary checks
+        run: pnpm check:arch
+
       - name: Run tests
         run: pnpm -r --include-workspace-root test
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify E2E parity matrix prerequisites
+        run: pnpm test:e2e:parity:check
 
       - name: Run deterministic e2e lane
         run: pnpm test:e2e:deterministic

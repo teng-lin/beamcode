@@ -12,11 +12,12 @@ import type {
   InitializeAccount,
   InitializeCommand,
   InitializeModel,
+  PermissionRequest,
 } from "../types/cli-messages.js";
-import type { ConsumerMessage } from "../types/consumer-messages.js";
+import { CONSUMER_PROTOCOL_VERSION, type ConsumerMessage } from "../types/consumer-messages.js";
 import type { BridgeEventMap } from "../types/events.js";
 import type { SessionState } from "../types/session-state.js";
-import type { CapabilitiesProtocol } from "./capabilities-protocol.js";
+import type { CapabilitiesPolicy } from "./capabilities-policy.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import {
   mapAssistantMessage,
@@ -32,8 +33,8 @@ import {
 import { applyGitInfo, type GitInfoTracker } from "./git-info-tracker.js";
 import type { MessageQueueHandler } from "./message-queue-handler.js";
 import { extractTraceContext, type MessageTracer } from "./message-tracer.js";
+import type { Session } from "./session-repository.js";
 import { reduce as reduceState } from "./session-state-reducer.js";
-import type { Session } from "./session-store.js";
 import { diffTeamState } from "./team-event-differ.js";
 import type { TeamState } from "./types/team-types.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
@@ -54,7 +55,7 @@ interface RouteTrace {
 
 export interface UnifiedMessageRouterDeps {
   broadcaster: ConsumerBroadcaster;
-  capabilitiesProtocol: CapabilitiesProtocol;
+  capabilitiesPolicy: CapabilitiesPolicy;
   queueHandler: MessageQueueHandler;
   gitTracker: GitInfoTracker;
   gitResolver: GitInfoResolver | null;
@@ -62,13 +63,24 @@ export interface UnifiedMessageRouterDeps {
   persistSession: PersistSession;
   maxMessageHistoryLength: number;
   tracer: MessageTracer;
+  getState: (session: Session) => Session["state"];
+  setState: (session: Session, state: Session["state"]) => void;
+  setBackendSessionId: (session: Session, backendSessionId: string | undefined) => void;
+  getMessageHistory: (session: Session) => Session["messageHistory"];
+  setMessageHistory: (session: Session, history: Session["messageHistory"]) => void;
+  getLastStatus: (session: Session) => Session["lastStatus"];
+  setLastStatus: (session: Session, status: Session["lastStatus"]) => void;
+  storePendingPermission: (session: Session, requestId: string, request: PermissionRequest) => void;
+  clearDynamicSlashRegistry: (session: Session) => void;
+  registerCLICommands: (session: Session, commands: InitializeCommand[]) => void;
+  registerSkillCommands: (session: Session, skills: string[]) => void;
 }
 
 // ─── UnifiedMessageRouter ────────────────────────────────────────────────────
 
 export class UnifiedMessageRouter {
   private broadcaster: ConsumerBroadcaster;
-  private capabilitiesProtocol: CapabilitiesProtocol;
+  private capabilitiesPolicy: CapabilitiesPolicy;
   private queueHandler: MessageQueueHandler;
   private gitTracker: GitInfoTracker;
   private gitResolver: GitInfoResolver | null;
@@ -76,10 +88,21 @@ export class UnifiedMessageRouter {
   private persistSession: PersistSession;
   private maxMessageHistoryLength: number;
   private tracer: MessageTracer;
+  private getStateAccessor: UnifiedMessageRouterDeps["getState"];
+  private setStateAccessor: UnifiedMessageRouterDeps["setState"];
+  private setBackendSessionIdAccessor: UnifiedMessageRouterDeps["setBackendSessionId"];
+  private getMessageHistoryAccessor: UnifiedMessageRouterDeps["getMessageHistory"];
+  private setMessageHistoryAccessor: UnifiedMessageRouterDeps["setMessageHistory"];
+  private getLastStatusAccessor: UnifiedMessageRouterDeps["getLastStatus"];
+  private setLastStatusAccessor: UnifiedMessageRouterDeps["setLastStatus"];
+  private storePendingPermissionAccessor: UnifiedMessageRouterDeps["storePendingPermission"];
+  private clearDynamicSlashRegistryAccessor: UnifiedMessageRouterDeps["clearDynamicSlashRegistry"];
+  private registerCLICommandsAccessor: UnifiedMessageRouterDeps["registerCLICommands"];
+  private registerSkillCommandsAccessor: UnifiedMessageRouterDeps["registerSkillCommands"];
 
   constructor(deps: UnifiedMessageRouterDeps) {
     this.broadcaster = deps.broadcaster;
-    this.capabilitiesProtocol = deps.capabilitiesProtocol;
+    this.capabilitiesPolicy = deps.capabilitiesPolicy;
     this.queueHandler = deps.queueHandler;
     this.gitTracker = deps.gitTracker;
     this.gitResolver = deps.gitResolver;
@@ -87,6 +110,65 @@ export class UnifiedMessageRouter {
     this.persistSession = deps.persistSession;
     this.maxMessageHistoryLength = deps.maxMessageHistoryLength;
     this.tracer = deps.tracer;
+    this.getStateAccessor = deps.getState;
+    this.setStateAccessor = deps.setState;
+    this.setBackendSessionIdAccessor = deps.setBackendSessionId;
+    this.getMessageHistoryAccessor = deps.getMessageHistory;
+    this.setMessageHistoryAccessor = deps.setMessageHistory;
+    this.getLastStatusAccessor = deps.getLastStatus;
+    this.setLastStatusAccessor = deps.setLastStatus;
+    this.storePendingPermissionAccessor = deps.storePendingPermission;
+    this.clearDynamicSlashRegistryAccessor = deps.clearDynamicSlashRegistry;
+    this.registerCLICommandsAccessor = deps.registerCLICommands;
+    this.registerSkillCommandsAccessor = deps.registerSkillCommands;
+  }
+
+  private getState(session: Session): Session["state"] {
+    return this.getStateAccessor(session);
+  }
+
+  private setState(session: Session, state: Session["state"]): void {
+    this.setStateAccessor(session, state);
+  }
+
+  private setBackendSessionId(session: Session, backendSessionId: string | undefined): void {
+    this.setBackendSessionIdAccessor(session, backendSessionId);
+  }
+
+  private getMessageHistory(session: Session): Session["messageHistory"] {
+    return this.getMessageHistoryAccessor(session);
+  }
+
+  private setMessageHistory(session: Session, history: Session["messageHistory"]): void {
+    this.setMessageHistoryAccessor(session, history);
+  }
+
+  private getLastStatus(session: Session): Session["lastStatus"] {
+    return this.getLastStatusAccessor(session);
+  }
+
+  private setLastStatus(session: Session, status: Session["lastStatus"]): void {
+    this.setLastStatusAccessor(session, status);
+  }
+
+  private storePendingPermission(
+    session: Session,
+    requestId: string,
+    request: PermissionRequest,
+  ): void {
+    this.storePendingPermissionAccessor(session, requestId, request);
+  }
+
+  private clearDynamicSlashRegistry(session: Session): void {
+    this.clearDynamicSlashRegistryAccessor(session);
+  }
+
+  private registerCLICommands(session: Session, commands: InitializeCommand[]): void {
+    this.registerCLICommandsAccessor(session, commands);
+  }
+
+  private registerSkillCommands(session: Session, skills: string[]): void {
+    this.registerSkillCommandsAccessor(session, skills);
   }
 
   /** Route a UnifiedMessage through state reduction and the appropriate handler. */
@@ -103,10 +185,10 @@ export class UnifiedMessageRouter {
     this.tracer.recv("bridge", msg.type, msg, trace);
 
     // Capture previous team state for event diffing
-    const prevTeam = session.state.team;
+    const prevTeam = this.getState(session).team;
 
     // Apply state reduction (pure function — no side effects, includes team state)
-    session.state = reduceState(session.state, msg, session.teamCorrelationBuffer);
+    this.setState(session, reduceState(this.getState(session), msg, session.teamCorrelationBuffer));
 
     // Emit team events by diffing previous and new team state
     this.emitTeamEvents(session, prevTeam);
@@ -131,7 +213,7 @@ export class UnifiedMessageRouter {
         this.handlePermissionRequest(session, msg, trace);
         break;
       case "control_response":
-        this.capabilitiesProtocol.handleControlResponse(session, msg);
+        this.capabilitiesPolicy.handleControlResponse(session, msg);
         break;
       case "tool_progress":
         this.handleToolProgress(session, msg, trace);
@@ -157,7 +239,7 @@ export class UnifiedMessageRouter {
   // ── Team event emission ──────────────────────────────────────────────────
 
   private emitTeamEvents(session: Session, prevTeam: TeamState | undefined): void {
-    const currentTeam = session.state.team;
+    const currentTeam = this.getState(session).team;
 
     // No change
     if (prevTeam === currentTeam) return;
@@ -183,7 +265,7 @@ export class UnifiedMessageRouter {
 
     // Store backend session ID for resume
     if (m.session_id) {
-      session.backendSessionId = m.session_id as string;
+      this.setBackendSessionId(session, m.session_id as string);
       this.emitEvent("backend:session_id", {
         sessionId: session.id,
         backendSessionId: m.session_id as string,
@@ -192,28 +274,37 @@ export class UnifiedMessageRouter {
 
     // Resolve git info (unconditional: CLI is authoritative, cwd may differ from seed)
     this.gitTracker.resetAttempt(session.id);
-    if (session.state.cwd && this.gitResolver) {
-      const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) applyGitInfo(session, gitInfo);
+    if (this.getState(session).cwd && this.gitResolver) {
+      const gitInfo = this.gitResolver.resolve(this.getState(session).cwd);
+      if (gitInfo) this.setState(session, applyGitInfo(this.getState(session), gitInfo));
     }
 
     // Store auth methods if the backend advertises them
     if (Array.isArray(m.authMethods)) {
-      session.state.authMethods = m.authMethods as SessionState["authMethods"];
+      this.setState(session, {
+        ...this.getState(session),
+        authMethods: m.authMethods as SessionState["authMethods"],
+      });
     }
 
     // Populate registry from init data (per-session)
-    session.registry.clearDynamic();
-    if (session.state.slash_commands.length > 0) {
-      session.registry.registerFromCLI(
-        session.state.slash_commands.map((name: string) => ({ name, description: "" })),
+    this.clearDynamicSlashRegistry(session);
+    const state = this.getState(session);
+    if (state.slash_commands.length > 0) {
+      this.registerCLICommands(
+        session,
+        state.slash_commands.map((name: string) => ({ name, description: "" })),
       );
     }
-    if (session.state.skills.length > 0) {
-      session.registry.registerSkills(session.state.skills);
+    if (state.skills.length > 0) {
+      this.registerSkillCommands(session, state.skills);
     }
 
-    const initMsg = { type: "session_init" as const, session: session.state };
+    const initMsg = {
+      type: "session_init" as const,
+      session: this.getState(session),
+      protocol_version: CONSUMER_PROTOCOL_VERSION,
+    };
     this.traceT4("handleSessionInit", session, msg, initMsg, trace);
     this.broadcaster.broadcast(session, initMsg);
     this.persistSession(session);
@@ -226,25 +317,26 @@ export class UnifiedMessageRouter {
         models?: InitializeModel[];
         account?: InitializeAccount;
       };
-      this.capabilitiesProtocol.applyCapabilities(
+      this.capabilitiesPolicy.applyCapabilities(
         session,
         Array.isArray(caps.commands) ? caps.commands : [],
         Array.isArray(caps.models) ? caps.models : [],
         caps.account ?? null,
       );
     } else {
-      this.capabilitiesProtocol.sendInitializeRequest(session);
+      this.capabilitiesPolicy.sendInitializeRequest(session);
     }
   }
 
   private handleStatusChange(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const status = msg.metadata.status as string | null | undefined;
-    session.lastStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
+    const nextStatus = (status ?? null) as "compacting" | "idle" | "running" | null;
+    this.setLastStatus(session, nextStatus);
     const { status: _s, ...rest } = msg.metadata;
     const filtered = Object.fromEntries(Object.entries(rest).filter(([, v]) => v != null));
     const statusMsg = {
       type: "status_change" as const,
-      status: session.lastStatus,
+      status: this.getLastStatus(session),
       ...(Object.keys(filtered).length > 0 && { metadata: filtered }),
     };
     this.traceT4("handleStatusChange", session, msg, statusMsg, trace);
@@ -254,7 +346,7 @@ export class UnifiedMessageRouter {
     if (msg.metadata.permissionMode !== undefined && msg.metadata.permissionMode !== null) {
       this.broadcaster.broadcast(session, {
         type: "session_update",
-        session: { permissionMode: session.state.permissionMode } as Partial<SessionState>,
+        session: { permissionMode: this.getState(session).permissionMode } as Partial<SessionState>,
       });
     }
 
@@ -271,21 +363,20 @@ export class UnifiedMessageRouter {
 
     const existingIndex = this.findAssistantMessageIndexById(session, consumerMsg.message.id);
     if (existingIndex >= 0) {
-      const existing = session.messageHistory[existingIndex];
+      const existing = this.getMessageHistory(session)[existingIndex];
       if (
         existing.type === "assistant" &&
         this.assistantMessagesEquivalent(existing, consumerMsg)
       ) {
         return;
       }
-      session.messageHistory[existingIndex] = consumerMsg;
+      this.replaceMessageHistoryAt(session, existingIndex, consumerMsg);
       this.broadcaster.broadcast(session, consumerMsg);
       this.persistSession(session);
       return;
     }
 
-    session.messageHistory.push(consumerMsg);
-    this.trimMessageHistory(session);
+    this.appendMessageHistory(session, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
     this.persistSession(session);
   }
@@ -293,14 +384,13 @@ export class UnifiedMessageRouter {
   private handleResult(session: Session, msg: UnifiedMessage, trace: RouteTrace): void {
     const consumerMsg = mapResultMessage(msg);
     this.traceT4("mapResultMessage", session, msg, consumerMsg, trace);
-    session.messageHistory.push(consumerMsg);
-    this.trimMessageHistory(session);
+    this.appendMessageHistory(session, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
     this.persistSession(session);
 
     // Mark session idle — the CLI only sends status_change for "compacting" | null,
     // so the bridge must infer "idle" from result messages (mirrors frontend logic).
-    session.lastStatus = "idle";
+    this.setLastStatus(session, "idle");
     this.queueHandler.autoSendQueuedMessage(session);
 
     // Trigger auto-naming after first turn
@@ -308,7 +398,9 @@ export class UnifiedMessageRouter {
     const numTurns = (m.num_turns as number) ?? 0;
     const isError = (m.is_error as boolean) ?? false;
     if (numTurns === 1 && !isError) {
-      const firstUserMsg = session.messageHistory.find((msg) => msg.type === "user_message");
+      const firstUserMsg = this.getMessageHistory(session).find(
+        (entry) => entry.type === "user_message",
+      );
       if (firstUserMsg && firstUserMsg.type === "user_message") {
         this.emitEvent("session:first_turn_completed", {
           sessionId: session.id,
@@ -335,10 +427,10 @@ export class UnifiedMessageRouter {
     // The CLI only sends status_change for "compacting" | null — it never
     // reports "running", so the bridge must infer it from stream events.
     if (event?.type === "message_start" && !m.parent_tool_use_id) {
-      session.lastStatus = "running";
+      this.setLastStatus(session, "running");
       this.broadcaster.broadcast(session, {
         type: "status_change",
-        status: session.lastStatus,
+        status: this.getLastStatus(session),
       });
     }
 
@@ -353,7 +445,7 @@ export class UnifiedMessageRouter {
     this.traceT4("mapPermissionRequest", session, msg, mapped.consumerPerm, trace);
 
     const { consumerPerm, cliPerm } = mapped;
-    session.pendingPermissions.set(consumerPerm.request_id, cliPerm);
+    this.storePendingPermission(session, consumerPerm.request_id, cliPerm);
 
     this.broadcaster.broadcastToParticipants(session, {
       type: "permission_request",
@@ -381,22 +473,21 @@ export class UnifiedMessageRouter {
     if (toolUseId) {
       const existingIndex = this.findToolSummaryIndexByToolUseId(session, toolUseId);
       if (existingIndex >= 0) {
-        const existing = session.messageHistory[existingIndex];
+        const existing = this.getMessageHistory(session)[existingIndex];
         if (
           existing.type === "tool_use_summary" &&
           this.toolSummariesEquivalent(existing, consumerMsg)
         ) {
           return;
         }
-        session.messageHistory[existingIndex] = consumerMsg;
+        this.replaceMessageHistoryAt(session, existingIndex, consumerMsg);
         this.broadcaster.broadcast(session, consumerMsg);
         this.persistSession(session);
         return;
       }
     }
 
-    session.messageHistory.push(consumerMsg);
-    this.trimMessageHistory(session);
+    this.appendMessageHistory(session, consumerMsg);
     this.broadcaster.broadcast(session, consumerMsg);
     this.persistSession(session);
   }
@@ -475,15 +566,28 @@ export class UnifiedMessageRouter {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  private trimMessageHistory(session: Session): void {
-    if (session.messageHistory.length > this.maxMessageHistoryLength) {
-      session.messageHistory = session.messageHistory.slice(-this.maxMessageHistoryLength);
-    }
+  private appendMessageHistory(session: Session, message: ConsumerMessage): void {
+    const history = this.getMessageHistory(session);
+    this.setMessageHistory(session, this.trimMessageHistory([...history, message]));
+  }
+
+  private replaceMessageHistoryAt(session: Session, index: number, message: ConsumerMessage): void {
+    const history = this.getMessageHistory(session);
+    if (index < 0 || index >= history.length) return;
+    const next = [...history];
+    next[index] = message;
+    this.setMessageHistory(session, next);
+  }
+
+  private trimMessageHistory(history: Session["messageHistory"]): Session["messageHistory"] {
+    if (history.length <= this.maxMessageHistoryLength) return history;
+    return history.slice(-this.maxMessageHistoryLength);
   }
 
   private findAssistantMessageIndexById(session: Session, messageId: string): number {
-    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-      const item = session.messageHistory[i];
+    const history = this.getMessageHistory(session);
+    for (let i = history.length - 1; i >= 0; i--) {
+      const item = history[i];
       if (item.type === "assistant" && item.message.id === messageId) {
         return i;
       }
@@ -503,8 +607,9 @@ export class UnifiedMessageRouter {
   }
 
   private findToolSummaryIndexByToolUseId(session: Session, toolUseId: string): number {
-    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-      const item = session.messageHistory[i];
+    const history = this.getMessageHistory(session);
+    for (let i = history.length - 1; i >= 0; i--) {
+      const item = history[i];
       if (item.type !== "tool_use_summary") continue;
       if (item.tool_use_id === toolUseId || item.tool_use_ids.includes(toolUseId)) {
         return i;

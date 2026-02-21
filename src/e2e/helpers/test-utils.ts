@@ -5,7 +5,7 @@ import { MemoryStorage } from "../../adapters/memory-storage.js";
 import { MockProcessManager } from "../../adapters/mock-process-manager.js";
 import { NodeProcessManager } from "../../adapters/node-process-manager.js";
 import { NodeWebSocketServer } from "../../adapters/node-ws-server.js";
-import { SessionManager } from "../../core/session-manager.js";
+import { SessionCoordinator } from "../../core/session-coordinator.js";
 import type { Authenticator } from "../../interfaces/auth.js";
 import type { ProcessManager } from "../../interfaces/process-manager.js";
 import type { ProviderConfig } from "../../types/config.js";
@@ -76,26 +76,26 @@ export function createProcessManager(): ProcessManager {
   return new MockProcessManager();
 }
 
-// ── Session Manager Setup ────────────────────────────────────────────────────
+// ── Session Coordinator Setup ────────────────────────────────────────────────
 
-export interface TestSessionManagerOptions {
+export interface TestSessionCoordinatorOptions {
   config?: Partial<ProviderConfig>;
   authenticator?: Authenticator;
 }
 
-export interface TestSessionManager {
-  manager: SessionManager;
+export interface TestSessionCoordinator {
+  coordinator: SessionCoordinator;
   server: NodeWebSocketServer;
 }
 
-export async function setupTestSessionManager(
-  options: TestSessionManagerOptions = {},
-): Promise<TestSessionManager> {
+export async function setupTestSessionCoordinator(
+  options: TestSessionCoordinatorOptions = {},
+): Promise<TestSessionCoordinator> {
   const server = new NodeWebSocketServer({ port: 0 });
   const processManager = createProcessManager();
   const config = { port: 0, ...options.config };
   const storage = new MemoryStorage();
-  const manager = new SessionManager({
+  const coordinator = new SessionCoordinator({
     config,
     storage,
     server,
@@ -104,8 +104,8 @@ export async function setupTestSessionManager(
     launcher: new ClaudeLauncher({ processManager, config, storage }),
   });
 
-  await manager.start();
-  return { manager, server };
+  await coordinator.start();
+  return { coordinator, server };
 }
 
 export interface TestSession {
@@ -113,14 +113,14 @@ export interface TestSession {
   port: number;
 }
 
-export function createTestSession(testManager: TestSessionManager): TestSession {
-  const launched = testManager.manager.launcher.launch({ cwd: process.cwd() });
-  testManager.manager.bridge.seedSessionState(launched.sessionId, {
+export function createTestSession(testCoordinator: TestSessionCoordinator): TestSession {
+  const launched = testCoordinator.coordinator.launcher.launch({ cwd: process.cwd() });
+  testCoordinator.coordinator.bridge.seedSessionState(launched.sessionId, {
     cwd: launched.cwd,
     model: launched.model,
   });
-  testManager.manager.bridge.setAdapterName(launched.sessionId, "claude");
-  const port = testManager.server.port ?? 0;
+  testCoordinator.coordinator.bridge.setAdapterName(launched.sessionId, "claude");
+  const port = testCoordinator.server.port ?? 0;
   return { sessionId: launched.sessionId, port };
 }
 
@@ -417,10 +417,12 @@ export async function closeWebSockets(...sockets: WebSocket[]): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-export async function cleanupSessionManager(testManager: TestSessionManager): Promise<void> {
+export async function cleanupSessionCoordinator(
+  testCoordinator: TestSessionCoordinator,
+): Promise<void> {
   try {
-    await testManager.manager.stop();
+    await testCoordinator.coordinator.stop();
   } catch (err) {
-    console.error("Error stopping session manager:", err);
+    console.error("Error stopping session coordinator:", err);
   }
 }

@@ -22,13 +22,13 @@ vi.mock("./consumer-html.js", () => ({
   }),
 }));
 
-import type { SessionManager } from "../core/session-manager.js";
+import type { SessionCoordinator } from "../core/session-coordinator.js";
 import { handleApiSessions } from "./api-sessions.js";
 import { handleConsumerHtml } from "./consumer-html.js";
 import { handleHealth } from "./health.js";
 import { createBeamcodeServer } from "./server.js";
 
-function mockSessionManager(): SessionManager {
+function mockSessionCoordinator(): SessionCoordinator {
   return {
     launcher: {
       listSessions: vi.fn(() => []),
@@ -36,7 +36,7 @@ function mockSessionManager(): SessionManager {
       launch: vi.fn(),
       kill: vi.fn(),
     },
-  } as unknown as SessionManager;
+  } as unknown as SessionCoordinator;
 }
 
 function getBaseUrl(server: http.Server): string {
@@ -50,11 +50,11 @@ function getBaseUrl(server: http.Server): string {
 describe("createBeamcodeServer", () => {
   let server: ReturnType<typeof createBeamcodeServer>;
   let baseUrl: string;
-  let sm: SessionManager;
+  let sc: SessionCoordinator;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    sm = mockSessionManager();
+    sc = mockSessionCoordinator();
   });
 
   afterEach(async () => {
@@ -65,7 +65,7 @@ describe("createBeamcodeServer", () => {
 
   async function startServer(opts?: { apiKey?: string; activeSessionId?: string }) {
     server = createBeamcodeServer({
-      sessionManager: sm,
+      sessionCoordinator: sc,
       activeSessionId: opts?.activeSessionId ?? "sess-1",
       apiKey: opts?.apiKey,
     });
@@ -173,5 +173,14 @@ describe("createBeamcodeServer", () => {
     // Verify updated redirect
     res = await fetch(`${baseUrl}/`, { redirect: "manual" });
     expect(res.headers.get("location")).toBe("/?session=new-session");
+  });
+
+  it("throws when sessionCoordinator is not provided", () => {
+    expect(() =>
+      createBeamcodeServer({
+        // @ts-expect-error validating runtime guard
+        activeSessionId: "sess-1",
+      }),
+    ).toThrow("createBeamcodeServer requires sessionCoordinator");
   });
 });

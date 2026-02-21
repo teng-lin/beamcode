@@ -8,7 +8,7 @@ import { ClaudeLauncher } from "./adapters/claude/claude-launcher.js";
 import type { CliAdapterName } from "./adapters/create-adapter.js";
 import { MemoryStorage } from "./adapters/memory-storage.js";
 import type { BackendAdapter } from "./core/interfaces/backend-adapter.js";
-import { SessionManager } from "./core/session-manager.js";
+import { SessionCoordinator } from "./core/session-coordinator.js";
 import type { ProcessHandle, ProcessManager, SpawnOptions } from "./interfaces/process-manager.js";
 import { MockBackendAdapter } from "./testing/adapter-test-helpers.js";
 
@@ -111,18 +111,18 @@ describe("multi-adapter session lifecycle", () => {
       codex: codexAdapter,
     });
 
-    const mgr = new SessionManager({
+    const coordinator = new SessionCoordinator({
       config: { port: 3456 },
       storage,
       logger: noopLogger,
       adapterResolver: resolver,
       launcher: createLauncher(pm, storage),
     });
-    await mgr.start();
+    await coordinator.start();
 
     // Create one claude and one codex session
-    const claudeSession = await mgr.createSession({ cwd: process.cwd() });
-    const codexSession = await mgr.createSession({
+    const claudeSession = await coordinator.createSession({ cwd: process.cwd() });
+    const codexSession = await coordinator.createSession({
       cwd: process.cwd(),
       adapterName: "codex",
     });
@@ -133,29 +133,29 @@ describe("multi-adapter session lifecycle", () => {
     expect(codexSession.state).toBe("connected");
 
     // Both appear in listSessions
-    const sessions = mgr.launcher.listSessions();
+    const sessions = coordinator.launcher.listSessions();
     const ids = sessions.map((s) => s.sessionId);
     expect(ids).toContain(claudeSession.sessionId);
     expect(ids).toContain(codexSession.sessionId);
 
     // Delete the codex session (no PID)
-    const codexInfo = mgr.launcher.getSession(codexSession.sessionId);
+    const codexInfo = coordinator.launcher.getSession(codexSession.sessionId);
     expect(codexInfo?.pid).toBeUndefined();
-    const codexDeleted = await mgr.deleteSession(codexSession.sessionId);
+    const codexDeleted = await coordinator.deleteSession(codexSession.sessionId);
     expect(codexDeleted).toBe(true);
-    expect(mgr.launcher.getSession(codexSession.sessionId)).toBeUndefined();
+    expect(coordinator.launcher.getSession(codexSession.sessionId)).toBeUndefined();
 
     // Delete the claude session (has PID)
-    const claudeInfo = mgr.launcher.getSession(claudeSession.sessionId);
+    const claudeInfo = coordinator.launcher.getSession(claudeSession.sessionId);
     expect(claudeInfo?.pid).toBeGreaterThan(0);
-    const claudeDeleted = await mgr.deleteSession(claudeSession.sessionId);
+    const claudeDeleted = await coordinator.deleteSession(claudeSession.sessionId);
     expect(claudeDeleted).toBe(true);
-    expect(mgr.launcher.getSession(claudeSession.sessionId)).toBeUndefined();
+    expect(coordinator.launcher.getSession(claudeSession.sessionId)).toBeUndefined();
 
     // Both gone
-    expect(mgr.launcher.listSessions()).toHaveLength(0);
+    expect(coordinator.launcher.listSessions()).toHaveLength(0);
 
-    await mgr.stop();
+    await coordinator.stop();
   });
 
   it("defaultAdapterName is used when no adapter specified", async () => {
@@ -167,22 +167,22 @@ describe("multi-adapter session lifecycle", () => {
       "codex", // default is codex
     );
 
-    const mgr = new SessionManager({
+    const coordinator = new SessionCoordinator({
       config: { port: 3456 },
       storage,
       logger: noopLogger,
       adapterResolver: resolver,
       launcher: createLauncher(pm, storage),
     });
-    await mgr.start();
+    await coordinator.start();
 
-    expect(mgr.defaultAdapterName).toBe("codex");
+    expect(coordinator.defaultAdapterName).toBe("codex");
 
     // createSession without adapter → uses default (codex)
-    const session = await mgr.createSession({ cwd: process.cwd() });
+    const session = await coordinator.createSession({ cwd: process.cwd() });
     expect(session.adapterName).toBe("codex");
 
-    await mgr.stop();
+    await coordinator.stop();
   });
 
   it("codex session connect failure rolls back registration", async () => {
@@ -196,23 +196,23 @@ describe("multi-adapter session lifecycle", () => {
       codex: failingAdapter,
     });
 
-    const mgr = new SessionManager({
+    const coordinator = new SessionCoordinator({
       config: { port: 3456 },
       storage,
       logger: noopLogger,
       adapterResolver: resolver,
       launcher: createLauncher(pm, storage),
     });
-    await mgr.start();
+    await coordinator.start();
 
-    await expect(mgr.createSession({ cwd: process.cwd(), adapterName: "codex" })).rejects.toThrow(
-      "Connection failed",
-    );
+    await expect(
+      coordinator.createSession({ cwd: process.cwd(), adapterName: "codex" }),
+    ).rejects.toThrow("Connection failed");
 
     // Session was cleaned up
-    expect(mgr.launcher.listSessions()).toHaveLength(0);
+    expect(coordinator.launcher.listSessions()).toHaveLength(0);
 
-    await mgr.stop();
+    await coordinator.stop();
   });
 
   it("resolver.resolve('claude') returns claude adapter even when default is different", async () => {
@@ -224,18 +224,18 @@ describe("multi-adapter session lifecycle", () => {
       "codex", // default is codex, but claude adapter is still resolvable
     );
 
-    const mgr = new SessionManager({
+    const coordinator = new SessionCoordinator({
       config: { port: 3456 },
       storage,
       logger: noopLogger,
       adapterResolver: resolver,
       launcher: createLauncher(pm, storage),
     });
-    await mgr.start();
+    await coordinator.start();
 
     // Even with codex as default, resolve("claude") returns the claude adapter
     expect(resolver.resolve("claude")).toBe(claudeAdapter);
 
-    await mgr.stop();
+    await coordinator.stop();
   });
 });

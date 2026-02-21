@@ -10,8 +10,8 @@
  */
 
 import { vi } from "vitest";
-import type { Session } from "../core/session-store.js";
-import { makeDefaultState } from "../core/session-store.js";
+import type { Session } from "../core/session-repository.js";
+import { makeDefaultState } from "../core/session-repository.js";
 import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { PermissionRequest } from "../types/cli-messages.js";

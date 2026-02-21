@@ -158,7 +158,8 @@ Then open `http://localhost:5174`.
 
 ```ts
 import {
-  SessionManager,
+  SessionCoordinator,
+  ClaudeLauncher,
   NodeProcessManager,
   NodeWebSocketServer,
   FileStorage,
@@ -166,11 +167,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const manager = new SessionManager({
-  config: { port: 9414 },
-  processManager: new NodeProcessManager(),
+const config = { port: 9414 };
+const storage = new FileStorage(join(tmpdir(), "beamcode-sessions"));
+
+const manager = new SessionCoordinator({
+  config,
+  launcher: new ClaudeLauncher({
+    processManager: new NodeProcessManager(),
+    config,
+    storage,
+  }),
   server: new NodeWebSocketServer({ port: 9414 }),
-  storage: new FileStorage(join(tmpdir(), "beamcode-sessions")),
+  storage,
 });
 
 await manager.start();

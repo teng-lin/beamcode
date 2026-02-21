@@ -214,6 +214,9 @@ describe("PassthroughHandler", () => {
       broadcaster: new ConsumerBroadcaster(noopLogger),
       emitEvent: vi.fn(),
       sendUserMessage: vi.fn(),
+      registerPendingPassthrough: (targetSession, entry) => {
+        targetSession.pendingPassthroughs.push(entry);
+      },
     });
     expect(handler.handles(slashCtx(session, "/any-cmd"))).toBe(true);
   });
@@ -225,6 +228,9 @@ describe("PassthroughHandler", () => {
       broadcaster: new ConsumerBroadcaster(noopLogger),
       emitEvent: vi.fn(),
       sendUserMessage: vi.fn(),
+      registerPendingPassthrough: (targetSession, entry) => {
+        targetSession.pendingPassthroughs.push(entry);
+      },
     });
     expect(handler.handles(slashCtx(session, "/compact"))).toBe(false);
   });
@@ -237,6 +243,9 @@ describe("PassthroughHandler", () => {
       broadcaster: new ConsumerBroadcaster(noopLogger),
       emitEvent: vi.fn(),
       sendUserMessage,
+      registerPendingPassthrough: (targetSession, entry) => {
+        targetSession.pendingPassthroughs.push(entry);
+      },
     });
     handler.execute(slashCtx(session, "/compact arg", "r1"));
     expect(session.pendingPassthroughs).toEqual([
@@ -251,6 +260,31 @@ describe("PassthroughHandler", () => {
       "/compact arg",
       expect.objectContaining({ requestId: "r1", command: "/compact" }),
     );
+  });
+
+  it("uses injected passthrough registration callback when provided", () => {
+    const sendUserMessage = vi.fn();
+    const registerPendingPassthrough = vi.fn();
+    const session = createMockSession();
+    session.adapterSupportsSlashPassthrough = true;
+    const handler = new PassthroughHandler({
+      broadcaster: new ConsumerBroadcaster(noopLogger),
+      emitEvent: vi.fn(),
+      sendUserMessage,
+      registerPendingPassthrough,
+    });
+
+    handler.execute(slashCtx(session, "/compact arg", "r1"));
+
+    expect(registerPendingPassthrough).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        command: "/compact",
+        requestId: "r1",
+        slashRequestId: "r1",
+      }),
+    );
+    expect(session.pendingPassthroughs).toEqual([]);
   });
 });
 

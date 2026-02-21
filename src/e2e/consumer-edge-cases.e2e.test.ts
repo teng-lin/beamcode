@@ -1,29 +1,29 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TestSessionManager } from "./helpers/test-utils.js";
+import type { TestSessionCoordinator } from "./helpers/test-utils.js";
 import {
-  cleanupSessionManager,
+  cleanupSessionCoordinator,
   closeWebSockets,
   connectTestConsumer,
   connectTestConsumerWithQuery,
   createTestSession,
   mockSlashCommand,
   sendAndWait,
-  setupTestSessionManager,
+  setupTestSessionCoordinator,
   waitForMessageType,
 } from "./helpers/test-utils.js";
 
 describe("E2E: Consumer Edge Cases", () => {
-  let tm: TestSessionManager | undefined;
+  let tm: TestSessionCoordinator | undefined;
 
   afterEach(async () => {
     if (tm) {
-      await cleanupSessionManager(tm);
+      await cleanupSessionCoordinator(tm);
       tm = undefined;
     }
   });
 
   it("ignores malformed JSON and keeps the consumer connection alive", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const consumer = await connectTestConsumer(port, sessionId);
     await waitForMessageType(consumer, "session_init");
@@ -43,7 +43,7 @@ describe("E2E: Consumer Edge Cases", () => {
   });
 
   it("ignores invalid message shape and keeps the consumer connection alive", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
     const consumer = await connectTestConsumer(port, sessionId);
     await waitForMessageType(consumer, "session_init");
@@ -63,7 +63,7 @@ describe("E2E: Consumer Edge Cases", () => {
   });
 
   it("closes connection with 1009 for oversized messages", async () => {
-    tm = await setupTestSessionManager();
+    tm = await setupTestSessionCoordinator();
     const { sessionId, port } = createTestSession(tm);
 
     const consumer = await connectTestConsumer(port, sessionId);
@@ -83,7 +83,7 @@ describe("E2E: Consumer Edge Cases", () => {
   });
 
   it("returns error when sending participant-only message from observer role", async () => {
-    tm = await setupTestSessionManager({
+    tm = await setupTestSessionCoordinator({
       authenticator: {
         async authenticate(context) {
           const query = context.transport.query as Record<string, string> | undefined;

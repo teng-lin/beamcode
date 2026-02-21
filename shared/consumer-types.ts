@@ -2,6 +2,9 @@
 // Standalone file for the web frontend — NO imports from core/ or backend.
 // Mirrors the relevant shapes from src/types/ without pulling in the full chain.
 
+/** Version for bridge -> consumer protocol envelopes. */
+export const CONSUMER_PROTOCOL_VERSION = 1 as const;
+
 // ── Content Blocks ──────────────────────────────────────────────────────────
 
 export type ConsumerContentBlock =
@@ -219,7 +222,11 @@ export type ConsumerRole = "owner" | "operator" | "participant" | "observer";
 // ── Outbound Messages (bridge → consumer) ───────────────────────────────────
 
 export type ConsumerMessage =
-  | { type: "session_init"; session: ConsumerSessionState & Record<string, unknown> }
+  | {
+      type: "session_init";
+      session: ConsumerSessionState & Record<string, unknown>;
+      protocol_version?: typeof CONSUMER_PROTOCOL_VERSION;
+    }
   | { type: "session_update"; session: Partial<ConsumerSessionState> & Record<string, unknown> }
   | { type: "assistant"; message: AssistantContent; parent_tool_use_id: string | null }
   | { type: "stream_event"; event: StreamEvent; parent_tool_use_id: string | null }

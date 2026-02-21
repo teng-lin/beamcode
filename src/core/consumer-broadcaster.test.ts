@@ -12,7 +12,7 @@ import {
   type BroadcastCallback,
   ConsumerBroadcaster,
 } from "./consumer-broadcaster.js";
-import type { Session } from "./session-store.js";
+import type { Session } from "./session-repository.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +39,9 @@ describe("ConsumerBroadcaster", () => {
 
   beforeEach(() => {
     onBroadcast = vi.fn();
-    broadcaster = new ConsumerBroadcaster(noopLogger, onBroadcast);
+    broadcaster = new ConsumerBroadcaster(noopLogger, onBroadcast, undefined, (session, socket) => {
+      session.consumerSockets.delete(socket);
+    });
   });
 
   // ─── broadcast() ────────────────────────────────────────────────────────

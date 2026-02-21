@@ -1,7 +1,7 @@
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import { type MessageTracer, noopTracer, type TraceOutcome } from "./message-tracer.js";
-import type { Session } from "./session-store.js";
+import type { Session } from "./session-repository.js";
 import type { SlashCommandExecutor } from "./slash-command-executor.js";
 import { commandName } from "./slash-command-executor.js";
 
@@ -249,6 +249,10 @@ export interface PassthroughHandlerDeps {
   broadcaster: ConsumerBroadcaster;
   emitEvent: EmitEvent;
   sendUserMessage: SendUserMessage;
+  registerPendingPassthrough: (
+    session: Session,
+    entry: Session["pendingPassthroughs"][number],
+  ) => void;
   tracer?: MessageTracer;
 }
 
@@ -267,13 +271,14 @@ export class PassthroughHandler implements CommandHandler {
   execute(ctx: CommandHandlerContext): void {
     const { command, requestId, slashRequestId, traceId, startedAtMs, session } = ctx;
     const normalized = commandName(command);
-    session.pendingPassthroughs.push({
+    const pending = {
       command: normalized,
       requestId,
       slashRequestId,
       traceId,
       startedAtMs,
-    });
+    };
+    this.deps.registerPendingPassthrough(session, pending);
     this.tracer.send(
       "bridge",
       "slash_command",

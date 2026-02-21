@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify E2E parity matrix prerequisites
+        run: pnpm test:e2e:parity:check
+
       - name: Run deterministic e2e full lane
         run: pnpm test:e2e:deterministic
 

@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitInfo, GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { SessionState } from "../types/session-state.js";
 import { applyGitInfo, GitInfoTracker } from "./git-info-tracker.js";
-import type { Session } from "./session-store.js";
-import { makeDefaultState } from "./session-store.js";
+import type { Session } from "./session-repository.js";
+import { makeDefaultState } from "./session-repository.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 
@@ -45,34 +45,41 @@ const defaultGitInfo: GitInfo = {
   behind: 0,
 };
 
+const directStateAccessors = {
+  getState: (session: Session) => session.state,
+  setState: (session: Session, state: SessionState) => {
+    session.state = state;
+  },
+};
+
 // ─── applyGitInfo (standalone helper) ───────────────────────────────────────
 
 describe("applyGitInfo", () => {
-  it("copies all git fields to session state", () => {
-    const session = makeSession("s1", { cwd: "/repo" });
-    applyGitInfo(session, {
+  it("returns state with all git fields applied", () => {
+    const state = makeDefaultState("s1");
+    const next = applyGitInfo(state, {
       branch: "feat/test",
       isWorktree: true,
       repoRoot: "/project",
       ahead: 3,
       behind: 2,
     });
-    expect(session.state.git_branch).toBe("feat/test");
-    expect(session.state.is_worktree).toBe(true);
-    expect(session.state.repo_root).toBe("/project");
-    expect(session.state.git_ahead).toBe(3);
-    expect(session.state.git_behind).toBe(2);
+    expect(next.git_branch).toBe("feat/test");
+    expect(next.is_worktree).toBe(true);
+    expect(next.repo_root).toBe("/project");
+    expect(next.git_ahead).toBe(3);
+    expect(next.git_behind).toBe(2);
   });
 
   it("defaults ahead and behind to 0 when undefined", () => {
-    const session = makeSession("s1", { cwd: "/repo" });
-    applyGitInfo(session, {
+    const state = makeDefaultState("s1");
+    const next = applyGitInfo(state, {
       branch: "main",
       isWorktree: false,
       repoRoot: "/repo",
     });
-    expect(session.state.git_ahead).toBe(0);
-    expect(session.state.git_behind).toBe(0);
+    expect(next.git_ahead).toBe(0);
+    expect(next.git_behind).toBe(0);
   });
 });
 
@@ -84,7 +91,7 @@ describe("GitInfoTracker", () => {
 
   beforeEach(() => {
     resolver = makeMockResolver(defaultGitInfo);
-    tracker = new GitInfoTracker(resolver);
+    tracker = new GitInfoTracker(resolver, directStateAccessors);
   });
 
   // ── resolveGitInfo ──────────────────────────────────────────────────────
@@ -117,7 +124,7 @@ describe("GitInfoTracker", () => {
     });
 
     it("is a no-op when gitResolver is null", () => {
-      const nullTracker = new GitInfoTracker(null);
+      const nullTracker = new GitInfoTracker(null, directStateAccessors);
       const session = makeSession("s1", { cwd: "/repo" });
       nullTracker.resolveGitInfo(session);
       expect(session.state.git_branch).toBe("");
@@ -176,6 +183,29 @@ describe("GitInfoTracker", () => {
       // Each session gets its own attempt
       expect(resolver.resolve).toHaveBeenCalledTimes(2);
     });
+
+    it("uses callback-backed state accessors when provided", () => {
+      resolver.resolve.mockReturnValue({
+        branch: "feat/callback",
+        isWorktree: false,
+        repoRoot: "/repo",
+        ahead: 1,
+        behind: 0,
+      });
+      const session = makeSession("s1", { cwd: "/repo" });
+      let state = { ...session.state, cwd: "/repo" };
+      const callbackTracker = new GitInfoTracker(resolver, {
+        getState: () => state,
+        setState: (_session, next) => {
+          state = next;
+        },
+      });
+
+      callbackTracker.resolveGitInfo(session);
+
+      expect(state.git_branch).toBe("feat/callback");
+      expect(session.state.git_branch).toBe("");
+    });
   });
 
   // ── refreshGitInfo ──────────────────────────────────────────────────────
@@ -187,7 +217,7 @@ describe("GitInfoTracker", () => {
     });
 
     it("returns null when gitResolver is null", () => {
-      const nullTracker = new GitInfoTracker(null);
+      const nullTracker = new GitInfoTracker(null, directStateAccessors);
       const session = makeSession("s1", { cwd: "/repo" });
       expect(nullTracker.refreshGitInfo(session)).toBeNull();
     });

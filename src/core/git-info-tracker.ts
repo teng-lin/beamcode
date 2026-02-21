@@ -8,37 +8,60 @@
 
 import type { GitInfo, GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { SessionState } from "../types/session-state.js";
-import type { Session } from "./session-store.js";
+import type { Session } from "./session-repository.js";
 
 // ─── Standalone helper ──────────────────────────────────────────────────────
 
-/** Apply resolved git info fields to session state. */
-export function applyGitInfo(session: Session, gitInfo: GitInfo): void {
-  session.state.git_branch = gitInfo.branch;
-  session.state.is_worktree = gitInfo.isWorktree;
-  session.state.repo_root = gitInfo.repoRoot;
-  session.state.git_ahead = gitInfo.ahead ?? 0;
-  session.state.git_behind = gitInfo.behind ?? 0;
+/** Return a new state with resolved git info fields applied. */
+export function applyGitInfo(state: SessionState, gitInfo: GitInfo): SessionState {
+  return {
+    ...state,
+    git_branch: gitInfo.branch,
+    is_worktree: gitInfo.isWorktree,
+    repo_root: gitInfo.repoRoot,
+    git_ahead: gitInfo.ahead ?? 0,
+    git_behind: gitInfo.behind ?? 0,
+  };
 }
 
 // ─── GitInfoTracker ─────────────────────────────────────────────────────────
 
+type GitStateAccessors = {
+  getState: (session: Session) => Session["state"];
+  setState: (session: Session, state: Session["state"]) => void;
+};
+
 export class GitInfoTracker {
   private resolveAttempted = new Set<string>();
+  private readonly stateAccessors: GitStateAccessors;
 
-  constructor(private gitResolver: GitInfoResolver | null) {}
+  constructor(gitResolver: GitInfoResolver | null, stateAccessors: GitStateAccessors) {
+    this.gitResolver = gitResolver;
+    this.stateAccessors = stateAccessors;
+  }
+
+  private readonly gitResolver: GitInfoResolver | null;
+
+  private getState(session: Session): Session["state"] {
+    return this.stateAccessors.getState(session);
+  }
+
+  private setState(session: Session, state: Session["state"]): void {
+    this.stateAccessors.setState(session, state);
+  }
 
   /**
    * Resolve git info from cwd if not already attempted (no broadcast).
    * Skips if git_branch is already set or if this session was already attempted.
    */
   resolveGitInfo(session: Session): void {
-    if (!session.state.cwd || !this.gitResolver) return;
-    if (session.state.git_branch || this.resolveAttempted.has(session.id)) return;
+    const state = this.getState(session);
+    if (!state.cwd || !this.gitResolver) return;
+    if (state.git_branch || this.resolveAttempted.has(session.id)) return;
     this.resolveAttempted.add(session.id);
     try {
-      const gitInfo = this.gitResolver.resolve(session.state.cwd);
-      if (gitInfo) applyGitInfo(session, gitInfo);
+      const gitInfo = this.gitResolver.resolve(state.cwd);
+      if (gitInfo) this.setState(session, applyGitInfo(this.getState(session), gitInfo));
     } catch {
       // Best-effort: git resolution failure should never crash consumer connections
     }
@@ -52,26 +75,28 @@ export class GitInfoTracker {
    * The caller is responsible for broadcasting the returned update.
    */
   refreshGitInfo(session: Session): Partial<SessionState> | null {
-    if (!session.state.cwd || !this.gitResolver) return null;
+    const state = this.getState(session);
+    if (!state.cwd || !this.gitResolver) return null;
 
-    const gitInfo = this.gitResolver.resolve(session.state.cwd);
+    const gitInfo = this.gitResolver.resolve(state.cwd);
     if (!gitInfo) return null;
 
     const changed =
-      session.state.git_branch !== gitInfo.branch ||
-      session.state.git_ahead !== (gitInfo.ahead ?? 0) ||
-      session.state.git_behind !== (gitInfo.behind ?? 0) ||
-      session.state.is_worktree !== gitInfo.isWorktree;
+      state.git_branch !== gitInfo.branch ||
+      state.git_ahead !== (gitInfo.ahead ?? 0) ||
+      state.git_behind !== (gitInfo.behind ?? 0) ||
+      state.is_worktree !== gitInfo.isWorktree;
 
     if (!changed) return null;
 
-    applyGitInfo(session, gitInfo);
+    const nextState = applyGitInfo(state, gitInfo);
+    this.setState(session, nextState);
 
     return {
-      git_branch: session.state.git_branch,
-      git_ahead: session.state.git_ahead,
-      git_behind: session.state.git_behind,
-      is_worktree: session.state.is_worktree,
+      git_branch: nextState.git_branch,
+      git_ahead: nextState.git_ahead,
+      git_behind: nextState.git_behind,
+      is_worktree: nextState.is_worktree,
     };
   }
 

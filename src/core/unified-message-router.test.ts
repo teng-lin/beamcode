@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { noopTracer } from "./message-tracer.js";
-import { makeDefaultState, type Session } from "./session-store.js";
+import { makeDefaultState, type Session } from "./session-repository.js";
 import { createUnifiedMessage, type UnifiedMessage } from "./types/unified-message.js";
 import { UnifiedMessageRouter, type UnifiedMessageRouterDeps } from "./unified-message-router.js";
 
@@ -15,7 +15,7 @@ function createMockBroadcaster() {
   };
 }
 
-function createMockCapabilitiesProtocol() {
+function createMockCapabilitiesPolicy() {
   return {
     sendInitializeRequest: vi.fn(),
     applyCapabilities: vi.fn(),
@@ -83,7 +83,7 @@ function createMockSession(id = "sess-1", stateOverrides: Record<string, unknown
 function createDeps(overrides: Partial<UnifiedMessageRouterDeps> = {}): UnifiedMessageRouterDeps {
   return {
     broadcaster: createMockBroadcaster(),
-    capabilitiesProtocol: createMockCapabilitiesProtocol(),
+    capabilitiesPolicy: createMockCapabilitiesPolicy(),
     queueHandler: createMockQueueHandler(),
     gitTracker: createMockGitTracker(),
     gitResolver: createMockGitResolver(),
@@ -91,6 +91,33 @@ function createDeps(overrides: Partial<UnifiedMessageRouterDeps> = {}): UnifiedM
     persistSession: vi.fn(),
     maxMessageHistoryLength: 100,
     tracer: noopTracer,
+    getState: (session) => session.state,
+    setState: (session, state) => {
+      session.state = state;
+    },
+    setBackendSessionId: (session, backendSessionId) => {
+      session.backendSessionId = backendSessionId;
+    },
+    getMessageHistory: (session) => session.messageHistory,
+    setMessageHistory: (session, history) => {
+      session.messageHistory = history;
+    },
+    getLastStatus: (session) => session.lastStatus,
+    setLastStatus: (session, status) => {
+      session.lastStatus = status;
+    },
+    storePendingPermission: (session, requestId, request) => {
+      session.pendingPermissions.set(requestId, request);
+    },
+    clearDynamicSlashRegistry: (session) => {
+      session.registry.clearDynamic();
+    },
+    registerCLICommands: (session, commands) => {
+      session.registry.registerFromCLI(commands);
+    },
+    registerSkillCommands: (session, skills) => {
+      session.registry.registerSkills(skills);
+    },
     ...overrides,
   };
 }
@@ -133,12 +160,44 @@ describe("UnifiedMessageRouter", () => {
       });
     });
 
+    it("uses setBackendSessionId callback when provided", () => {
+      const setBackendSessionId = vi.fn();
+      deps = createDeps({ setBackendSessionId });
+      router = new UnifiedMessageRouter(deps);
+
+      const m = msg("session_init", { session_id: "backend-42", model: "claude" });
+      router.route(session, m);
+
+      expect(setBackendSessionId).toHaveBeenCalledWith(session, "backend-42");
+      expect(session.backendSessionId).toBeUndefined();
+    });
+
+    it("uses getState/setState callbacks for authMethods updates", () => {
+      let state = session.state;
+      deps = createDeps({
+        getState: () => state,
+        setState: (_session, next) => {
+          state = next;
+        },
+      });
+      router = new UnifiedMessageRouter(deps);
+
+      const m = msg("session_init", {
+        model: "claude",
+        authMethods: ["device_code"],
+      });
+      router.route(session, m);
+
+      expect(state.authMethods).toEqual(["device_code"]);
+      expect(session.state.authMethods).toBeUndefined();
+    });
+
     it("sends initialize request when no capabilities in metadata", () => {
       const m = msg("session_init", { model: "claude" });
       router.route(session, m);
 
-      expect(deps.capabilitiesProtocol.sendInitializeRequest).toHaveBeenCalledWith(session);
-      expect(deps.capabilitiesProtocol.applyCapabilities).not.toHaveBeenCalled();
+      expect(deps.capabilitiesPolicy.sendInitializeRequest).toHaveBeenCalledWith(session);
+      expect(deps.capabilitiesPolicy.applyCapabilities).not.toHaveBeenCalled();
     });
 
     it("applies capabilities when provided in metadata", () => {
@@ -150,13 +209,13 @@ describe("UnifiedMessageRouter", () => {
       const m = msg("session_init", { capabilities: caps });
       router.route(session, m);
 
-      expect(deps.capabilitiesProtocol.applyCapabilities).toHaveBeenCalledWith(
+      expect(deps.capabilitiesPolicy.applyCapabilities).toHaveBeenCalledWith(
         session,
         caps.commands,
         caps.models,
         caps.account,
       );
-      expect(deps.capabilitiesProtocol.sendInitializeRequest).not.toHaveBeenCalled();
+      expect(deps.capabilitiesPolicy.sendInitializeRequest).not.toHaveBeenCalled();
     });
 
     it("broadcasts session_init and persists", () => {
@@ -273,6 +332,39 @@ describe("UnifiedMessageRouter", () => {
       expect(session.messageHistory).toHaveLength(1);
       expect(deps.broadcaster.broadcast).toHaveBeenCalled();
       expect(deps.persistSession).toHaveBeenCalledWith(session);
+    });
+
+    it("uses message history callbacks when provided", () => {
+      let history: Session["messageHistory"] = [];
+      deps = createDeps({
+        getMessageHistory: () => history,
+        setMessageHistory: (_session, next) => {
+          history = next;
+        },
+      });
+      router = new UnifiedMessageRouter(deps);
+
+      const m = createUnifiedMessage({
+        type: "assistant",
+        role: "assistant",
+        content: [{ type: "text", text: "Hello" }],
+        metadata: {
+          message_id: "msg-callback-1",
+          model: "claude",
+          stop_reason: "end_turn",
+          parent_tool_use_id: null,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+      router.route(session, m);
+
+      expect(history).toHaveLength(1);
+      expect(session.messageHistory).toHaveLength(0);
     });
 
     it("trims message history when exceeding max length", () => {
@@ -566,16 +658,41 @@ describe("UnifiedMessageRouter", () => {
       expect(session.pendingPermissions.has("perm-1")).toBe(false);
       expect(deps.broadcaster.broadcastToParticipants).not.toHaveBeenCalled();
     });
+
+    it("uses storePendingPermission callback when provided", () => {
+      const storePendingPermission = vi.fn();
+      deps = createDeps({ storePendingPermission });
+      router = new UnifiedMessageRouter(deps);
+
+      const m = msg("permission_request", {
+        request_id: "perm-1",
+        tool_name: "Bash",
+        input: { command: "ls" },
+        tool_use_id: "tu-1",
+      });
+      router.route(session, m);
+
+      expect(storePendingPermission).toHaveBeenCalledWith(
+        session,
+        "perm-1",
+        expect.objectContaining({
+          request_id: "perm-1",
+          tool_name: "Bash",
+          tool_use_id: "tu-1",
+        }),
+      );
+      expect(session.pendingPermissions.has("perm-1")).toBe(false);
+    });
   });
 
   // ── control_response ──────────────────────────────────────────────────
 
   describe("control_response", () => {
-    it("delegates to capabilitiesProtocol", () => {
+    it("delegates to capabilitiesPolicy", () => {
       const m = msg("control_response", { request_id: "req-1", subtype: "success" });
       router.route(session, m);
 
-      expect(deps.capabilitiesProtocol.handleControlResponse).toHaveBeenCalledWith(session, m);
+      expect(deps.capabilitiesPolicy.handleControlResponse).toHaveBeenCalledWith(session, m);
     });
   });
 

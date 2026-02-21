@@ -10,7 +10,6 @@ import type { RateLimiter } from "../interfaces/rate-limiter.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import { createAnonymousIdentity } from "../types/auth.js";
 import type { ResolvedConfig } from "../types/config.js";
-import type { Session } from "./session-store.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -29,7 +28,15 @@ export const PARTICIPANT_ONLY_TYPES = new Set([
 ]);
 
 /** Factory function type for creating rate limiters. */
-export type RateLimiterFactory = (burstSize: number, refillIntervalMs: number, tokensPerInterval: number) => RateLimiter;
+export type RateLimiterFactory = (
+  burstSize: number,
+  refillIntervalMs: number,
+  tokensPerInterval: number,
+) => RateLimiter;
+export type RateLimiterAccessors = {
+  getRateLimiter: (socket: WebSocketLike) => RateLimiter | undefined;
+  setRateLimiter: (socket: WebSocketLike, limiter: RateLimiter) => void;
+};
 
 // ─── ConsumerGatekeeper ──────────────────────────────────────────────────────
 
@@ -37,7 +44,7 @@ export class ConsumerGatekeeper {
   private authenticator: Authenticator | null;
   private config: ResolvedConfig;
   private pendingAuth = new WeakSet<WebSocketLike>();
-  private createRateLimiter: RateLimiterFactory | null;
+  private rateLimiterFactory: RateLimiterFactory | null;
 
   constructor(
     authenticator: Authenticator | null,
@@ -46,7 +53,7 @@ export class ConsumerGatekeeper {
   ) {
     this.authenticator = authenticator;
     this.config = config;
-    this.createRateLimiter = createRateLimiter ?? null;
+    this.rateLimiterFactory = createRateLimiter ?? null;
   }
 
   /** Whether an authenticator is configured. */
@@ -118,20 +125,28 @@ export class ConsumerGatekeeper {
     return identity.role !== "observer" || !PARTICIPANT_ONLY_TYPES.has(messageType);
   }
 
+  /** Build a new rate limiter instance using configured policy. */
+  createRateLimiter(): RateLimiter | undefined {
+    if (!this.rateLimiterFactory) {
+      return undefined;
+    }
+    const rateConfig = this.config.consumerMessageRateLimit ?? {
+      burstSize: 20,
+      tokensPerSecond: 50,
+    };
+    return this.rateLimiterFactory(rateConfig.burstSize, 1000, rateConfig.tokensPerSecond);
+  }
+
   /** Check rate limit for a consumer. Returns true if allowed, false if exceeded. */
-  checkRateLimit(ws: WebSocketLike, session: Session): boolean {
-    let limiter = session.consumerRateLimiters.get(ws);
+  checkRateLimit(ws: WebSocketLike, accessors: RateLimiterAccessors): boolean {
+    let limiter = accessors.getRateLimiter(ws);
     if (!limiter) {
-      if (!this.createRateLimiter) {
+      limiter = this.createRateLimiter();
+      if (!limiter) {
         // No rate limiter factory — allow all messages
         return true;
       }
-      const rateConfig = this.config.consumerMessageRateLimit ?? {
-        burstSize: 20,
-        tokensPerSecond: 50,
-      };
-      limiter = this.createRateLimiter(rateConfig.burstSize, 1000, rateConfig.tokensPerSecond);
-      session.consumerRateLimiters.set(ws, limiter);
+      accessors.setRateLimiter(ws, limiter);
     }
     return limiter.tryConsume();
   }
