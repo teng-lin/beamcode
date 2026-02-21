@@ -708,6 +708,14 @@ pnpm test:e2e:real:agent-sdk
 pnpm test:e2e:real:codex
 pnpm test:e2e:real:gemini
 pnpm test:e2e:real:opencode
+
+# Single test by name (-t filters by test description)
+E2E_PROFILE=real-full USE_REAL_CLI=true \
+  pnpm vitest run src/e2e/real/session-coordinator-agent-sdk.e2e.test.ts \
+  -t "user_message gets an assistant reply" --config vitest.e2e.real.config.ts
+
+# Smoke-only for a single backend
+pnpm test:e2e:real:agent-sdk:smoke
 ```
 
 **Real backend prerequisites:**
