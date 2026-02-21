@@ -355,6 +355,111 @@ export function makeAuthStatusUnifiedMsg(overrides: Record<string, unknown> = {}
   });
 }
 
+// ─── Specialized Mock Adapters ───────────────────────────────────────────────
+
+/**
+ * A session whose async iterator rejects immediately — used for stream error tests.
+ */
+export class ErrorBackendSession implements BackendSession {
+  readonly sessionId: string;
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+  send(): void {}
+  sendRaw(_ndjson: string): void {
+    throw new Error("ErrorBackendSession does not support raw NDJSON");
+  }
+  get messages(): AsyncIterable<UnifiedMessage> {
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
+        return {
+          next: () => Promise.reject(new Error("Stream error")),
+        };
+      },
+    };
+  }
+  async close(): Promise<void> {}
+}
+
+export class ErrorBackendAdapter implements BackendAdapter {
+  readonly name = "error-mock";
+  readonly capabilities: BackendCapabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: false,
+    availability: "local",
+    teams: false,
+  };
+  async connect(options: ConnectOptions): Promise<BackendSession> {
+    return new ErrorBackendSession(options.sessionId);
+  }
+}
+
+export class PassthroughBackendSession implements BackendSession {
+  readonly sessionId: string;
+  readonly sentMessages: UnifiedMessage[] = [];
+  private passthroughHandler: ((rawMsg: any) => boolean) | null = null;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  send(message: UnifiedMessage): void {
+    this.sentMessages.push(message);
+  }
+
+  sendRaw(): void {}
+
+  get messages(): AsyncIterable<UnifiedMessage> {
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<UnifiedMessage> {
+        return {
+          next: () => new Promise<IteratorResult<UnifiedMessage>>(() => {}),
+        };
+      },
+    };
+  }
+
+  async close(): Promise<void> {}
+
+  setPassthroughHandler(handler: ((rawMsg: any) => boolean) | null): void {
+    this.passthroughHandler = handler;
+  }
+
+  emitUserEcho(content: unknown): void {
+    this.passthroughHandler?.({
+      type: "user",
+      message: { role: "user", content },
+      parent_tool_use_id: null,
+    });
+  }
+}
+
+export class PassthroughBackendAdapter implements BackendAdapter {
+  readonly name = "passthrough-mock";
+  readonly capabilities: BackendCapabilities = {
+    streaming: true,
+    permissions: true,
+    slashCommands: true,
+    availability: "local",
+    teams: false,
+  };
+
+  private sessions = new Map<string, PassthroughBackendSession>();
+
+  async connect(options: ConnectOptions): Promise<BackendSession> {
+    const session = new PassthroughBackendSession(options.sessionId);
+    this.sessions.set(options.sessionId, session);
+    return session;
+  }
+
+  getSession(id: string): PassthroughBackendSession | undefined {
+    return this.sessions.get(id);
+  }
+}
+
+// ─── UnifiedMessage Factory Helpers (control_response) ──────────────────────
+
 export function makeControlResponseUnifiedMsg(
   overrides: Record<string, unknown> = {},
 ): UnifiedMessage {
