@@ -219,7 +219,7 @@ function translateToolPart(part: OpencodeToolPart): UnifiedMessage | null {
     part_id: part.id,
     message_id: part.messageID,
     session_id: part.sessionID,
-    call_id: part.callID,
+    tool_use_id: part.callID,
     tool: part.tool,
   };
 
@@ -262,7 +262,15 @@ function translateToolPart(part: OpencodeToolPart): UnifiedMessage | null {
         },
       });
     case "pending":
-      return null;
+      return createUnifiedMessage({
+        type: "tool_progress",
+        role: "tool",
+        metadata: {
+          ...shared,
+          input: part.state.input,
+          status: "pending",
+        },
+      });
   }
 }
 

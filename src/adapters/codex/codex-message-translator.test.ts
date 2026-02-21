@@ -158,8 +158,14 @@ describe("codex-message-translator", () => {
         const result = translateCodexEvent(makeItemAddedFunctionCall())!;
         expect(result.metadata.name).toBe("shell");
         expect(result.metadata.arguments).toBe('{"command":"ls"}');
-        expect(result.metadata.call_id).toBe("call-1");
+        expect(result.metadata.tool_use_id).toBe("call-1");
         expect(result.metadata.item_id).toBe("fc-1");
+      });
+
+      it("uses canonical tool_use_id key (not call_id)", () => {
+        const result = translateCodexEvent(makeItemAddedFunctionCall())!;
+        expect(result.metadata.tool_use_id).toBe("call-1");
+        expect(result.metadata).not.toHaveProperty("call_id");
       });
     });
 
@@ -174,7 +180,7 @@ describe("codex-message-translator", () => {
       it("places output and status in metadata", () => {
         const result = translateCodexEvent(makeItemDoneFunctionOutput())!;
         expect(result.metadata.output).toBe("file1.ts\nfile2.ts");
-        expect(result.metadata.call_id).toBe("call-1");
+        expect(result.metadata.tool_use_id).toBe("call-1");
         expect(result.metadata.status).toBe("completed");
       });
     });
@@ -248,6 +254,25 @@ describe("codex-message-translator", () => {
         const result = translateCodexEvent(makeResponseFailed())!;
         expect(result.metadata.response_id).toBe("resp-2");
       });
+
+      it("sets canonical error_code in metadata", () => {
+        const event: CodexTurnEvent = {
+          type: "response.failed",
+          response: { id: "r-1", status: "failed", output: [] },
+        };
+        const result = translateCodexEvent(event)!;
+        expect(result.metadata.error_code).toBe("execution_error");
+        expect(result.metadata.is_error).toBe(true);
+      });
+
+      it("maps rate_limit status to rate_limit error_code", () => {
+        const event: CodexTurnEvent = {
+          type: "response.failed",
+          response: { id: "r-1", status: "rate_limited", output: [] },
+        };
+        const result = translateCodexEvent(event)!;
+        expect(result.metadata.error_code).toBe("rate_limit");
+      });
     });
 
     describe("null returns for events without items", () => {
@@ -304,7 +329,7 @@ describe("codex-message-translator", () => {
       expect(result.type).toBe("permission_request");
       expect(result.role).toBe("system");
       expect(result.metadata.tool_name).toBe("shell");
-      expect(result.metadata.call_id).toBe("call-3");
+      expect(result.metadata.tool_use_id).toBe("call-3");
     });
 
     it("includes full item details in metadata", () => {

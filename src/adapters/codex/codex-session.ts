@@ -852,7 +852,7 @@ export class CodexSession implements BackendSession {
           metadata: {
             name: item.name,
             arguments: item.arguments,
-            call_id: item.call_id,
+            tool_use_id: item.call_id,
             item_id: item.id,
             status: item.status,
             done: true,
@@ -864,7 +864,7 @@ export class CodexSession implements BackendSession {
           role: "tool",
           metadata: {
             output: item.output,
-            call_id: item.call_id,
+            tool_use_id: item.call_id,
             item_id: item.id,
             status: item.status,
           },

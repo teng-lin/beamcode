@@ -12,7 +12,11 @@
  * No side effects, no state mutation, no I/O.
  */
 
-import type { UnifiedContent, UnifiedMessage } from "../../core/types/unified-message.js";
+import type {
+  UnifiedContent,
+  UnifiedErrorCode,
+  UnifiedMessage,
+} from "../../core/types/unified-message.js";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 
 // ---------------------------------------------------------------------------
@@ -122,7 +126,7 @@ export function translateApprovalRequest(request: CodexApprovalRequest): Unified
         call_id: request.item.call_id,
       },
       tool_name: request.item.name,
-      call_id: request.item.call_id,
+      tool_use_id: request.item.call_id,
     },
   });
 }
@@ -209,7 +213,7 @@ function translateItemAdded(event: CodexTurnEvent): UnifiedMessage | null {
       metadata: {
         name: item.name,
         arguments: item.arguments,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
@@ -230,7 +234,7 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
       role: "tool",
       metadata: {
         output: item.output,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         status: item.status,
         item_id: item.id,
         output_index: event.output_index,
@@ -245,7 +249,7 @@ function translateItemDone(event: CodexTurnEvent): UnifiedMessage | null {
       metadata: {
         name: item.name,
         arguments: item.arguments,
-        call_id: item.call_id,
+        tool_use_id: item.call_id,
         item_id: item.id,
         status: item.status,
         output_index: event.output_index,
@@ -286,7 +290,7 @@ function translateCompleted(event: CodexTurnEvent): UnifiedMessage {
 }
 
 function translateFailed(event: CodexTurnEvent): UnifiedMessage {
-  const errorMsg = event.response?.status ?? "unknown_error";
+  const status = event.response?.status ?? "unknown_error";
   return createUnifiedMessage({
     type: "result",
     role: "system",
@@ -294,11 +298,37 @@ function translateFailed(event: CodexTurnEvent): UnifiedMessage {
       status: "failed",
       is_error: true,
       response_id: event.response?.id,
-      error: errorMsg,
-      error_code: "execution_error",
-      error_message: errorMsg,
+      error: status,
+      error_code: classifyCodexError(status),
+      error_message: humanizeCodexError(status),
     },
   });
+}
+
+function classifyCodexError(status: string): UnifiedErrorCode {
+  switch (status) {
+    case "rate_limited":
+      return "rate_limit";
+    case "incomplete":
+      return "output_length";
+    case "cancelled":
+      return "aborted";
+    default:
+      return "execution_error";
+  }
+}
+
+function humanizeCodexError(status: string): string {
+  switch (status) {
+    case "rate_limited":
+      return "Rate limit exceeded";
+    case "incomplete":
+      return "Output truncated (too long)";
+    case "cancelled":
+      return "Request cancelled";
+    default:
+      return `Execution failed: ${status}`;
+  }
 }
 
 /** Extract plain text from a CodexItem's content array. */

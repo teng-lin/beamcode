@@ -239,7 +239,11 @@ export type ConsumerMessage =
       output?: unknown;
       error?: unknown;
     }
-  | { type: "status_change"; status: "compacting" | "idle" | "running" | null }
+  | {
+      type: "status_change";
+      status: "compacting" | "idle" | "running" | null;
+      metadata?: Record<string, unknown>;
+    }
   | {
       type: "auth_status";
       isAuthenticating: boolean;

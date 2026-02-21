@@ -139,7 +139,12 @@ describe("SessionBridge Characterization - Backend → Consumer Message Shapes",
     expect(msgs[0]).toEqual({
       type: "status_change",
       status: "compacting",
+      metadata: {
+        uuid: "uuid-status",
+        session_id: "cli-abc",
+      },
     });
+    expect(msgs[0].metadata).not.toHaveProperty("permissionMode");
   });
 
   it("system.status null → status_change null broadcast shape", async () => {
@@ -161,7 +166,12 @@ describe("SessionBridge Characterization - Backend → Consumer Message Shapes",
     expect(msgs[0]).toEqual({
       type: "status_change",
       status: null,
+      metadata: {
+        uuid: "uuid-status",
+        session_id: "cli-abc",
+      },
     });
+    expect(msgs[0].metadata).not.toHaveProperty("permissionMode");
   });
 
   it("assistant → assistant broadcast shape", async () => {

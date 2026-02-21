@@ -201,12 +201,7 @@ export function mapPermissionRequest(
  */
 export function mapToolProgress(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
-  const toolUseId =
-    coerceString(m.tool_use_id) ??
-    coerceString(m.call_id) ??
-    coerceString(m.toolCallId) ??
-    coerceString(m.part_id) ??
-    "unknown";
+  const toolUseId = coerceString(m.tool_use_id) ?? coerceString(m.part_id) ?? "unknown";
   const toolName =
     coerceString(m.tool_name) ?? coerceString(m.tool) ?? coerceString(m.kind) ?? "tool";
   return {
@@ -222,8 +217,7 @@ export function mapToolProgress(msg: UnifiedMessage): ConsumerMessage {
  */
 export function mapToolUseSummary(msg: UnifiedMessage): ConsumerMessage {
   const m = msg.metadata;
-  const toolUseId =
-    coerceString(m.tool_use_id) ?? coerceString(m.call_id) ?? coerceString(m.toolCallId);
+  const toolUseId = coerceString(m.tool_use_id);
   const toolUseIds = normalizeToolUseIds(m.tool_use_ids, toolUseId);
   const mapped: Extract<ConsumerMessage, { type: "tool_use_summary" }> = {
     type: "tool_use_summary",

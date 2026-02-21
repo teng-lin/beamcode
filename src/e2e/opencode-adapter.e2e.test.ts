@@ -338,11 +338,11 @@ describe("E2E: OpencodeAdapter", () => {
 
     const messages = await collectUnifiedMessages(session, 3);
     expect(messages[0].type).toBe("tool_progress");
-    expect(messages[0].metadata.call_id).toBe("call-read-1");
+    expect(messages[0].metadata.tool_use_id).toBe("call-read-1");
     expect(messages[0].metadata.tool).toBe("read");
 
     expect(messages[1].type).toBe("tool_use_summary");
-    expect(messages[1].metadata.call_id).toBe("call-read-1");
+    expect(messages[1].metadata.tool_use_id).toBe("call-read-1");
     expect(messages[1].metadata.output).toContain("# beamcode");
     expect(messages[1].metadata.status).toBe("completed");
 
@@ -367,26 +367,23 @@ describe("E2E: OpencodeAdapter", () => {
 
     const messages = await collectUnifiedMessages(session, 2);
     expect(messages[0].type).toBe("tool_use_summary");
-    expect(messages[0].metadata.call_id).toBe("call-read-2");
+    expect(messages[0].metadata.tool_use_id).toBe("call-read-2");
     expect(messages[0].metadata.is_error).toBe(true);
     expect(messages[0].metadata.error).toContain("ENOENT");
 
     expect(messages[1].type).toBe("result");
   });
 
-  it("tool pending state is dropped (produces null)", async () => {
+  it("tool pending state surfaces as tool_progress", async () => {
     session = createSession();
     const iter = session.messages[Symbol.asyncIterator]();
 
     sub.push(buildOpencodeToolPendingEvent({ callId: "call-pending-1" }));
 
-    // Pending tool state should not produce a message
-    const outcome = await Promise.race([
-      iter.next().then(() => "message"),
-      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 30)),
-    ]);
-
-    expect(outcome).toBe("timeout");
+    const { value: msg } = await iter.next();
+    expect(msg.type).toBe("tool_progress");
+    expect(msg.metadata.status).toBe("pending");
+    expect(msg.metadata.tool_use_id).toBe("call-pending-1");
   });
 
   it("multiple tool calls in a single turn", async () => {
@@ -439,15 +436,15 @@ describe("E2E: OpencodeAdapter", () => {
 
     // Tool 1
     expect(messages[0].type).toBe("tool_progress");
-    expect(messages[0].metadata.call_id).toBe("call-1");
+    expect(messages[0].metadata.tool_use_id).toBe("call-1");
     expect(messages[1].type).toBe("tool_use_summary");
-    expect(messages[1].metadata.call_id).toBe("call-1");
+    expect(messages[1].metadata.tool_use_id).toBe("call-1");
 
     // Tool 2
     expect(messages[2].type).toBe("tool_progress");
-    expect(messages[2].metadata.call_id).toBe("call-2");
+    expect(messages[2].metadata.tool_use_id).toBe("call-2");
     expect(messages[3].type).toBe("tool_use_summary");
-    expect(messages[3].metadata.call_id).toBe("call-2");
+    expect(messages[3].metadata.tool_use_id).toBe("call-2");
 
     expect(messages[4].type).toBe("result");
   });

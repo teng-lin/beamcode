@@ -187,7 +187,7 @@ describe("E2E: CodexAdapter", () => {
 
     const { target: permReq } = await waitForUnifiedMessageType(session, "permission_request");
     expect(permReq.metadata.tool_name).toBe("bash");
-    expect(permReq.metadata.call_id).toBe("call-1");
+    expect(permReq.metadata.tool_use_id).toBe("call-1");
 
     // Approve
     session.send(createPermissionResponse("allow", permReq.id, { request_id: "fc-1" }));
@@ -991,7 +991,7 @@ describe("E2E: CodexAdapter", () => {
 
       const { target: msg } = await waitForUnifiedMessageType(session, "tool_progress");
       expect(msg.metadata.name).toBe("bash");
-      expect(msg.metadata.call_id).toBe("call-add-1");
+      expect(msg.metadata.tool_use_id).toBe("call-add-1");
       expect(msg.metadata.status).toBe("in_progress");
     });
 
@@ -1037,7 +1037,7 @@ describe("E2E: CodexAdapter", () => {
 
       const { target: msg } = await waitForUnifiedMessageType(session, "tool_use_summary");
       expect(msg.metadata.output).toBe("file1.txt\nfile2.txt");
-      expect(msg.metadata.call_id).toBe("call-out-1");
+      expect(msg.metadata.tool_use_id).toBe("call-out-1");
       expect(msg.metadata.status).toBe("completed");
     });
 
