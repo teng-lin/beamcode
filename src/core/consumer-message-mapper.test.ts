@@ -10,7 +10,28 @@ import {
   mapToolProgress,
   mapToolUseSummary,
 } from "./consumer-message-mapper.js";
+import type { UnifiedContent } from "./types/unified-message.js";
 import { createUnifiedMessage } from "./types/unified-message.js";
+
+function makeAssistantMsg(content: UnifiedContent[], messageId: string) {
+  return createUnifiedMessage({
+    type: "assistant",
+    role: "assistant",
+    content,
+    metadata: {
+      message_id: messageId,
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: null,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      parent_tool_use_id: null,
+    },
+  });
+}
 
 // ─── mapAssistantMessage ────────────────────────────────────────────────────
 
@@ -210,24 +231,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps thinking content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "thinking", thinking: "Let me analyze...", budget_tokens: 5000 }],
-      metadata: {
-        message_id: "msg-007",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
-
+    const msg = makeAssistantMsg(
+      [{ type: "thinking", thinking: "Let me analyze...", budget_tokens: 5000 }],
+      "msg-007",
+    );
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
     expect(assistant.message.content).toEqual([
@@ -236,24 +243,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps code content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "code", language: "typescript", code: "const x = 1;" }],
-      metadata: {
-        message_id: "msg-008",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
-
+    const msg = makeAssistantMsg(
+      [{ type: "code", language: "typescript", code: "const x = 1;" }],
+      "msg-008",
+    );
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
     expect(assistant.message.content).toEqual([
@@ -262,29 +255,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps image content blocks with flattened source", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [
-        {
-          type: "image",
-          source: { type: "base64", media_type: "image/png", data: "iVBOR..." },
-        },
-      ],
-      metadata: {
-        message_id: "msg-009",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
-
+    const msg = makeAssistantMsg(
+      [{ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR..." } }],
+      "msg-009",
+    );
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
     expect(assistant.message.content).toEqual([
@@ -293,24 +267,10 @@ describe("mapAssistantMessage", () => {
   });
 
   it("maps refusal content blocks", () => {
-    const msg = createUnifiedMessage({
-      type: "assistant",
-      role: "assistant",
-      content: [{ type: "refusal", refusal: "I cannot assist with that." }],
-      metadata: {
-        message_id: "msg-010",
-        model: "claude-sonnet-4-5-20250929",
-        stop_reason: null,
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-        parent_tool_use_id: null,
-      },
-    });
-
+    const msg = makeAssistantMsg(
+      [{ type: "refusal", refusal: "I cannot assist with that." }],
+      "msg-010",
+    );
     const result = mapAssistantMessage(msg);
     const assistant = result as Extract<typeof result, { type: "assistant" }>;
     expect(assistant.message.content).toEqual([
