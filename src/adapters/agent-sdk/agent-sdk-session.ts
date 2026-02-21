@@ -36,6 +36,9 @@ export class AgentSdkSession implements BackendSession {
   private readonly permissionBridge: PermissionBridge;
   private query: SdkQuery | null = null;
 
+  /** The backend session ID captured from system:init (for resume support). */
+  backendSessionId?: string;
+
   /**
    * Input queue for multi-turn conversations.
    * User messages are pushed here and consumed by the SDK's prompt iterable.
@@ -208,8 +211,7 @@ export class AgentSdkSession implements BackendSession {
         if (sdkMsg.type === "system" && (sdkMsg as Record<string, unknown>).subtype === "init") {
           const sessionId = (sdkMsg as Record<string, unknown>).session_id as string;
           if (sessionId) {
-            // Store the backend session ID for resume support
-            (this as { backendSessionId?: string }).backendSessionId = sessionId;
+            this.backendSessionId = sessionId;
           }
         }
 
@@ -292,7 +294,4 @@ export class AgentSdkSession implements BackendSession {
       } as IteratorResult<{ type: "user"; message: unknown }>);
     }
   }
-
-  /** The backend session ID captured from system:init (for resume support). */
-  backendSessionId?: string;
 }

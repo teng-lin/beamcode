@@ -216,12 +216,11 @@ describe("AgentSdkSession", () => {
         sessionId: "test-backend-id",
       });
 
-      // Consume at least one message to trigger system:init processing
+      // Consume at least one message to trigger system:init processing.
+      // backendSessionId is set before the message is enqueued, so it's
+      // available immediately after iter.next() resolves — no setTimeout needed.
       const iter = session.messages[Symbol.asyncIterator]();
       await iter.next();
-
-      // Wait a tick for the stream processing to capture the ID
-      await new Promise((r) => setTimeout(r, 10));
 
       expect(session.backendSessionId).toBe("backend-session-1");
 
