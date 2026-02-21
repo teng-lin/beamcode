@@ -44,11 +44,11 @@ describe("createAdapterResolver", () => {
     expect(a1).toBe(a2);
   });
 
-  it("returns fresh Codex instances (not singleton)", () => {
+  it("caches non-Claude adapters after first resolve", () => {
     const resolver = createAdapterResolver(mockDeps);
     const a1 = resolver.resolve("codex");
     const a2 = resolver.resolve("codex");
-    expect(a1).not.toBe(a2);
+    expect(a1).toBe(a2);
   });
 
   it("eagerly creates claude adapter singleton on construction", () => {
@@ -67,5 +67,24 @@ describe("createAdapterResolver", () => {
   it("returns available adapter names", () => {
     const resolver = createAdapterResolver(mockDeps);
     expect(resolver.availableAdapters).toEqual(["claude", "codex", "acp", "gemini", "opencode"]);
+  });
+
+  it("stopAll() calls stop() on adapters that support it", async () => {
+    const resolver = createAdapterResolver(mockDeps);
+    // Resolve opencode to populate the cache with an adapter that has stop()
+    const opencode = resolver.resolve("opencode");
+    const stopSpy = vi.spyOn(opencode as any, "stop").mockResolvedValue(undefined);
+
+    await resolver.stopAll!();
+    expect(stopSpy).toHaveBeenCalledOnce();
+  });
+
+  it("stopAll() clears adapter cache", async () => {
+    const resolver = createAdapterResolver(mockDeps);
+    const a1 = resolver.resolve("codex");
+    await resolver.stopAll!();
+    // After stopAll, resolving again should create a new instance
+    const a2 = resolver.resolve("codex");
+    expect(a1).not.toBe(a2);
   });
 });
