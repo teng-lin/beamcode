@@ -1,8 +1,8 @@
 /**
- * ACP Inbound Translator — Phase 3
+ * ACP Inbound Translator (T2: UnifiedMessage → ACP JSON-RPC action).
  *
- * Pure function that translates UnifiedMessage → ACP JSON-RPC action.
- * No side effects, no state mutation, no I/O.
+ * Pure function that maps outbound UnifiedMessages to ACP protocol actions
+ * (request, notification, or response). No side effects, no state, no I/O.
  */
 
 import type { UnifiedMessage } from "../../core/types/unified-message.js";

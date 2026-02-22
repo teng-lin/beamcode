@@ -107,7 +107,7 @@ function reduceResult(state: SessionState, msg: UnifiedMessage): SessionState {
     newState.last_duration_api_ms = m.duration_api_ms;
   }
 
-  // Compute context usage from modelUsage — mirrors SessionBridge.handleResultMessage
+  // Compute context usage from modelUsage
   const modelUsage = m.modelUsage as
     | Record<
         string,

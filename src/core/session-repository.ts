@@ -1,3 +1,15 @@
+/**
+ * SessionRepository — in-memory session store with persistence support.
+ *
+ * Owns the Session type definition and the in-memory session map. Provides
+ * CRUD operations, snapshot extraction for the HTTP API, and disk
+ * persistence/restore for server restarts. Each Session holds all per-session
+ * runtime state: consumer sockets, backend connection, message history,
+ * pending permissions, and slash command registry.
+ *
+ * @module SessionControl
+ */
+
 import type { ConsumerIdentity, ConsumerRole } from "../interfaces/auth.js";
 import type { RateLimiter } from "../interfaces/rate-limiter.js";
 import type { SessionStorage } from "../interfaces/storage.js";

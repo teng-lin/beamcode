@@ -1,8 +1,12 @@
 /**
- * ConsumerGatekeeper — extracted from SessionBridge (Phase 3).
+ * ConsumerGatekeeper — ConsumerPlane authentication, authorization, and rate limiting.
  *
- * Handles consumer authentication, RBAC, and rate limiting.
- * Does NOT orchestrate acceptConsumer (that stays on the bridge).
+ * Handles consumer authentication (async with timeout), RBAC enforcement
+ * (participant vs. observer roles), and per-consumer rate limiting.
+ * Does NOT orchestrate the full consumer acceptance flow — that responsibility
+ * belongs to ConsumerGateway.
+ *
+ * @module ConsumerPlane
  */
 
 import type { AuthContext, Authenticator, ConsumerIdentity } from "../interfaces/auth.js";

@@ -1,3 +1,9 @@
+/**
+ * Process spawning and lifecycle management.
+ * Abstracts OS-level process operations so adapters (Node, mock) can be swapped.
+ * @module
+ */
+
 /** A handle to a spawned process — abstracts Bun.Subprocess and Node ChildProcess. */
 export interface ProcessHandle {
   readonly pid: number;
@@ -8,6 +14,7 @@ export interface ProcessHandle {
   readonly stderr: ReadableStream<Uint8Array> | null;
 }
 
+/** Options for spawning a child process. */
 export interface SpawnOptions {
   command: string;
   args: string[];
@@ -15,6 +22,7 @@ export interface SpawnOptions {
   env?: Record<string, string | undefined>;
 }
 
+/** Spawns and monitors child processes for backend CLI adapters. */
 export interface ProcessManager {
   spawn(options: SpawnOptions): ProcessHandle;
   /** Check if a PID is alive (signal 0). */

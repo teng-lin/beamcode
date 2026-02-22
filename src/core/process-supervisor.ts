@@ -1,8 +1,19 @@
-import { noopLogger } from "../utils/noop-logger.js";
+/**
+ * ProcessSupervisor — abstract base for managing spawned CLI child processes.
+ *
+ * Provides kill escalation (SIGTERM → SIGKILL), circuit breaker integration
+ * for restart resilience, PID tracking per session, and output piping with
+ * event emission. Subclasses implement `buildSpawnArgs` to define the
+ * command/args/env for each adapter.
+ *
+ * @module BackendPlane
+ */
+
 import { toBeamCodeError } from "../errors.js";
 import type { CircuitBreaker } from "../interfaces/circuit-breaker.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { ProcessHandle, ProcessManager } from "../interfaces/process-manager.js";
+import { noopLogger } from "../utils/noop-logger.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 
 /** Circuit breaker snapshot included in process:exited when breaker is not CLOSED. */

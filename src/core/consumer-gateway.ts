@@ -1,3 +1,14 @@
+/**
+ * ConsumerGateway — ConsumerPlane inbound transport coordinator.
+ *
+ * Owns the full consumer WebSocket lifecycle: open (auth + accept), message
+ * (validate, authorize, rate-limit, dispatch), and close (cleanup + presence).
+ * Delegates auth decisions to ConsumerGatekeeper and message routing to
+ * SessionBridge/SessionRuntime.
+ *
+ * @module ConsumerPlane
+ */
+
 import type { AuthContext, ConsumerIdentity } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import { CONSUMER_PROTOCOL_VERSION } from "../types/consumer-messages.js";

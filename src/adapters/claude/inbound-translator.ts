@@ -1,7 +1,8 @@
 /**
- * Claude Inbound Translator
+ * Claude Inbound Translator (T2: UnifiedMessage → Claude NDJSON).
  *
- * Converts UnifiedMessage → NDJSON string (Claude-specific wire format).
+ * Converts outbound UnifiedMessages into the NDJSON strings that the
+ * Claude Code CLI expects on its WebSocket connection.
  */
 
 import type { UnifiedMessage } from "../../core/types/unified-message.js";

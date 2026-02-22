@@ -1,3 +1,13 @@
+/**
+ * DomainEventBus — runtime-only pub/sub event bus for cross-component coordination.
+ *
+ * Publishes typed domain events (bridge, launcher) so decoupled policies
+ * (IdlePolicy, ReconnectPolicy) can react without direct coupling to the
+ * bridge or coordinator. Events are NOT forwarded to WebSocket consumers.
+ *
+ * @module SessionControl
+ */
+
 import type { BridgeEventMap, LauncherEventMap } from "../types/events.js";
 import type {
   DomainBridgeEventType,

@@ -1,5 +1,5 @@
 /**
- * Team Tool Correlation Buffer — Phase 5.3
+ * Team Tool Correlation Buffer — tool_use ↔ tool_result pairing for team operations.
  *
  * Buffers pending team tool_use blocks and correlates them with incoming
  * tool_results. Solves the timing issue where tool_use arrives in one
@@ -8,6 +8,8 @@
  * - Keyed by toolUseId (tool_use.id ↔ tool_result.tool_use_id)
  * - Default TTL: 30 seconds
  * - On is_error results: entry cleared, pair returned with error flag
+ *
+ * @module MessagePlane
  */
 
 import type { RecognizedTeamToolUse } from "./team-tool-recognizer.js";

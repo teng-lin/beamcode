@@ -1,8 +1,13 @@
 /**
- * ConsumerMessageMapper — Pure mapping functions from UnifiedMessage to ConsumerMessage.
+ * ConsumerMessageMapper — T4 translation boundary (UnifiedMessage → ConsumerMessage).
  *
- * Extracted from SessionBridge's handleUnified* methods (Phase 5b refactoring).
- * These functions are **pure** — no side effects (no broadcasting, persisting, or emitting events).
+ * Pure mapping functions that convert internal UnifiedMessage types into the
+ * consumer-facing ConsumerMessage wire format. These functions are **pure** —
+ * no side effects (no broadcasting, persisting, or emitting events).
+ *
+ * Called by UnifiedMessageRouter as part of the T4 translation boundary.
+ *
+ * @module MessagePlane
  */
 
 import type { PermissionRequest } from "../types/cli-messages.js";

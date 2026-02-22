@@ -1,3 +1,11 @@
+/**
+ * Node.js WebSocket server adapter using the `ws` package.
+ *
+ * Routes incoming connections to CLI or consumer handlers based on URL path:
+ *   /ws/cli/:sessionId      → CLI backend (inverted connection from Claude CLI)
+ *   /ws/consumer/:sessionId → browser/mobile consumer
+ */
+
 import type { WebSocket } from "ws";
 import { WebSocketServer as WSServer } from "ws";
 import type { AuthContext } from "../interfaces/auth.js";

@@ -1,3 +1,13 @@
+/**
+ * SimpleSessionRegistry — lightweight in-memory session registry for forward-connection adapters.
+ *
+ * Used by adapters (ACP, Gemini, Codex, etc.) that don't spawn local processes
+ * but still need to register sessions for the HTTP API and launcher state.
+ * Backed by optional LauncherStateStorage for persistence across restarts.
+ *
+ * @module SessionControl
+ */
+
 import type { LauncherStateStorage } from "../interfaces/storage.js";
 import type { SessionInfo } from "../types/session-state.js";
 import type { RegisterSessionInput, SessionRegistry } from "./interfaces/session-registry.js";

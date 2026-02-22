@@ -1,9 +1,15 @@
 /**
- * BackendConnector -- extracted from SessionBridge (Phase 2).
+ * BackendConnector — BackendPlane lifecycle manager.
  *
- * Manages the lifecycle of BackendAdapter sessions: connect, disconnect,
- * send, and the async message consumption loop. SessionBridge delegates
- * to this class while retaining the public API surface.
+ * Manages BackendAdapter sessions: connect, disconnect, send, and the async
+ * message consumption loop. SessionBridge delegates backend operations here
+ * while retaining the public API surface.
+ *
+ * Also handles slash-command passthrough: when a consumer sends a slash command
+ * that the local registry cannot handle, BackendConnector intercepts the CLI's
+ * response messages and routes them back as `slash_command_result` events.
+ *
+ * @module BackendPlane
  */
 
 import type { Logger } from "../interfaces/logger.js";

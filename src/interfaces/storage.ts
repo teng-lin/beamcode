@@ -12,7 +12,7 @@ export interface SessionStorage {
   setArchived(sessionId: string, archived: boolean): boolean;
 }
 
-/** Separate storage for launcher state (per review finding A1). */
+/** Separate storage for launcher state, decoupled from session persistence. */
 export interface LauncherStateStorage {
   saveLauncherState(data: unknown): void;
   loadLauncherState<T>(): T | null;

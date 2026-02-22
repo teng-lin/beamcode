@@ -1,9 +1,12 @@
 /**
- * AcpAdapter — Phase 3
+ * AcpAdapter — BackendAdapter for ACP (Agent Client Protocol) agents over stdio.
  *
- * Implements BackendAdapter for the ACP (Agent Client Protocol) over stdio.
- * Spawns an ACP-compliant agent subprocess, performs the initialize handshake,
- * and returns an AcpSession.
+ * Wraps any ACP-compliant CLI (e.g. Goose, Gemini CLI) by spawning a subprocess
+ * and communicating via newline-delimited JSON-RPC 2.0 on stdin/stdout.
+ *
+ * T2 (outbound): handled by AcpSession.send() → inbound-translator.ts
+ * T3 (inbound):  handled by AcpSession.messages → outbound-translator.ts
+ * Native protocol: JSON-RPC 2.0 over stdio (newline-delimited)
  */
 
 import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";

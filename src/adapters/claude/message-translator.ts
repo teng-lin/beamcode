@@ -1,8 +1,8 @@
 /**
- * Claude Message Translator — Phase 1a.1
+ * Claude Message Translator (T3: CLIMessage → UnifiedMessage).
  *
- * Pure function that translates CLIMessage → UnifiedMessage.
- * No side effects, no state mutation, no I/O.
+ * Pure function that translates incoming Claude CLI NDJSON messages
+ * into UnifiedMessage envelopes. No side effects, no state, no I/O.
  */
 
 import type { UnifiedContent, UnifiedMessage } from "../../core/types/unified-message.js";

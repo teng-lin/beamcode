@@ -1,3 +1,18 @@
+/**
+ * SessionBridge — central orchestrator that wires all four bounded contexts together.
+ *
+ * Owns the session lifecycle and delegates to specialized components:
+ * - **ConsumerPlane**: ConsumerGateway, ConsumerGatekeeper, ConsumerBroadcaster
+ * - **BackendPlane**: BackendConnector
+ * - **MessagePlane**: UnifiedMessageRouter, ConsumerMessageMapper, InboundNormalizer
+ * - **SessionControl**: CapabilitiesPolicy, GitInfoTracker, SessionRepository
+ *
+ * Also manages the SessionRuntime instances (one per session) and the optional
+ * SessionRuntimeShadow parity validation layer.
+ *
+ * @module SessionControl
+ */
+
 import { randomUUID } from "node:crypto";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";

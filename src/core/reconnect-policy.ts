@@ -1,3 +1,13 @@
+/**
+ * ReconnectPolicy — watchdog for CLI processes that fail to reconnect after restart.
+ *
+ * On server startup, watches sessions in "starting" state. If a CLI process
+ * doesn't reconnect within the grace period, automatically relaunches it.
+ * Subscribes to DomainEventBus to clear watchdogs when processes connect.
+ *
+ * @module SessionControl
+ */
+
 import type {
   ReconnectController as IReconnectController,
   ReconnectControllerDeps,

@@ -1,3 +1,12 @@
+/**
+ * Typed error hierarchy for BeamCode.
+ *
+ * All domain errors extend {@link BeamCodeError} which carries a machine-readable
+ * `code` string. Use {@link toBeamCodeError} to safely wrap unknown thrown values.
+ * @module
+ */
+
+/** Base error for all BeamCode domain errors. Carries a machine-readable `code`. */
 export class BeamCodeError extends Error {
   readonly code: string;
 
@@ -10,6 +19,7 @@ export class BeamCodeError extends Error {
 
 // ── Domain errors ──
 
+/** Thrown when a storage read/write operation fails. */
 export class StorageError extends BeamCodeError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "STORAGE", options);
@@ -17,6 +27,7 @@ export class StorageError extends BeamCodeError {
   }
 }
 
+/** Thrown when a child process operation (spawn, kill, signal) fails. */
 export class ProcessError extends BeamCodeError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, "PROCESS", options);

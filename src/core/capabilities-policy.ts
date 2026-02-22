@@ -1,9 +1,14 @@
 /**
- * CapabilitiesPolicy — extracted from SessionBridge.
+ * CapabilitiesPolicy — SessionControl initialize handshake manager.
  *
- * Manages the initialize handshake: sending the initialize control_request,
+ * Manages the initialize handshake: sending the `initialize` control_request,
  * handling the control_response (success or error), applying capabilities to
  * session state, and cleaning up on timeout or cancellation.
+ *
+ * Capabilities (commands, models, account info) are discovered at connect time
+ * and broadcast to all consumers via `capabilities_ready`.
+ *
+ * @module SessionControl
  */
 
 import { randomUUID } from "node:crypto";

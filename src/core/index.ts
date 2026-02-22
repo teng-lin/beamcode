@@ -1,4 +1,4 @@
-// Interfaces
+// ─── Class exports ───────────────────────────────────────────────────────────
 
 export { BackendConnector } from "./backend-connector.js";
 export { CapabilitiesPolicy } from "./capabilities-policy.js";
@@ -6,7 +6,8 @@ export { CliGateway } from "./cli-gateway.js";
 export { ConsumerGateway } from "./consumer-gateway.js";
 export { DomainEventBus } from "./domain-event-bus.js";
 export { IdlePolicy } from "./idle-policy.js";
-// Core modules
+
+// ─── Interface / type re-exports ─────────────────────────────────────────────
 export type {
   BackendAdapter,
   BackendCapabilities,
@@ -75,7 +76,7 @@ export type {
   TeamTaskEvent,
 } from "./types/team-types.js";
 export { isTeamMember, isTeamState, isTeamTask } from "./types/team-types.js";
-// Types
+// ─── Unified message types ───────────────────────────────────────────────────
 export type {
   UnifiedContent,
   UnifiedMessage,

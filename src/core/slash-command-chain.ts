@@ -1,3 +1,15 @@
+/**
+ * SlashCommandChain — chain-of-responsibility dispatcher for slash commands.
+ *
+ * Routes incoming slash commands through an ordered chain of handlers:
+ * 1. **LocalHandler** — handles `/help` locally (no CLI needed)
+ * 2. **AdapterNativeHandler** — handles commands via adapter-specific executor
+ * 3. **PassthroughHandler** — forwards commands to the CLI as user messages
+ * 4. **UnsupportedHandler** — terminal fallback for unrecognized commands
+ *
+ * @module MessagePlane
+ */
+
 import type { BridgeEventMap } from "../types/events.js";
 import type { ConsumerBroadcaster } from "./consumer-broadcaster.js";
 import { type MessageTracer, noopTracer, type TraceOutcome } from "./message-tracer.js";

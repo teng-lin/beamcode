@@ -1,3 +1,12 @@
+/**
+ * SocketRegistry — manages pending WebSocket registrations for
+ * the Claude adapter's inverted connection pattern.
+ *
+ * When ClaudeAdapter.connect() is called, it registers a pending entry.
+ * When the CLI subprocess connects back via WebSocket, deliverSocket()
+ * resolves the pending promise, completing the session handshake.
+ */
+
 import type WebSocket from "ws";
 
 interface PendingEntry {

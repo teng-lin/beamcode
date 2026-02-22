@@ -1,8 +1,9 @@
 /**
- * AcpSession — Phase 3
+ * AcpSession — a live ACP session wrapping a subprocess.
  *
- * A live ACP session wrapping a subprocess. Implements BackendSession by
- * translating UnifiedMessages ↔ JSON-RPC messages over stdio.
+ * Implements BackendSession by translating UnifiedMessages ↔ JSON-RPC 2.0
+ * messages over stdio. Handles the T2/T3 message loop, request/response
+ * correlation, and streaming text accumulation for turn completion.
  */
 
 import type { ChildProcess } from "node:child_process";

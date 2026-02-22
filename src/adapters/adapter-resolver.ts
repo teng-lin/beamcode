@@ -1,3 +1,10 @@
+/**
+ * Adapter resolver — maps adapter names to BackendAdapter instances.
+ *
+ * Eagerly constructs the ClaudeAdapter (its SocketRegistry must be a singleton
+ * for inverted connections) and lazily creates others on first use.
+ */
+
 import type { AdapterResolver } from "../core/interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "../core/interfaces/backend-adapter.js";
 import {

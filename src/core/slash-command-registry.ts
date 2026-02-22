@@ -1,3 +1,17 @@
+/**
+ * SlashCommandRegistry — per-session command registry.
+ *
+ * Maintains the merged set of slash commands from three sources:
+ * - **built-in**: Commands BeamCode handles without the CLI (e.g., `/help`)
+ * - **cli**: Commands reported by the backend during initialize
+ * - **skill**: Skill-provided commands discovered via session_init
+ *
+ * Used by SlashCommandExecutor to build `/help` output and by
+ * SlashCommandChain to determine command routing.
+ *
+ * @module MessagePlane
+ */
+
 export type CommandCategory = "consumer" | "passthrough";
 export type CommandSource = "built-in" | "cli" | "skill";
 

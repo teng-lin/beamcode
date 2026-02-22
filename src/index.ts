@@ -1,4 +1,10 @@
-// Core interfaces
+/**
+ * BeamCode public API barrel.
+ *
+ * Re-exports core classes, interfaces, types, adapters, and utilities that make up
+ * the public surface area of the `beamcode` package.
+ * @module
+ */
 
 export type { ClaudeLauncherOptions } from "./adapters/claude/claude-launcher.js";
 export {

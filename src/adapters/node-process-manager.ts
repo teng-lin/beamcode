@@ -33,7 +33,7 @@ export class NodeProcessManager implements ProcessManager {
       ? (Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>)
       : null;
 
-    // Fabricate the exited Promise from the "exit" event (M3)
+    // Fabricate the exited Promise from the "exit" event
     const exited = new Promise<number | null>((resolve) => {
       child.on("exit", (code, signal) => {
         // null code when killed by signal

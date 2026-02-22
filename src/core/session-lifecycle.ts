@@ -1,3 +1,13 @@
+/**
+ * Session Lifecycle — state machine definition for session lifecycle transitions.
+ *
+ * Defines the allowed lifecycle states and transition rules. Used by
+ * SessionRuntime to enforce valid state transitions (e.g., a session in
+ * "closing" state can only transition to "closed").
+ *
+ * @module SessionControl
+ */
+
 export const LIFECYCLE_STATES = [
   "starting",
   "awaiting_backend",

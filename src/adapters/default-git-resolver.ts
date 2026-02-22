@@ -3,8 +3,7 @@ import type { GitInfo, GitInfoResolver } from "../interfaces/git-resolver.js";
 
 /**
  * Default git info resolver using execFileSync.
- * Extracted from ws-bridge.ts:386-424.
- * Uses execFileSync instead of execSync to prevent command injection (S1).
+ * Uses execFileSync instead of execSync to prevent command injection.
  */
 export class DefaultGitResolver implements GitInfoResolver {
   private timeoutMs: number;
@@ -46,7 +45,7 @@ export class DefaultGitResolver implements GitInfoResolver {
         ahead = a || 0;
         behind = b || 0;
       } catch {
-        // No upstream configured — leave ahead/behind undefined (M4)
+        // No upstream configured — leave ahead/behind undefined
       }
 
       return { branch, isWorktree, repoRoot, ahead, behind };

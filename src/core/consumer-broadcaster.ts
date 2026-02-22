@@ -1,8 +1,12 @@
 /**
- * ConsumerBroadcaster — extracted from SessionBridge (Phase 2).
+ * ConsumerBroadcaster — ConsumerPlane outbound transport.
  *
- * Handles all consumer-facing transport: broadcasting to all consumers,
- * broadcasting to participants only, and sending to individual consumers.
+ * Handles all consumer-facing message delivery: broadcasting to all consumers
+ * in a session, broadcasting to participants only (excluding observers), and
+ * sending to individual consumer sockets. Includes backpressure protection
+ * to prevent slow consumers from blocking the message pipeline.
+ *
+ * @module ConsumerPlane
  */
 
 import type { ConsumerIdentity } from "../interfaces/auth.js";
