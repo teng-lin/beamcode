@@ -27,6 +27,9 @@ import type { SessionCoordinatorEventMap } from "../types/events.js";
 import { noopLogger } from "../utils/noop-logger.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
+import { BackendRecoveryService } from "./coordinator/backend-recovery-service.js";
+import { ProcessLogService } from "./coordinator/process-log-service.js";
+import { StartupRestoreService } from "./coordinator/startup-restore-service.js";
 import { DomainEventBus } from "./domain-event-bus.js";
 import { IdlePolicy } from "./idle-policy.js";
 import type { CliAdapterName } from "./interfaces/adapter-names.js";
@@ -87,8 +90,9 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   private transportHub: SessionTransportHub;
   private reconnectController: IReconnectController;
   private idleSessionReaper: IIdleSessionReaper;
-  private relaunchingSet = new Set<string>();
-  private relaunchDedupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private processLogService = new ProcessLogService();
+  private startupRestoreService: StartupRestoreService;
+  private recoveryService: BackendRecoveryService;
   private eventCleanups: (() => void)[] = [];
   private started = false;
 
@@ -138,6 +142,21 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       logger: this.logger,
       idleSessionTimeoutMs: this.config.idleSessionTimeoutMs,
       domainEvents: this.domainEvents,
+    });
+    this.startupRestoreService = new StartupRestoreService({
+      launcher: this.launcher,
+      registry: this.registry,
+      bridge: this.bridge,
+      logger: this.logger,
+    });
+    this.recoveryService = new BackendRecoveryService({
+      launcher: this.launcher,
+      registry: this.registry,
+      bridge: this.bridge,
+      logger: this.logger,
+      relaunchDedupMs: this.config.relaunchDedupMs,
+      initializeTimeoutMs: this.config.initializeTimeoutMs,
+      killGracePeriodMs: this.config.killGracePeriodMs,
     });
   }
 
@@ -249,13 +268,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
 
     this.reconnectController.stop();
     this.idleSessionReaper.stop();
-
-    // Clear dedup timers and state to prevent stale callbacks after shutdown
-    for (const timer of this.relaunchDedupTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.relaunchDedupTimers.clear();
-    this.relaunchingSet.clear();
+    this.recoveryService.stop();
 
     await this.transportHub.stop();
 
@@ -279,12 +292,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     }
 
     // Clear relaunch dedup state
-    const dedupTimer = this.relaunchDedupTimers.get(sessionId);
-    if (dedupTimer) {
-      clearTimeout(dedupTimer);
-      this.relaunchDedupTimers.delete(sessionId);
-    }
-    this.relaunchingSet.delete(sessionId);
+    this.recoveryService.clearDedupState(sessionId);
 
     // Close WS connections and remove per-session JSON from storage
     await this.bridge.closeSession(sessionId);
@@ -294,10 +302,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
 
     return true;
   }
-
-  /** Ring buffer for process output per session. */
-  private processLogBuffers = new Map<string, string[]>();
-  private static readonly MAX_LOG_LINES = 500;
 
   /**
    * Register an event listener and record a cleanup function so it can be
@@ -324,71 +328,12 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   }
 
   private handleProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
-    const redacted = redactSecrets(data);
-    const buffer = this.processLogBuffers.get(sessionId) ?? [];
-    const lines = redacted.split("\n").filter((l) => l.trim());
-    buffer.push(...lines);
-    if (buffer.length > SessionCoordinator.MAX_LOG_LINES) {
-      buffer.splice(0, buffer.length - SessionCoordinator.MAX_LOG_LINES);
-    }
-    this.processLogBuffers.set(sessionId, buffer);
+    const redacted = this.processLogService.append(sessionId, stream, data);
     this.bridge.broadcastProcessOutput(sessionId, stream, redacted);
   }
 
   private async handleBackendRelaunchNeeded(sessionId: string): Promise<void> {
-    if (this.relaunchingSet.has(sessionId)) return;
-
-    const info = this.registry.getSession(sessionId);
-    if (!info || info.archived) return;
-
-    // Inverted-connection sessions have a PID (launched process connects back):
-    // the spawned CLI connects back to us via WebSocket.
-    if (info.pid) {
-      if (info.state === "starting") {
-        // Process just launched — waiting for CLI to connect back. Don't relaunch.
-        return;
-      }
-      this.relaunchingSet.add(sessionId);
-      this.logger.info(`Auto-relaunching backend for session ${sessionId}`);
-      try {
-        await this.launcher.relaunch(sessionId);
-      } finally {
-        const timer = setTimeout(() => {
-          if (!this.started) return;
-          this.relaunchingSet.delete(sessionId);
-          this.relaunchDedupTimers.delete(sessionId);
-        }, this.config.relaunchDedupMs);
-        this.relaunchDedupTimers.set(sessionId, timer);
-      }
-      return;
-    }
-
-    // Direct-connection sessions (no PID) — reconnect via bridge
-    if (!this.bridge.isBackendConnected(sessionId)) {
-      this.relaunchingSet.add(sessionId);
-      this.logger.info(
-        `Auto-reconnecting ${info.adapterName ?? "unknown"} backend for session ${sessionId}`,
-      );
-      try {
-        await this.bridge.connectBackend(sessionId, {
-          adapterOptions: {
-            cwd: info.cwd,
-            initializeTimeoutMs: this.config.initializeTimeoutMs,
-            killGracePeriodMs: this.config.killGracePeriodMs,
-          },
-        });
-        this.registry.markConnected(sessionId);
-      } catch (err) {
-        this.logger.error(`Failed to reconnect backend for session ${sessionId}: ${err}`);
-      } finally {
-        const timer = setTimeout(() => {
-          if (!this.started) return;
-          this.relaunchingSet.delete(sessionId);
-          this.relaunchDedupTimers.delete(sessionId);
-        }, this.config.relaunchDedupMs);
-        this.relaunchDedupTimers.set(sessionId, timer);
-      }
-    }
+    return this.recoveryService.handleRelaunchNeeded(sessionId);
   }
 
   private wireEvents(): void {
@@ -505,7 +450,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
 
     // Clean up process log buffer when a session is closed.
     this.trackDomainListener("session:closed", ({ payload }) => {
-      this.processLogBuffers.delete(payload.sessionId);
+      this.processLogService.cleanup(payload.sessionId);
     });
 
     // Route policy advisory through runtime ownership boundary.
@@ -543,35 +488,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   }
 
   private restoreFromStorage(): void {
-    // Launcher must restore BEFORE bridge (I6)
-    const launcherCount = this.launcher.restoreFromStorage();
-
-    // If registry is separate from launcher, restore it too
-    let registryCount = 0;
-    if (this.registry !== this.launcher) {
-      registryCount = this.registry.restoreFromStorage?.() ?? 0;
-    }
-
-    const bridgeCount = this.bridge.restoreFromStorage();
-
-    const totalRestored = launcherCount + registryCount + bridgeCount;
-    if (totalRestored > 0) {
-      this.logger.info(
-        `Restored ${launcherCount} launcher, ${registryCount} registry, and ${bridgeCount} bridge session(s) from storage`,
-      );
-    }
-
-    // Mark direct-connection sessions (no PID) as "exited" so the reconnect
-    // watchdog / relaunch handler will re-establish their backend connection
-    // when a consumer connects.
-    for (const info of this.registry.listSessions()) {
-      if (!info.pid && !info.archived && info.adapterName) {
-        info.state = "exited";
-        this.logger.info(
-          `Restored direct-connection session ${info.sessionId} (${info.adapterName}) — marked for reconnect`,
-        );
-      }
-    }
+    this.startupRestoreService.restore();
   }
 
   /**
