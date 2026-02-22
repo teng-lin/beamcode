@@ -250,35 +250,6 @@ describe("SessionCoordinator.createSession", () => {
   });
 });
 
-describe("SessionCoordinator runtime mode", () => {
-  it("uses legacy mode by default", () => {
-    const pm = new TestProcessManager();
-    const storage = new MemoryStorage();
-    const mgr = new SessionCoordinator({
-      config: { port: 3456 },
-      storage,
-      logger: noopLogger,
-      launcher: createLauncher(pm, storage),
-    });
-
-    expect(mgr.coreRuntimeMode).toBe("legacy");
-  });
-
-  it("accepts explicit runtime mode", () => {
-    const pm = new TestProcessManager();
-    const storage = new MemoryStorage();
-    const mgr = new SessionCoordinator({
-      config: { port: 3456 },
-      storage,
-      logger: noopLogger,
-      launcher: createLauncher(pm, storage),
-      runtimeMode: "vnext_shadow",
-    });
-
-    expect(mgr.coreRuntimeMode).toBe("vnext_shadow");
-    expect(mgr.bridge.coreRuntimeMode).toBe("vnext_shadow");
-  });
-});
 
 describe("SessionCoordinator.deleteSession", () => {
   it("deletes session with a PID (claude)", async () => {

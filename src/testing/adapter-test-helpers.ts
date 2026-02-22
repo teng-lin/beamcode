@@ -20,7 +20,6 @@ import type {
   ConnectOptions,
 } from "../core/interfaces/backend-adapter.js";
 import type { MessageTracer } from "../core/message-tracer.js";
-import type { CoreRuntimeMode } from "../core/runtime-mode.js";
 import { SessionBridge } from "../core/session-bridge.js";
 import type { UnifiedMessage } from "../core/types/unified-message.js";
 import { createUnifiedMessage } from "../core/types/unified-message.js";
@@ -163,7 +162,6 @@ export function createBridgeWithAdapter(options?: {
   adapter?: BackendAdapter;
   config?: Record<string, unknown>;
   rateLimiterFactory?: RateLimiterFactory;
-  runtimeMode?: CoreRuntimeMode;
   tracer?: MessageTracer;
 }) {
   const storage = options?.storage ?? new MemoryStorage();
@@ -174,7 +172,6 @@ export function createBridgeWithAdapter(options?: {
     logger: noopLogger,
     adapter,
     rateLimiterFactory: options?.rateLimiterFactory,
-    runtimeMode: options?.runtimeMode,
     tracer: options?.tracer,
   });
   return { bridge, storage, adapter: adapter as MockBackendAdapter };
