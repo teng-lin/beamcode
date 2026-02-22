@@ -1,3 +1,13 @@
+/**
+ * SessionCoordinator — top-level facade and entry point.
+ *
+ * Owns the session registry and wires the transport layer (ConsumerGateway,
+ * BackendConnector), policy services (ReconnectPolicy, IdlePolicy), and the
+ * DomainEventBus. Each accepted session gets one SessionRuntime. Consumers
+ * and backends connect here; all session lifecycle events flow through this
+ * class and are published to the bus for other subsystems to observe.
+ */
+
 import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 import type { Authenticator } from "../interfaces/auth.js";

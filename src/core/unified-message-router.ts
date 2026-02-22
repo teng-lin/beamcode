@@ -1,10 +1,13 @@
 /**
- * UnifiedMessageRouter — extracted from SessionBridge (Phase 3 / H1).
+ * UnifiedMessageRouter — T4 translation boundary (UnifiedMessage → ConsumerMessage).
  *
- * Routes incoming UnifiedMessages to the appropriate handler, applying state
- * reduction and emitting side effects (broadcasts, persistence, events).
+ * Routes backend UnifiedMessages to the appropriate handler: applies state
+ * reduction, persists to message history, and broadcasts ConsumerMessages to
+ * connected consumers. Decides what reaches consumers (e.g. text_delta,
+ * tool_use) vs. what is handled internally (e.g. session_lifecycle,
+ * control_response).
  *
- * Exposes a single `route(session, msg)` method.
+ * Exposes a single `route(session, msg)` entry point.
  */
 
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
