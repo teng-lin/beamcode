@@ -32,20 +32,6 @@ export type {
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./process-supervisor.js";
 export { ProcessSupervisor } from "./process-supervisor.js";
 export { ReconnectPolicy } from "./reconnect-policy.js";
-export {
-  CORE_RUNTIME_MODES,
-  type CoreRuntimeMode,
-  DEFAULT_CORE_RUNTIME_MODE,
-  isCoreRuntimeMode,
-  resolveCoreRuntimeMode,
-} from "./runtime-mode.js";
-export {
-  SessionRuntimeShadow,
-  type SessionRuntimeShadowSnapshot,
-  SHADOW_LIFECYCLE_STATES,
-  type ShadowBackendSignal,
-  type ShadowLifecycleState,
-} from "./runtime-shadow.js";
 export { SessionBridge } from "./session-bridge.js";
 export { SessionCoordinator, type SessionCoordinatorOptions } from "./session-coordinator.js";
 export {

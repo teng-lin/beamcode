@@ -42,7 +42,6 @@ import type { SessionLauncher } from "./interfaces/session-launcher.js";
 import type { SessionRegistry } from "./interfaces/session-registry.js";
 import type { MessageTracer } from "./message-tracer.js";
 import { ReconnectPolicy } from "./reconnect-policy.js";
-import { type CoreRuntimeMode, DEFAULT_CORE_RUNTIME_MODE } from "./runtime-mode.js";
 import { SessionBridge } from "./session-bridge.js";
 import { SessionTransportHub } from "./session-transport-hub.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
@@ -73,7 +72,6 @@ export interface SessionCoordinatorOptions {
   rateLimiterFactory?: RateLimiterFactory;
   tracer?: MessageTracer;
   defaultAdapterName?: string;
-  runtimeMode?: CoreRuntimeMode;
 }
 
 export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEventMap> {
@@ -93,7 +91,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   private relaunchDedupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private eventCleanups: (() => void)[] = [];
   private started = false;
-  private runtimeMode: CoreRuntimeMode;
 
   constructor(options: SessionCoordinatorOptions) {
     super();
@@ -102,7 +99,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     this.logger = options.logger ?? noopLogger;
     this.adapterResolver = options.adapterResolver ?? null;
     this._defaultAdapterName = options.defaultAdapterName ?? "claude";
-    this.runtimeMode = options.runtimeMode ?? DEFAULT_CORE_RUNTIME_MODE;
     this.domainEvents = new DomainEventBus();
 
     this.bridge = new SessionBridge({
@@ -116,7 +112,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       adapterResolver: options.adapterResolver,
       rateLimiterFactory: options.rateLimiterFactory,
       tracer: options.tracer,
-      runtimeMode: this.runtimeMode,
     });
 
     this.launcher = options.launcher;
@@ -148,10 +143,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
 
   get defaultAdapterName(): string {
     return this.adapterResolver?.defaultName ?? this._defaultAdapterName;
-  }
-
-  get coreRuntimeMode(): CoreRuntimeMode {
-    return this.runtimeMode;
   }
 
   /** Create a new session, routing to the correct adapter. */
@@ -237,12 +228,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-
-    if (this.runtimeMode !== DEFAULT_CORE_RUNTIME_MODE) {
-      this.logger.warn(
-        `Core runtime mode "${this.runtimeMode}" enabled. Running legacy compatibility path until vnext runtime wiring is complete.`,
-      );
-    }
 
     this.wireEvents();
     this.restoreFromStorage();

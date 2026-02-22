@@ -49,12 +49,6 @@ type RuntimeSendPermissionOptions = {
   message?: string;
 };
 
-export type RuntimeShadowParityState = {
-  backendConnected: boolean;
-  backendSessionId: string | undefined;
-  lastStatus: Session["lastStatus"];
-};
-
 export interface SessionRuntimeDeps {
   now: () => number;
   maxMessageHistoryLength: number;
@@ -200,14 +194,6 @@ export class SessionRuntime {
 
   getConsumerSockets(): ReadonlyMap<WebSocketLike, ConsumerIdentity> {
     return this.session.consumerSockets;
-  }
-
-  getShadowParityState(): RuntimeShadowParityState {
-    return {
-      backendConnected: this.session.backendSession !== null,
-      backendSessionId: this.session.backendSessionId,
-      lastStatus: this.session.lastStatus,
-    };
   }
 
   getBackendSession(): Session["backendSession"] {

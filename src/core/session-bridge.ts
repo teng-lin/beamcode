@@ -7,8 +7,7 @@
  * - **MessagePlane**: UnifiedMessageRouter, ConsumerMessageMapper, InboundNormalizer
  * - **SessionControl**: CapabilitiesPolicy, GitInfoTracker, SessionRepository
  *
- * Also manages the SessionRuntime instances (one per session) and the optional
- * SessionRuntimeShadow parity validation layer.
+ * Also manages the SessionRuntime instances (one per session).
  *
  * @module SessionControl
  */
@@ -42,15 +41,9 @@ import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import type { InboundCommand, PolicyCommand } from "./interfaces/runtime-commands.js";
 import { MessageQueueHandler } from "./message-queue-handler.js";
 import { type MessageTracer, noopTracer } from "./message-tracer.js";
-import { type CoreRuntimeMode, DEFAULT_CORE_RUNTIME_MODE } from "./runtime-mode.js";
-import {
-  SessionRuntimeShadow,
-  type SessionRuntimeShadowSnapshot,
-  type ShadowLifecycleState,
-} from "./runtime-shadow.js";
 import type { LifecycleState } from "./session-lifecycle.js";
 import { type Session, SessionRepository } from "./session-repository.js";
-import { type RuntimeShadowParityState, SessionRuntime } from "./session-runtime.js";
+import { SessionRuntime } from "./session-runtime.js";
 import {
   AdapterNativeHandler,
   LocalHandler,
@@ -84,9 +77,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private messageRouter: UnifiedMessageRouter;
   private consumerGateway: ConsumerGateway;
   private tracer: MessageTracer;
-  private runtimeMode: CoreRuntimeMode;
-  private runtimeShadows = new Map<string, SessionRuntimeShadow>();
-  private runtimeShadowParityMismatches = new Set<string>();
   private runtimes = new Map<string, SessionRuntime>();
 
   constructor(options?: {
@@ -104,8 +94,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     rateLimiterFactory?: RateLimiterFactory;
     /** Message tracer for debug tracing. */
     tracer?: MessageTracer;
-    /** Runtime mode flag for phased core refactor rollout. */
-    runtimeMode?: CoreRuntimeMode;
   }) {
     super();
     this.store = new SessionRepository(options?.storage ?? null, {
@@ -115,7 +103,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.logger = options?.logger ?? noopLogger;
     this.config = resolveConfig(options?.config ?? { port: 9414 });
     this.tracer = options?.tracer ?? noopTracer;
-    this.runtimeMode = options?.runtimeMode ?? DEFAULT_CORE_RUNTIME_MODE;
     this.broadcaster = new ConsumerBroadcaster(
       this.logger,
       (sessionId, msg) => this.emit("message:outbound", { sessionId, message: msg }),
@@ -299,104 +286,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Event forwarding ─────────────────────────────────────────────────────
 
-  get coreRuntimeMode(): CoreRuntimeMode {
-    return this.runtimeMode;
-  }
-
-  getRuntimeShadowSnapshot(sessionId: string): SessionRuntimeShadowSnapshot | undefined {
-    return this.runtimeShadows.get(sessionId)?.snapshot();
-  }
-
   getLifecycleState(sessionId: string): LifecycleState | undefined {
     const session = this.store.get(sessionId);
     if (!session) return undefined;
     return this.getSessionRuntime(session).getLifecycleState();
-  }
-
-  private getRuntimeShadow(sessionId: string): SessionRuntimeShadow | null {
-    if (this.runtimeMode !== "vnext_shadow") return null;
-    const existing = this.runtimeShadows.get(sessionId);
-    if (existing) return existing;
-    const created = new SessionRuntimeShadow(sessionId);
-    created.handleSignal("session_created");
-    this.runtimeShadows.set(sessionId, created);
-    return created;
-  }
-
-  private deriveLegacyShadowLifecycle(parity: RuntimeShadowParityState): ShadowLifecycleState {
-    if (!parity.backendConnected) {
-      // If a backend session existed before and is now disconnected, legacy behavior
-      // is functionally degraded (resume/reconnect path), otherwise awaiting first connect.
-      if (parity.backendSessionId) {
-        return "degraded";
-      }
-      return "awaiting_backend";
-    }
-
-    if (parity.lastStatus === "idle") return "idle";
-    if (parity.lastStatus === "running" || parity.lastStatus === "compacting") return "active";
-    return "active";
-  }
-
-  private isShadowParityCompatible(
-    expected: ShadowLifecycleState,
-    actual: ShadowLifecycleState,
-  ): boolean {
-    if (expected === actual) return true;
-    // Treat pre-connect and disconnected states as compatible coarse states.
-    if (
-      (expected === "awaiting_backend" && actual === "degraded") ||
-      (expected === "degraded" && actual === "awaiting_backend")
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  private clearRuntimeShadowParityMismatches(sessionId: string): void {
-    for (const key of this.runtimeShadowParityMismatches) {
-      if (key.startsWith(`${sessionId}:`)) {
-        this.runtimeShadowParityMismatches.delete(key);
-      }
-    }
-  }
-
-  private reportRuntimeShadowParity(sessionId: string, phase: string): void {
-    if (this.runtimeMode !== "vnext_shadow") return;
-    const shadow = this.runtimeShadows.get(sessionId);
-    if (!shadow) return;
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    const parity = this.getSessionRuntime(session).getShadowParityState();
-
-    const snapshot = shadow.snapshot();
-    const expected = this.deriveLegacyShadowLifecycle(parity);
-    if (this.isShadowParityCompatible(expected, snapshot.lifecycle)) {
-      this.clearRuntimeShadowParityMismatches(sessionId);
-      return;
-    }
-
-    const mismatchKey = `${sessionId}:${expected}:${snapshot.lifecycle}`;
-    if (this.runtimeShadowParityMismatches.has(mismatchKey)) return;
-    this.runtimeShadowParityMismatches.add(mismatchKey);
-
-    this.logger.warn("Runtime shadow lifecycle parity mismatch", {
-      sessionId,
-      phase,
-      expectedLifecycle: expected,
-      actualLifecycle: snapshot.lifecycle,
-      lastStatus: parity.lastStatus,
-      backendConnected: parity.backendConnected,
-      lastInboundType: snapshot.lastInboundType,
-      lastBackendType: snapshot.lastBackendType,
-      lastSignal: snapshot.lastSignal,
-    });
-    this.tracer.error("bridge", "runtime_shadow_parity", "shadow lifecycle mismatch", {
-      sessionId,
-      phase,
-      action: `expected=${expected};actual=${snapshot.lifecycle}`,
-      outcome: "backend_error",
-    });
   }
 
   private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
@@ -448,7 +341,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   // ── Session management ───────────────────────────────────────────────────
 
   getOrCreateSession(sessionId: string): Session {
-    this.getRuntimeShadow(sessionId);
     const existed = this.store.has(sessionId);
     const session = this.store.getOrCreate(sessionId);
     this.getSessionRuntime(session);
@@ -459,7 +351,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         sessionId,
       });
     }
-    this.reportRuntimeShadowParity(session.id, "session:get_or_create");
     return session;
   }
 
@@ -506,9 +397,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     if (session) {
       this.capabilitiesPolicy.cancelPendingInitialize(session);
     }
-    this.runtimeShadows.delete(sessionId);
     this.runtimes.delete(sessionId);
-    this.clearRuntimeShadowParityMismatches(sessionId);
     this.store.remove(sessionId);
   }
 
@@ -533,9 +422,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     runtime.handleSignal("session:closed");
 
     this.store.remove(sessionId);
-    this.runtimeShadows.delete(sessionId);
     this.runtimes.delete(sessionId);
-    this.clearRuntimeShadowParityMismatches(sessionId);
     this.metrics?.recordEvent({
       timestamp: Date.now(),
       type: "session:closed",
@@ -547,7 +434,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
     await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
-    this.runtimeShadows.clear();
     this.runtimes.clear();
     this.tracer.destroy();
     this.removeAllListeners();
@@ -678,30 +564,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
           reason,
         });
       },
-      onInboundObserved: (runtimeSession, inbound) => {
-        this.getRuntimeShadow(runtimeSession.id)?.handleInbound(inbound.type);
-      },
-      onInboundHandled: (runtimeSession, inbound) => {
-        this.reportRuntimeShadowParity(runtimeSession.id, `inbound:${inbound.type}`);
-      },
-      onBackendMessageObserved: (runtimeSession, unified) => {
-        this.getRuntimeShadow(runtimeSession.id)?.handleBackendMessage(unified);
-      },
       routeBackendMessage: (runtimeSession, unified) => {
         this.messageRouter.route(runtimeSession, unified);
-      },
-      onBackendMessageHandled: (runtimeSession, unified) => {
-        this.reportRuntimeShadowParity(runtimeSession.id, `backend:${unified.type}`);
-      },
-      onSignal: (runtimeSession, signal) => {
-        if (signal === "backend:connected") {
-          this.getRuntimeShadow(runtimeSession.id)?.handleSignal("backend_connected");
-        } else if (signal === "backend:disconnected") {
-          this.getRuntimeShadow(runtimeSession.id)?.handleSignal("backend_disconnected");
-        } else if (signal === "session:closed") {
-          this.getRuntimeShadow(runtimeSession.id)?.handleSignal("closed");
-        }
-        this.reportRuntimeShadowParity(runtimeSession.id, `signal:${signal}`);
       },
     });
     this.runtimes.set(session.id, created);

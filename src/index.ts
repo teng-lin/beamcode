@@ -51,19 +51,6 @@ export type {
 export type { RegisterSessionInput, SessionRegistry } from "./core/interfaces/session-registry.js";
 export type { ProcessSupervisorOptions, SupervisorEventMap } from "./core/process-supervisor.js";
 export { ProcessSupervisor } from "./core/process-supervisor.js";
-export type { CoreRuntimeMode } from "./core/runtime-mode.js";
-export {
-  CORE_RUNTIME_MODES,
-  DEFAULT_CORE_RUNTIME_MODE,
-  isCoreRuntimeMode,
-  resolveCoreRuntimeMode,
-} from "./core/runtime-mode.js";
-export type {
-  SessionRuntimeShadowSnapshot,
-  ShadowBackendSignal,
-  ShadowLifecycleState,
-} from "./core/runtime-shadow.js";
-export { SessionRuntimeShadow, SHADOW_LIFECYCLE_STATES } from "./core/runtime-shadow.js";
 export { SessionBridge } from "./core/session-bridge.js";
 export type { SessionCoordinatorOptions } from "./core/session-coordinator.js";
 export { SessionCoordinator } from "./core/session-coordinator.js";
