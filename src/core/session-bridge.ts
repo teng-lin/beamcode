@@ -12,7 +12,6 @@
  * @module SessionControl
  */
 
-import { randomUUID } from "node:crypto";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -30,13 +29,18 @@ import type { BridgeEventMap } from "../types/events.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { noopLogger } from "../utils/noop-logger.js";
 import { BackendConnector } from "./backend-connector.js";
+import {
+  generateSlashRequestId,
+  generateTraceId,
+  tracedNormalizeInbound,
+} from "./bridge/message-tracing-utils.js";
 import { RuntimeManager } from "./bridge/runtime-manager.js";
+import { createSlashService } from "./bridge/slash-service-factory.js";
 import { CapabilitiesPolicy } from "./capabilities-policy.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeeper.js";
 import { ConsumerGateway } from "./consumer-gateway.js";
 import { GitInfoTracker } from "./git-info-tracker.js";
-import { normalizeInbound } from "./inbound-normalizer.js";
 import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import type { InboundCommand, PolicyCommand } from "./interfaces/runtime-commands.js";
@@ -45,16 +49,8 @@ import { type MessageTracer, noopTracer } from "./message-tracer.js";
 import type { LifecycleState } from "./session-lifecycle.js";
 import { type Session, SessionRepository } from "./session-repository.js";
 import { SessionRuntime } from "./session-runtime.js";
-import {
-  AdapterNativeHandler,
-  LocalHandler,
-  PassthroughHandler,
-  SlashCommandChain,
-  UnsupportedHandler,
-} from "./slash-command-chain.js";
-import { SlashCommandExecutor } from "./slash-command-executor.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
-import { SlashCommandService } from "./slash-command-service.js";
+import type { SlashCommandService } from "./slash-command-service.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
@@ -122,7 +118,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
           sendToBackend: (runtimeSession, message) =>
             this.backendConnector.sendToBackend(runtimeSession, message),
           tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
-            this.tracedNormalizeInbound(inbound, runtimeSession.id, trace),
+            tracedNormalizeInbound(this.tracer, inbound, runtimeSession.id, trace),
           persistSession: (runtimeSession) => this.persistSession(runtimeSession),
           warnUnknownPermission: (sessionId, requestId) =>
             this.logger.warn(
@@ -148,10 +144,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.logger,
       (sessionId, msg) => this.emit("message:outbound", { sessionId, message: msg }),
       this.tracer,
-      (session, ws) => this.runtimeManager.getOrCreate(session).removeConsumer(ws),
+      (session, ws) => this.runtime(session).removeConsumer(ws),
       {
-        getConsumerSockets: (session) =>
-          this.runtimeManager.getOrCreate(session).getConsumerSockets(),
+        getConsumerSockets: (session) => this.runtime(session).getConsumerSockets(),
       },
     );
     this.gatekeeper = new ConsumerGatekeeper(
@@ -160,8 +155,8 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       options?.rateLimiterFactory,
     );
     this.gitTracker = new GitInfoTracker(this.gitResolver, {
-      getState: (session) => this.runtimeManager.getOrCreate(session).getState(),
-      setState: (session, state) => this.runtimeManager.getOrCreate(session).setState(state),
+      getState: (session) => this.runtime(session).getState(),
+      setState: (session, state) => this.runtime(session).setState(state),
     });
 
     // ── SessionControl (capabilities + queue) ───────────────────────────
@@ -172,66 +167,44 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       emitEvent,
       (session) => this.persistSession(session),
       {
-        getState: (session) => this.runtimeManager.getOrCreate(session).getState(),
-        setState: (session, state) => this.runtimeManager.getOrCreate(session).setState(state),
-        getPendingInitialize: (session) =>
-          this.runtimeManager.getOrCreate(session).getPendingInitialize(),
+        getState: (session) => this.runtime(session).getState(),
+        setState: (session, state) => this.runtime(session).setState(state),
+        getPendingInitialize: (session) => this.runtime(session).getPendingInitialize(),
         setPendingInitialize: (session, pendingInitialize) =>
-          this.runtimeManager.getOrCreate(session).setPendingInitialize(pendingInitialize),
-        trySendRawToBackend: (session, ndjson) =>
-          this.runtimeManager.getOrCreate(session).trySendRawToBackend(ndjson),
+          this.runtime(session).setPendingInitialize(pendingInitialize),
+        trySendRawToBackend: (session, ndjson) => this.runtime(session).trySendRawToBackend(ndjson),
         registerCLICommands: (session, commands) =>
-          this.runtimeManager.getOrCreate(session).registerCLICommands(commands),
+          this.runtime(session).registerCLICommands(commands),
       },
     );
     this.queueHandler = new MessageQueueHandler(
       this.broadcaster,
       (sessionId, content, opts) => this.sendUserMessage(sessionId, content, opts),
       {
-        getLastStatus: (session) => this.runtimeManager.getOrCreate(session).getLastStatus(),
-        setLastStatus: (session, status) =>
-          this.runtimeManager.getOrCreate(session).setLastStatus(status),
-        getQueuedMessage: (session) => this.runtimeManager.getOrCreate(session).getQueuedMessage(),
-        setQueuedMessage: (session, queued) =>
-          this.runtimeManager.getOrCreate(session).setQueuedMessage(queued),
-        getConsumerIdentity: (session, ws) =>
-          this.runtimeManager.getOrCreate(session).getConsumerIdentity(ws),
+        getLastStatus: (session) => this.runtime(session).getLastStatus(),
+        setLastStatus: (session, status) => this.runtime(session).setLastStatus(status),
+        getQueuedMessage: (session) => this.runtime(session).getQueuedMessage(),
+        setQueuedMessage: (session, queued) => this.runtime(session).setQueuedMessage(queued),
+        getConsumerIdentity: (session, ws) => this.runtime(session).getConsumerIdentity(ws),
       },
     );
 
     // ── MessagePlane (slash commands + routing) ─────────────────────────
-    const executor = new SlashCommandExecutor();
-    const localHandler = new LocalHandler({
-      executor,
+    this.slashService = createSlashService({
       broadcaster: this.broadcaster,
       emitEvent,
       tracer: this.tracer,
-    });
-    const commandChain = new SlashCommandChain([
-      localHandler,
-      new AdapterNativeHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
-      new PassthroughHandler({
-        broadcaster: this.broadcaster,
-        emitEvent,
-        registerPendingPassthrough: (session, entry) =>
-          this.runtimeManager.getOrCreate(session).enqueuePendingPassthrough(entry),
-        sendUserMessage: (sessionId, content, trace) =>
-          this.sendUserMessage(sessionId, content, {
-            traceId: trace?.traceId,
-            slashRequestId: trace?.requestId,
-            slashCommand: trace?.command,
-          }),
-        tracer: this.tracer,
-      }),
-      new UnsupportedHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
-    ]);
-    this.slashService = new SlashCommandService({
-      tracer: this.tracer,
       now: () => Date.now(),
-      generateTraceId: () => this.generateTraceId(),
-      generateSlashRequestId: () => this.generateSlashRequestId(),
-      commandChain,
-      localHandler,
+      generateTraceId: () => generateTraceId(),
+      generateSlashRequestId: () => generateSlashRequestId(),
+      registerPendingPassthrough: (session, entry) =>
+        this.runtime(session).enqueuePendingPassthrough(entry),
+      sendUserMessage: (sessionId, content, trace) =>
+        this.sendUserMessage(sessionId, content, {
+          traceId: trace?.traceId,
+          slashRequestId: trace?.requestId,
+          slashCommand: trace?.command,
+        }),
     });
     this.messageRouter = new UnifiedMessageRouter({
       broadcaster: this.broadcaster,
@@ -243,24 +216,21 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       persistSession: (session) => this.persistSession(session),
       maxMessageHistoryLength: this.config.maxMessageHistoryLength,
       tracer: this.tracer,
-      getState: (session) => this.runtimeManager.getOrCreate(session).getState(),
-      setState: (session, state) => this.runtimeManager.getOrCreate(session).setState(state),
+      getState: (session) => this.runtime(session).getState(),
+      setState: (session, state) => this.runtime(session).setState(state),
       setBackendSessionId: (session, backendSessionId) =>
-        this.runtimeManager.getOrCreate(session).setBackendSessionId(backendSessionId),
-      getMessageHistory: (session) => this.runtimeManager.getOrCreate(session).getMessageHistory(),
-      setMessageHistory: (session, history) =>
-        this.runtimeManager.getOrCreate(session).setMessageHistory(history),
-      getLastStatus: (session) => this.runtimeManager.getOrCreate(session).getLastStatus(),
-      setLastStatus: (session, status) =>
-        this.runtimeManager.getOrCreate(session).setLastStatus(status),
+        this.runtime(session).setBackendSessionId(backendSessionId),
+      getMessageHistory: (session) => this.runtime(session).getMessageHistory(),
+      setMessageHistory: (session, history) => this.runtime(session).setMessageHistory(history),
+      getLastStatus: (session) => this.runtime(session).getLastStatus(),
+      setLastStatus: (session, status) => this.runtime(session).setLastStatus(status),
       storePendingPermission: (session, requestId, request) =>
-        this.runtimeManager.getOrCreate(session).storePendingPermission(requestId, request),
-      clearDynamicSlashRegistry: (session) =>
-        this.runtimeManager.getOrCreate(session).clearDynamicSlashRegistry(),
+        this.runtime(session).storePendingPermission(requestId, request),
+      clearDynamicSlashRegistry: (session) => this.runtime(session).clearDynamicSlashRegistry(),
       registerCLICommands: (session, commands) =>
-        this.runtimeManager.getOrCreate(session).registerCLICommands(commands),
+        this.runtime(session).registerCLICommands(commands),
       registerSkillCommands: (session, skills) =>
-        this.runtimeManager.getOrCreate(session).registerSkillCommands(skills),
+        this.runtime(session).registerSkillCommands(skills),
     });
 
     // ── BackendPlane ────────────────────────────────────────────────────
@@ -273,25 +243,20 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
       emitEvent,
       onBackendConnectedState: (session, params) =>
-        this.runtimeManager.getOrCreate(session).attachBackendConnection(params),
-      onBackendDisconnectedState: (session) =>
-        this.runtimeManager.getOrCreate(session).resetBackendConnectionState(),
-      getBackendSession: (session) => this.runtimeManager.getOrCreate(session).getBackendSession(),
-      getBackendAbort: (session) => this.runtimeManager.getOrCreate(session).getBackendAbort(),
-      drainPendingMessages: (session) =>
-        this.runtimeManager.getOrCreate(session).drainPendingMessages(),
-      drainPendingPermissionIds: (session) =>
-        this.runtimeManager.getOrCreate(session).drainPendingPermissionIds(),
-      peekPendingPassthrough: (session) =>
-        this.runtimeManager.getOrCreate(session).peekPendingPassthrough(),
-      shiftPendingPassthrough: (session) =>
-        this.runtimeManager.getOrCreate(session).shiftPendingPassthrough(),
+        this.runtime(session).attachBackendConnection(params),
+      onBackendDisconnectedState: (session) => this.runtime(session).resetBackendConnectionState(),
+      getBackendSession: (session) => this.runtime(session).getBackendSession(),
+      getBackendAbort: (session) => this.runtime(session).getBackendAbort(),
+      drainPendingMessages: (session) => this.runtime(session).drainPendingMessages(),
+      drainPendingPermissionIds: (session) => this.runtime(session).drainPendingPermissionIds(),
+      peekPendingPassthrough: (session) => this.runtime(session).peekPendingPassthrough(),
+      shiftPendingPassthrough: (session) => this.runtime(session).shiftPendingPassthrough(),
       setSlashCommandsState: (session, commands) => {
-        const runtime = this.runtimeManager.getOrCreate(session);
+        const runtime = this.runtime(session);
         runtime.setState({ ...runtime.getState(), slash_commands: commands });
       },
       registerCLICommands: (session, commands) =>
-        this.runtimeManager.getOrCreate(session).registerSlashCommandNames(commands),
+        this.runtime(session).registerSlashCommandNames(commands),
       tracer: this.tracer,
     });
 
@@ -305,25 +270,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       metrics: this.metrics,
       emit: this.forwardBridgeEvent.bind(this),
       allocateAnonymousIdentityIndex: (session) =>
-        this.runtimeManager.getOrCreate(session).allocateAnonymousIdentityIndex(),
+        this.runtime(session).allocateAnonymousIdentityIndex(),
       checkRateLimit: (session, ws) =>
-        this.runtimeManager
-          .getOrCreate(session)
-          .checkRateLimit(ws, () => this.gatekeeper.createRateLimiter()),
-      getConsumerIdentity: (session, ws) =>
-        this.runtimeManager.getOrCreate(session).getConsumerIdentity(ws),
-      getConsumerCount: (session) => this.runtimeManager.getOrCreate(session).getConsumerCount(),
-      getState: (session) => this.runtimeManager.getOrCreate(session).getState(),
-      getMessageHistory: (session) => this.runtimeManager.getOrCreate(session).getMessageHistory(),
-      getPendingPermissions: (session) =>
-        this.runtimeManager.getOrCreate(session).getPendingPermissions(),
-      getQueuedMessage: (session) => this.runtimeManager.getOrCreate(session).getQueuedMessage(),
-      isBackendConnected: (session) =>
-        this.runtimeManager.getOrCreate(session).isBackendConnected(),
-      registerConsumer: (session, ws, identity) =>
-        this.runtimeManager.getOrCreate(session).addConsumer(ws, identity),
-      unregisterConsumer: (session, ws) =>
-        this.runtimeManager.getOrCreate(session).removeConsumer(ws),
+        this.runtime(session).checkRateLimit(ws, () => this.gatekeeper.createRateLimiter()),
+      getConsumerIdentity: (session, ws) => this.runtime(session).getConsumerIdentity(ws),
+      getConsumerCount: (session) => this.runtime(session).getConsumerCount(),
+      getState: (session) => this.runtime(session).getState(),
+      getMessageHistory: (session) => this.runtime(session).getMessageHistory(),
+      getPendingPermissions: (session) => this.runtime(session).getPendingPermissions(),
+      getQueuedMessage: (session) => this.runtime(session).getQueuedMessage(),
+      isBackendConnected: (session) => this.runtime(session).isBackendConnected(),
+      registerConsumer: (session, ws, identity) => this.runtime(session).addConsumer(ws, identity),
+      unregisterConsumer: (session, ws) => this.runtime(session).removeConsumer(ws),
       routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
       maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
       tracer: this.tracer,
@@ -337,7 +295,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
-    this.runtimeManager.getOrCreate(session).handleBackendMessage(msg);
+    this.runtime(session).handleBackendMessage(msg);
   }
 
   /** Forward a typed event from a delegate to the bridge's event emitter. */
@@ -363,6 +321,22 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.emit(type, payload);
   }
 
+  private runtime(session: Session): SessionRuntime {
+    return this.runtimeManager.getOrCreate(session);
+  }
+
+  private withSession<T>(sessionId: string, onMissing: T, run: (session: Session) => T): T {
+    const session = this.store.get(sessionId);
+    if (!session) return onMissing;
+    return run(session);
+  }
+
+  private withSessionVoid(sessionId: string, run: (session: Session) => void): void {
+    const session = this.store.get(sessionId);
+    if (!session) return;
+    run(session);
+  }
+
   // ── Persistence ──────────────────────────────────────────────────────────
 
   /** Restore sessions from disk (call once at startup). */
@@ -384,7 +358,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   getOrCreateSession(sessionId: string): Session {
     const existed = this.store.has(sessionId);
     const session = this.store.getOrCreate(sessionId);
-    this.runtimeManager.getOrCreate(session);
+    this.runtime(session);
     if (!existed) {
       this.metrics?.recordEvent({
         timestamp: Date.now(),
@@ -398,7 +372,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   /** Set the adapter name for a session (persisted for restore). */
   setAdapterName(sessionId: string, name: string): void {
     const session = this.getOrCreateSession(sessionId);
-    this.runtimeManager.getOrCreate(session).setAdapterName(name);
+    this.runtime(session).setAdapterName(name);
   }
 
   /**
@@ -408,14 +382,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
    */
   seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
     const session = this.getOrCreateSession(sessionId);
-    this.runtimeManager.getOrCreate(session).seedSessionState(params);
+    this.runtime(session).seedSessionState(params);
   }
 
   /** Get a read-only snapshot of a session's state. */
   getSession(sessionId: string): SessionSnapshot | undefined {
-    const session = this.store.get(sessionId);
-    if (!session) return undefined;
-    return this.runtimeManager.getOrCreate(session).getSessionSnapshot();
+    return this.withSession(sessionId, undefined, (session) =>
+      this.runtime(session).getSessionSnapshot(),
+    );
   }
 
   getAllSessions(): SessionState[] {
@@ -423,9 +397,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   }
 
   isCliConnected(sessionId: string): boolean {
-    const session = this.store.get(sessionId);
-    if (!session) return false;
-    return this.runtimeManager.getOrCreate(session).isBackendConnected();
+    return this.withSession(sessionId, false, (session) =>
+      this.runtime(session).isBackendConnected(),
+    );
   }
 
   /** Expose storage for archival operations (BridgeOperations interface). */
@@ -446,7 +420,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   async closeSession(sessionId: string): Promise<void> {
     const session = this.store.get(sessionId);
     if (!session) return;
-    const runtime = this.runtimeManager.getOrCreate(session);
+    const runtime = this.runtime(session);
     runtime.transitionLifecycle("closing", "session:close");
 
     this.capabilitiesPolicy.cancelPendingInitialize(session);
@@ -508,9 +482,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       slashCommand?: string;
     },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).sendUserMessage(content, options);
+    this.withSessionVoid(sessionId, (session) =>
+      this.runtime(session).sendUserMessage(content, options),
+    );
   }
 
   /** Respond to a pending permission request (no WebSocket needed). */
@@ -524,56 +498,48 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       message?: string;
     },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).sendPermissionResponse(requestId, behavior, options);
+    this.withSessionVoid(sessionId, (session) =>
+      this.runtime(session).sendPermissionResponse(requestId, behavior, options),
+    );
   }
 
   /** Send an interrupt to the CLI for a session. */
   sendInterrupt(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).sendInterrupt();
+    this.withSessionVoid(sessionId, (session) => this.runtime(session).sendInterrupt());
   }
 
   /** Send a set_model control request to the CLI. */
   sendSetModel(sessionId: string, model: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).sendSetModel(model);
+    this.withSessionVoid(sessionId, (session) => this.runtime(session).sendSetModel(model));
   }
 
   /** Send a set_permission_mode control request to the CLI. */
   sendSetPermissionMode(sessionId: string, mode: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).sendSetPermissionMode(mode);
+    this.withSessionVoid(sessionId, (session) => this.runtime(session).sendSetPermissionMode(mode));
   }
 
   // ── Structured data APIs ───────────────────────────────────────────────
 
   getSupportedModels(sessionId: string): InitializeModel[] {
-    const session = this.store.get(sessionId);
-    if (!session) return [];
-    return this.runtimeManager.getOrCreate(session).getSupportedModels();
+    return this.withSession(sessionId, [] as InitializeModel[], (session) =>
+      this.runtime(session).getSupportedModels(),
+    );
   }
 
   getSupportedCommands(sessionId: string): InitializeCommand[] {
-    const session = this.store.get(sessionId);
-    if (!session) return [];
-    return this.runtimeManager.getOrCreate(session).getSupportedCommands();
+    return this.withSession(sessionId, [] as InitializeCommand[], (session) =>
+      this.runtime(session).getSupportedCommands(),
+    );
   }
 
   getAccountInfo(sessionId: string): InitializeAccount | null {
-    const session = this.store.get(sessionId);
-    if (!session) return null;
-    return this.runtimeManager.getOrCreate(session).getAccountInfo();
+    return this.withSession(sessionId, null, (session) => this.runtime(session).getAccountInfo());
   }
 
   // ── Consumer message routing ─────────────────────────────────────────────
 
   private routeConsumerMessage(session: Session, msg: InboundCommand, ws: WebSocketLike): void {
-    this.runtimeManager.getOrCreate(session).handleInboundCommand(msg, ws);
+    this.runtime(session).handleInboundCommand(msg, ws);
   }
 
   // ── Slash command handling (delegated via SessionRuntime -> SlashCommandService) ─────
@@ -583,30 +549,30 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     sessionId: string,
     command: string,
   ): Promise<{ content: string; source: "emulated" } | null> {
-    const session = this.store.get(sessionId);
-    if (!session) return null;
-    return this.runtimeManager.getOrCreate(session).executeSlashCommand(command);
+    return this.withSession(sessionId, null, (session) =>
+      this.runtime(session).executeSlashCommand(command),
+    );
   }
 
   /** Push a session name update to all connected consumers for a session. */
   broadcastNameUpdate(sessionId: string, name: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastNameUpdate(session, name);
+    this.withSessionVoid(sessionId, (session) =>
+      this.broadcaster.broadcastNameUpdate(session, name),
+    );
   }
 
   /** Broadcast resume_failed to all consumers for a session. */
   broadcastResumeFailedToConsumers(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastResumeFailed(session, sessionId);
+    this.withSessionVoid(sessionId, (session) =>
+      this.broadcaster.broadcastResumeFailed(session, sessionId),
+    );
   }
 
   /** Broadcast process output to participants only (observers must not see process logs). */
   broadcastProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastProcessOutput(session, stream, data);
+    this.withSessionVoid(sessionId, (session) =>
+      this.broadcaster.broadcastProcessOutput(session, stream, data),
+    );
   }
 
   /** Broadcast watchdog state update via session_update. */
@@ -614,9 +580,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     sessionId: string,
     watchdog: { gracePeriodMs: number; startedAt: number } | null,
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastWatchdogState(session, watchdog);
+    this.withSessionVoid(sessionId, (session) =>
+      this.broadcaster.broadcastWatchdogState(session, watchdog),
+    );
   }
 
   /** Broadcast circuit breaker state update via session_update. */
@@ -624,63 +590,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     sessionId: string,
     circuitBreaker: { state: string; failureCount: number; recoveryTimeRemainingMs: number },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastCircuitBreakerState(session, circuitBreaker);
+    this.withSessionVoid(sessionId, (session) =>
+      this.broadcaster.broadcastCircuitBreakerState(session, circuitBreaker),
+    );
   }
 
   applyPolicyCommand(sessionId: string, command: PolicyCommand): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.runtimeManager.getOrCreate(session).handlePolicyCommand(command);
-  }
-
-  // ── Traced normalizeInbound (T1 boundary) ────────────────────────────────
-
-  private tracedNormalizeInbound(
-    msg: InboundCommand,
-    sessionId: string,
-    trace?: { traceId?: string; requestId?: string; command?: string },
-  ): UnifiedMessage | null {
-    const unified = normalizeInbound(msg);
-    if (unified && trace) {
-      if (trace.traceId) unified.metadata.trace_id = trace.traceId;
-      if (trace.requestId) unified.metadata.slash_request_id = trace.requestId;
-      if (trace.command) unified.metadata.slash_command = trace.command;
-    }
-    this.tracer.translate(
-      "normalizeInbound",
-      "T1",
-      { format: "InboundMessage", body: msg },
-      { format: "UnifiedMessage", body: unified },
-      {
-        sessionId,
-        traceId: trace?.traceId,
-        requestId: trace?.requestId,
-        command: trace?.command,
-        phase: "t1",
-      },
+    this.withSessionVoid(sessionId, (session) =>
+      this.runtime(session).handlePolicyCommand(command),
     );
-    if (!unified) {
-      this.tracer.error("bridge", msg.type, "normalizeInbound returned null", {
-        sessionId,
-        traceId: trace?.traceId,
-        requestId: trace?.requestId,
-        command: trace?.command,
-        action: "dropped",
-        phase: "t1",
-        outcome: "unmapped_type",
-      });
-    }
-    return unified;
-  }
-
-  private generateTraceId(): string {
-    return `t_${randomUUID().slice(0, 8)}`;
-  }
-
-  private generateSlashRequestId(): string {
-    return `sr_${randomUUID().slice(0, 8)}`;
   }
 
   // ── BackendAdapter path (delegated to BackendConnector) ──────────
@@ -701,17 +619,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   /** Disconnect the backend session. */
   async disconnectBackend(sessionId: string): Promise<void> {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.capabilitiesPolicy.cancelPendingInitialize(session);
-    return this.backendConnector.disconnectBackend(session);
+    return this.withSession(sessionId, undefined, (session) => {
+      this.capabilitiesPolicy.cancelPendingInitialize(session);
+      return this.backendConnector.disconnectBackend(session);
+    });
   }
 
   /** Whether a backend session is connected for a given session ID. */
   isBackendConnected(sessionId: string): boolean {
-    const session = this.store.get(sessionId);
-    if (!session) return false;
-    return this.backendConnector.isBackendConnected(session);
+    return this.withSession(sessionId, false, (session) =>
+      this.backendConnector.isBackendConnected(session),
+    );
   }
 
   /** Send a UnifiedMessage to the backend session. */
@@ -721,6 +639,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.logger.warn(`No backend session for ${sessionId}, cannot send message`);
       return;
     }
-    this.runtimeManager.getOrCreate(session).sendToBackend(message);
+    this.runtime(session).sendToBackend(message);
   }
 }
