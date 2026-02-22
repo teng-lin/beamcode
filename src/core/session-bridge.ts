@@ -104,13 +104,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     logger?: Logger;
     config?: ProviderConfig;
     metrics?: MetricsCollector;
-    /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
-    /** Per-session adapter resolver (resolves adapter by name). */
     adapterResolver?: AdapterResolver;
-    /** Factory for creating rate limiters (injected from outside core). */
     rateLimiterFactory?: RateLimiterFactory;
-    /** Message tracer for debug tracing. */
     tracer?: MessageTracer;
   }) {
     super();
@@ -311,7 +307,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Persistence ──────────────────────────────────────────────────────────
 
-  /** Restore sessions from disk (call once at startup). */
   restoreFromStorage(): number {
     return this.persistenceService.restoreFromStorage();
   }
@@ -322,21 +317,15 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return this.lifecycleService.getOrCreateSession(sessionId);
   }
 
-  /** Set the adapter name for a session (persisted for restore). */
   setAdapterName(sessionId: string, name: string): void {
     this.infoApi.setAdapterName(sessionId, name);
   }
 
-  /**
-   * Seed a session's state with known launch parameters (cwd, model, etc.)
-   * and eagerly resolve git info. Call this right after launcher.launch()
-   * so consumers connecting before the CLI's system.init see useful state.
-   */
+  /** Seed launch-known state (cwd/model) before init arrives from backend. */
   seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
     this.infoApi.seedSessionState(sessionId, params);
   }
 
-  /** Get a read-only snapshot of a session's state. */
   getSession(sessionId: string): SessionSnapshot | undefined {
     return this.infoApi.getSession(sessionId);
   }
@@ -349,7 +338,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return this.infoApi.isCliConnected(sessionId);
   }
 
-  /** Expose storage for archival operations (BridgeOperations interface). */
   get storage(): SessionStorage | null {
     return this.infoApi.getStorage();
   }
@@ -358,12 +346,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.lifecycleService.removeSession(sessionId);
   }
 
-  /** Close all sockets (CLI + consumers) and backend sessions, then remove. */
   async closeSession(sessionId: string): Promise<void> {
     return this.lifecycleService.closeSession(sessionId);
   }
 
-  /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
     await this.lifecycleService.closeAllSessions();
     this.tracer.destroy();
@@ -386,7 +372,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Programmatic API ─────────────────────────────────────────────────────
 
-  /** Send a user message to the CLI for a session (no WebSocket needed). */
   sendUserMessage(
     sessionId: string,
     content: string,
@@ -401,7 +386,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.runtimeApi.sendUserMessage(sessionId, content, options);
   }
 
-  /** Respond to a pending permission request (no WebSocket needed). */
   sendPermissionResponse(
     sessionId: string,
     requestId: string,
@@ -415,17 +399,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.runtimeApi.sendPermissionResponse(sessionId, requestId, behavior, options);
   }
 
-  /** Send an interrupt to the CLI for a session. */
   sendInterrupt(sessionId: string): void {
     this.runtimeApi.sendInterrupt(sessionId);
   }
 
-  /** Send a set_model control request to the CLI. */
   sendSetModel(sessionId: string, model: string): void {
     this.runtimeApi.sendSetModel(sessionId, model);
   }
 
-  /** Send a set_permission_mode control request to the CLI. */
   sendSetPermissionMode(sessionId: string, mode: string): void {
     this.runtimeApi.sendSetPermissionMode(sessionId, mode);
   }
@@ -452,7 +433,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Slash command handling (delegated via SessionRuntime -> SlashCommandService) ─────
 
-  /** Execute a slash command programmatically (no WebSocket needed). */
   async executeSlashCommand(
     sessionId: string,
     command: string,
@@ -460,22 +440,18 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return this.runtimeApi.executeSlashCommand(sessionId, command);
   }
 
-  /** Push a session name update to all connected consumers for a session. */
   broadcastNameUpdate(sessionId: string, name: string): void {
     this.broadcastApi.broadcastNameUpdate(sessionId, name);
   }
 
-  /** Broadcast resume_failed to all consumers for a session. */
   broadcastResumeFailedToConsumers(sessionId: string): void {
     this.broadcastApi.broadcastResumeFailedToConsumers(sessionId);
   }
 
-  /** Broadcast process output to participants only (observers must not see process logs). */
   broadcastProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
     this.broadcastApi.broadcastProcessOutput(sessionId, stream, data);
   }
 
-  /** Broadcast watchdog state update via session_update. */
   broadcastWatchdogState(
     sessionId: string,
     watchdog: { gracePeriodMs: number; startedAt: number } | null,
@@ -483,7 +459,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.broadcastApi.broadcastWatchdogState(sessionId, watchdog);
   }
 
-  /** Broadcast circuit breaker state update via session_update. */
   broadcastCircuitBreakerState(
     sessionId: string,
     circuitBreaker: { state: string; failureCount: number; recoveryTimeRemainingMs: number },
@@ -497,12 +472,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── BackendAdapter path (delegated to BackendConnector) ──────────
 
-  /** Whether a BackendAdapter is configured. */
   get hasAdapter(): boolean {
     return this.backendApi.hasAdapter;
   }
 
-  /** Connect a session via BackendAdapter and start consuming messages. */
   async connectBackend(
     sessionId: string,
     options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },
@@ -510,17 +483,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     return this.backendApi.connectBackend(sessionId, options);
   }
 
-  /** Disconnect the backend session. */
   async disconnectBackend(sessionId: string): Promise<void> {
     return this.backendApi.disconnectBackend(sessionId);
   }
 
-  /** Whether a backend session is connected for a given session ID. */
   isBackendConnected(sessionId: string): boolean {
     return this.backendApi.isBackendConnected(sessionId);
   }
 
-  /** Send a UnifiedMessage to the backend session. */
   sendToBackend(sessionId: string, message: UnifiedMessage): void {
     this.runtimeApi.sendToBackend(sessionId, message);
   }
