@@ -180,21 +180,30 @@ The core is built around a **per-session runtime actor** (`SessionRuntime`) that
                                  │ constructs
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       SessionCoordinator                                    │
-│                          (~250 lines)                                       │
+│                       SessionCoordinator (~400L)                            │
 │                                                                             │
-│  Global lifecycle — creates/destroys SessionRuntime instances               │
-│  Reacts to domain events (relaunch, auto-name, process exit)                │
-│  Owns the runtime map, NOT session state                                    │
-└───┬──────────┬──────────┬──────────┬──────────┬─────────────────────────────┘
-    │          │          │          │          │
-    ▼          ▼          ▼          ▼          ▼
-┌────────┐┌────────┐┌─────────┐┌─────────┐┌──────────────┐
-│Session ││Domain  ││Consumer ││ Backend ││   Process    │
-│Reposit.││EventBus││ Gateway ││Connector││  Supervisor  │
-└────────┘└────────┘└─────────┘└─────────┘└──────────────┘
-                         │          │
-                         ▼          ▼
+│  Top-level facade: wires bridge + launcher + policies + services            │
+│  Delegates event wiring to CoordinatorEventRelay                            │
+│  Delegates relaunch dedup to BackendRecoveryService                         │
+│  Delegates log redaction to ProcessLogService                               │
+│  Delegates startup restore to StartupRestoreService                         │
+└───┬──────────────────┬──────────────────────────────────────────────────────┘
+    │                  │
+    ▼                  ▼
+┌────────┐  ┌──────────────────────────────────────────────────────────┐
+│Domain  │  │               SessionBridge (~720L)                       │
+│EventBus│  │                                                           │
+└────────┘  │  Wires four bounded contexts, delegates runtime map       │
+            │  ownership to RuntimeManager (src/core/bridge/)           │
+            └───┬──────────┬──────────┬──────────┬─────────────────────┘
+                │          │          │          │
+                ▼          ▼          ▼          ▼
+          ┌────────┐┌─────────┐┌─────────┐┌──────────────┐
+          │Session ││Consumer ││ Backend ││   Runtime    │
+          │Reposit.││ Gateway ││Connector││   Manager   │
+          └────────┘└─────────┘└─────────┘└──────┬───────┘
+                         │          │             │
+                         ▼          ▼             ▼
                     ┌──────────────────────────┐
                     │    SessionRuntime        │
                     │    (one per session)     │
@@ -208,43 +217,53 @@ The core is built around a **per-session runtime actor** (`SessionRuntime`) that
 
 ### SessionCoordinator
 
-**File:** `src/core/session-coordinator.ts` (~250 lines)
+**File:** `src/core/session-coordinator.ts` (~400 lines)
 **Context:** SessionControl
-**Writes state:** No (delegates to runtime)
+**Writes state:** No (delegates to runtime via bridge)
 
-The SessionCoordinator is the **global lifecycle manager**. It owns the map of `SessionRuntime` instances but never mutates session state directly — that's each runtime's job.
+The SessionCoordinator is the **global lifecycle manager** and top-level facade. It wires `SessionBridge` with the launcher, transport hub, policies, and extracted services. It never mutates session state directly — that's each runtime's job via the bridge.
 
 **Responsibilities:**
-- **Create sessions:** Builds a `SessionRuntime` instance, registers it in the runtime map, and initiates the backend connection (either by spawning a process for inverted mode or calling `adapter.connect()` for direct mode)
-- **Delete sessions:** Orchestrates teardown — closes the runtime, kills the associated process, removes persisted state, and cleans up the runtime map
-- **List sessions:** Returns snapshots from all active runtimes for API consumers
-- **Restore from storage:** On startup, reads persisted session snapshots from `SessionRepository` and rebuilds runtime instances for session continuity
-- **React to domain events:** Subscribes to the `DomainEventBus` to handle cross-session concerns:
-  - `backend:relaunch_needed` → relaunch backend with deduplication (timer-based to prevent rapid re-spawns)
+- **Create sessions:** Routes to the correct adapter (inverted vs direct connection), initiates the backend, seeds session state
+- **Delete sessions:** Orchestrates teardown — kills CLI process, clears dedup state, closes WS connections, removes from registry
+- **Restore from storage:** Delegates to `StartupRestoreService` (launcher first, then bridge — I6 ordering)
+- **React to domain events:** Delegates to `CoordinatorEventRelay` which subscribes to bridge + launcher events for cross-session concerns:
+  - `backend:relaunch_needed` → delegates to `BackendRecoveryService` (timer-guarded dedup)
   - `session:first_turn` → auto-name the session from the first user message
-  - `process:exited` → update runtime state, decide whether to relaunch or close
+  - `process:exited` → broadcast circuit breaker state
+  - `process:stdout/stderr` → redact secrets via `ProcessLogService`, broadcast to consumers
+
+**Extracted services** (in `src/core/coordinator/`):
+
+| Service | Responsibility |
+|---------|---------------|
+| `CoordinatorEventRelay` | Subscribes to bridge + launcher events, dispatches to handlers |
+| `ProcessLogService` | Buffers and redacts process stdout/stderr |
+| `BackendRecoveryService` | Timer-guarded relaunch dedup, graceful kill before relaunch |
+| `StartupRestoreService` | Ordered restore: launcher → registry → bridge |
 
 **Does NOT do:**
 - Mutate any session-level state (history, backend connection, consumer sockets)
-- Forward events between layers
+- Forward events between layers directly (delegates to relay)
 - Route messages
 
 ```typescript
 class SessionCoordinator {
-  private runtimes = new Map<string, SessionRuntime>()
+  readonly bridge: SessionBridge
+  readonly launcher: SessionLauncher
+  readonly registry: SessionRegistry
+  readonly domainEvents: DomainEventBus
 
-  async start(): Promise<void>                               // restore + subscribe + start gateway
-  async stop(): Promise<void>                                // close all runtimes + stop adapters
-  async createSession(options: CreateSessionOptions): Promise<SessionRuntime>
-  async deleteSession(id: string): Promise<void>
-  getRuntime(id: string): SessionRuntime | undefined
-  listSessions(): SessionSummary[]
+  async start(): Promise<void>                               // relay + restore + policies + transport
+  async stop(): Promise<void>                                // stop relay, policies, transport, adapters
+  async createSession(options): Promise<SessionInfo>
+  async deleteSession(id: string): Promise<boolean>
 
-  // Domain event reactions (private)
-  private subscribeToDomainEvents(): void
-  private relaunchWithDedup(sessionId: string): void         // timer-guarded relaunch
-  private autoName(sessionId: string, firstMessage: string): void
-  private handleProcessExit(event: ProcessExitEvent): void
+  // Delegated services (private)
+  private relay: CoordinatorEventRelay
+  private startupRestoreService: StartupRestoreService
+  private recoveryService: BackendRecoveryService
+  private processLogService: ProcessLogService
 }
 ```
 
@@ -1225,47 +1244,55 @@ CoreSessionState → DevToolSessionState → SessionState
 ## Module Dependency Graph
 
 ```
-                    SessionCoordinator (~250L)
+                    SessionCoordinator (~400L)
                    ╱    │        │         ╲
                   ╱     │        │          ╲
                  ╱      │        │           ╲
                 ▼       ▼        ▼            ▼
-         ┌──────────┐  ┌─────┐  ┌──────────┐  ┌───────────────┐
-         │ Session  │  │Domai│  │ Consumer │  │   Process     │
-         │ Reposit. │  │n    │  │ Gateway  │  │   Supervisor  │
-         │ (~200L)  │  │Event│  │ (~200L)  │  │   (existing   │
-         │          │  │Bus  │  │          │  │    launcher)  │
-         └──────────┘  │(~80)│  └────┬─────┘  └───────────────┘
-                       └──┬──┘       │
-                          │     Gatekeeper
-                          │     (existing ~140L)
-                          │
-       ┌──────────────────┼──────────────────────┐
-       │                  │                      │
-       ▼                  ▼                      ▼
-  ┌──────────┐    ┌──────────────┐       ┌────────────┐
-  │ Backend  │    │SessionRuntime│       │  Policies  │
-  │Connector │    │  (~400L)     │       │ •Reconnect │
-  │ (~300L)  │    │              │       │ •Idle      │
-  │          │    │  SOLE OWNER  │       │ •Caps      │
-  └────┬─────┘    │  of state    │       │ (~220L)    │
-       │          └──────┬───────┘       └────────────┘
-       │                 │
-  AdapterResolver        │ delegates to
-  (existing)             │
-                    ┌────┼─────────────┐
-                    ▼    ▼             ▼
-              ┌──────┐┌──────┐  ┌──────────┐
-              │Slash ││Outb. │  │Pure Fns  │
-              │Cmd   ││Publ. │  │•Normaliz.│
-              │Svc   ││(~150)│  │•Reducer  │
-              │(~200)││      │  │•Projector│
-              └──────┘└──────┘  └──────────┘
+  ┌──────────────┐ ┌─────┐ ┌──────────────┐ ┌───────────────┐
+  │ coordinator/ │ │Domai│ │ SessionBridge│ │   Process     │
+  │ •EventRelay │ │n    │ │  (~720L)     │ │   Supervisor  │
+  │ •Recovery   │ │Event│ │              │ │   (existing   │
+  │ •LogService │ │Bus  │ └──────┬───────┘ │    launcher)  │
+  │ •Restore    │ │(~80)│        │         └───────────────┘
+  └──────────────┘ └──┬──┘       │
+                      │     ┌────┴──────────────────────────┐
+                      │     │      │         │              │
+                      │     ▼      ▼         ▼              ▼
+                      │ ┌────────┐┌───────┐┌─────────┐┌──────────┐
+                      │ │Runtime ││Consum.││ Backend ││ Consumer │
+                      │ │Manager ││Gatewey││Connector││Broadcast.│
+                      │ │(bridge/│└───┬───┘└────┬────┘└──────────┘
+                      │ └───┬────┘    │         │
+                      │     │    Gatekeeper     │
+                      │     │    (~140L)   AdapterResolver
+       ┌──────────────┤     │
+       │              │     ▼
+       ▼              ▼ ┌──────────────┐       ┌────────────┐
+  ┌────────────┐        │SessionRuntime│       │  Policies  │
+  │ Policies   │        │  (~400L)     │       │ •Reconnect │
+  │ •Reconnect │        │              │       │ •Idle      │
+  │ •Idle      │        │  SOLE OWNER  │       │ •Caps      │
+  │ •Caps      │        │  of state    │       │ (~220L)    │
+  └────────────┘        └──────┬───────┘       └────────────┘
+                               │
+                          delegates to
+                               │
+                    ┌────┬─────┴──────────┐
+                    ▼    ▼                ▼
+              ┌──────┐┌──────┐     ┌──────────┐
+              │Slash ││Outb. │     │Pure Fns  │
+              │Cmd   ││Publ. │     │•Normaliz.│
+              │Svc   ││(~150)│     │•Reducer  │
+              │(~200)││      │     │•Projector│
+              └──────┘└──────┘     └──────────┘
 
   No cycles. Pure functions at leaves.
   Runtime delegates to pure fns + services.
   Transport modules emit commands to runtime.
   Policies observe and advise.
+  coordinator/ services handle cross-session concerns.
+  bridge/ owns the runtime map.
 ```
 
 ---
@@ -1274,11 +1301,21 @@ CoreSessionState → DevToolSessionState → SessionState
 
 ```
 src/core/
-├── session-coordinator.ts        — global lifecycle + runtime map (~250L)
+├── session-coordinator.ts        — top-level facade + lifecycle (~400L)
+├── session-bridge.ts             — wires four bounded contexts (~720L)
 ├── session-runtime.ts            — per-session state owner (~400L)
 ├── domain-events.ts              — DomainEvent union + DomainEventBus (~80L)
 ├── commands.ts                   — InboundCommand, BackendEvent, PolicyCommand types
 ├── lifecycle-state.ts            — LifecycleState enum + transition validator
+│
+├── bridge/
+│   └── runtime-manager.ts        — owns runtime map, lifecycle signal routing
+│
+├── coordinator/
+│   ├── coordinator-event-relay.ts    — bridge+launcher event wiring
+│   ├── process-log-service.ts        — stdout/stderr buffering + secret redaction
+│   ├── backend-recovery-service.ts   — timer-guarded relaunch dedup
+│   └── startup-restore-service.ts    — ordered restore (launcher→registry→bridge)
 │
 ├── transport/
 │   ├── consumer-gateway.ts       — WS accept/reject/message, emits commands (~200L)
