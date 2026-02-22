@@ -1,3 +1,13 @@
+/**
+ * IdlePolicy — automatic reaper for idle sessions with no consumers or backend.
+ *
+ * Runs periodic sweeps and event-driven sweeps (on consumer/backend disconnect)
+ * to close sessions that have been idle beyond the configured timeout. Subscribes
+ * to DomainEventBus for reactive sweep triggers.
+ *
+ * @module SessionControl
+ */
+
 import type {
   IdleSessionReaperDeps,
   IdleSessionReaper as IIdleSessionReaper,

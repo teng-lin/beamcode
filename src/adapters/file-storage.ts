@@ -18,7 +18,7 @@ import { CURRENT_SCHEMA_VERSION, migrateSession } from "./state-migrator.js";
 
 const SESSION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
-/** Validate sessionId to prevent path traversal (S2). */
+/** Validate sessionId to prevent path traversal. */
 function validateSessionId(sessionId: string): void {
   if (!SESSION_ID_PATTERN.test(sessionId)) {
     throw new Error(`Invalid session ID format: ${sessionId}`);

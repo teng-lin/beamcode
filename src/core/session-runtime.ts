@@ -1,3 +1,14 @@
+/**
+ * SessionRuntime — per-session state owner.
+ *
+ * Holds all mutable state for one session: message history, last status,
+ * connected consumer set, queued message, and backend session reference.
+ * Receives commands from SessionCoordinator and policy services; never
+ * exposes raw state for external mutation. Delegates broadcasting to
+ * ConsumerBroadcaster and does not emit domain events beyond its own
+ * lifecycle transitions.
+ */
+
 import type { ConsumerIdentity } from "../interfaces/auth.js";
 import type { RateLimiter } from "../interfaces/rate-limiter.js";
 import type { WebSocketLike } from "../interfaces/transport.js";

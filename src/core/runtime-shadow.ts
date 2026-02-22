@@ -1,3 +1,14 @@
+/**
+ * SessionRuntimeShadow — shadow lifecycle state machine for parity validation.
+ *
+ * Runs alongside the legacy SessionBridge in `vnext_shadow` mode, tracking
+ * lifecycle transitions (starting → awaiting_backend → active → idle → …)
+ * from inbound messages, backend messages, and control signals. Provides
+ * snapshots for parity comparison against the legacy runtime path.
+ *
+ * @module SessionControl
+ */
+
 import type { InboundMessage } from "../types/inbound-messages.js";
 import type { UnifiedMessage, UnifiedMessageType } from "./types/unified-message.js";
 

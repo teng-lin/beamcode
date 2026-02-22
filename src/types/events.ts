@@ -1,3 +1,11 @@
+/**
+ * Domain event maps for the bridge, launcher, and session coordinator.
+ *
+ * Events flow through {@link TypedEventEmitter} and are consumed by the
+ * coordinator, metrics, and consumer-plane layers.
+ * @module
+ */
+
 import type { TeamMember, TeamTask } from "../core/types/team-types.js";
 import type { UnifiedMessage } from "../core/types/unified-message.js";
 import type { ConsumerIdentity, ConsumerRole } from "./auth.js";
@@ -10,6 +18,7 @@ import type {
 import type { ConsumerMessage } from "./consumer-messages.js";
 import type { InboundMessage } from "./inbound-messages.js";
 
+/** Events emitted by {@link SessionBridge} — backend, consumer, message, and lifecycle events. */
 export interface BridgeEventMap {
   // ── Backend events (adapter-agnostic) ──
   "backend:connected": { sessionId: string };
@@ -70,7 +79,7 @@ export interface BridgeEventMap {
   };
   "capabilities:timeout": { sessionId: string };
 
-  // ── Team events (Phase 5.7) ──
+  // ── Team events ──
   "team:created": { sessionId: string; teamName: string };
   "team:deleted": { sessionId: string; teamName: string };
   "team:member:joined": { sessionId: string; member: TeamMember };
@@ -90,6 +99,7 @@ export interface BridgeEventMap {
   error: { source: string; error: Error; sessionId?: string };
 }
 
+/** Events emitted by the CLI launcher — process lifecycle and output. */
 export interface LauncherEventMap {
   "process:spawned": { sessionId: string; pid: number };
   "process:exited": {
@@ -109,4 +119,5 @@ export interface LauncherEventMap {
   error: { source: string; error: Error; sessionId?: string };
 }
 
+/** Combined event map for the top-level SessionCoordinator. */
 export type SessionCoordinatorEventMap = BridgeEventMap & LauncherEventMap;

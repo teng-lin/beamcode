@@ -1,5 +1,5 @@
 /**
- * ACP Outbound Translator — Phase 3
+ * ACP Outbound Translator (T3: ACP JSON-RPC → UnifiedMessage).
  *
  * Pure functions that translate ACP session/update notifications and responses
  * into UnifiedMessage envelopes. No side effects, no state, no I/O.

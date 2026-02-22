@@ -1,8 +1,11 @@
 /**
- * TeamEventDiffer — extracted from SessionBridge (Phase 4).
+ * TeamEventDiffer — pure TeamState diff-to-event mapper.
  *
- * Pure functions that diff previous and current TeamState to produce
- * a list of typed events. Zero coupling to bridge internals.
+ * Compares previous and current TeamState to produce a list of typed
+ * domain events (member joined/idle/shutdown, task created/claimed/completed).
+ * Zero coupling to bridge internals — operates solely on TeamState values.
+ *
+ * @module MessagePlane
  */
 
 import type { BridgeEventMap } from "../types/events.js";

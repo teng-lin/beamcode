@@ -1,3 +1,13 @@
+/**
+ * CliGateway — BackendPlane inverted CLI socket acceptance.
+ *
+ * Accepts inbound WebSocket connections from locally-spawned CLI processes
+ * (inverted connection model), delivers the socket to the appropriate
+ * BackendAdapter, and triggers backend connection via SessionBridge.
+ *
+ * @module BackendPlane
+ */
+
 import type { WebSocketLike } from "../interfaces/transport.js";
 import type { CliAdapterName } from "./interfaces/adapter-names.js";
 import type { InvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";

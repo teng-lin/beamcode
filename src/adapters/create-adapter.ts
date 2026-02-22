@@ -1,3 +1,9 @@
+/**
+ * Adapter factory — instantiates a BackendAdapter by name.
+ *
+ * Supported adapters: claude, claude:agent-sdk, codex, acp, gemini, opencode.
+ */
+
 import type { BackendAdapter } from "../core/interfaces/backend-adapter.js";
 import type { Logger } from "../interfaces/logger.js";
 import type { ProcessManager } from "../interfaces/process-manager.js";

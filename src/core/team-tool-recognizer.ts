@@ -1,5 +1,5 @@
 /**
- * Team Tool Recognizer — Phase 5.2
+ * Team Tool Recognizer — identifies team-related tool_use blocks in messages.
  *
  * Pure function that inspects UnifiedMessage content blocks for team-related
  * tool_use blocks and identifies team operations.
@@ -7,6 +7,8 @@
  * Team tools are recognized by name:
  * - Unambiguous: TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskList, TaskGet, SendMessage
  * - Compound discriminator: Task (only when BOTH team_name AND name are present)
+ *
+ * @module MessagePlane
  */
 
 import type { ToolUseContent, UnifiedMessage } from "./types/unified-message.js";

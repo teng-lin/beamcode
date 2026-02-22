@@ -1,3 +1,11 @@
+/**
+ * ClaudeLauncher — spawns and manages Claude Code CLI processes.
+ *
+ * Each session spawns a `claude` CLI with `--sdk-url` pointing back to
+ * BeamCode's WebSocket server (inverted connection pattern). Extends
+ * ProcessSupervisor for kill escalation, circuit breaker, and PID tracking.
+ */
+
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { SessionLauncher } from "../../core/interfaces/session-launcher.js";

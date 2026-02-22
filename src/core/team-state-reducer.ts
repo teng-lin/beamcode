@@ -1,5 +1,5 @@
 /**
- * Team State Reducer — Phase 5.4
+ * Team State Reducer — pure TeamState builder from correlated tool pairs.
  *
  * Pure function that builds/updates TeamState from correlated team tool pairs.
  * All operations are idempotent — applying the same update twice produces the
@@ -9,6 +9,8 @@
  * - New TeamState on state-changing operations
  * - The input state unchanged on read-only operations (TaskGet, TaskList, most SendMessage)
  * - undefined when team is dissolved (TeamDelete)
+ *
+ * @module MessagePlane
  */
 
 import type { CorrelatedToolUse } from "./team-tool-correlation.js";

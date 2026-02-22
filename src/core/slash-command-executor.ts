@@ -1,3 +1,13 @@
+/**
+ * SlashCommandExecutor — local slash command execution engine.
+ *
+ * Currently handles `/help` by building output from capabilities, session
+ * slash_commands, and the SlashCommandRegistry. All other commands are
+ * forwarded to the CLI — this executor never sends messages to a backend.
+ *
+ * @module MessagePlane
+ */
+
 import type { SessionState } from "../types/session-state.js";
 import type { SlashCommandRegistry } from "./slash-command-registry.js";
 

@@ -1,3 +1,11 @@
+/**
+ * Zod validation schema for inbound consumer messages.
+ *
+ * All WebSocket messages from consumers are validated against
+ * {@link inboundMessageSchema} before being processed by the bridge.
+ * @module
+ */
+
 import { z } from "zod";
 
 const imageSchema = z.object({

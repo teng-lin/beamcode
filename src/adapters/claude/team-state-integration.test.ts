@@ -1,5 +1,5 @@
 /**
- * Team State Integration Tests — Phase 5.6
+ * Team State Integration Tests
  *
  * Tests that the state reducer correctly wires TeamToolCorrelationBuffer
  * and reduceTeamState into the existing state reduction pipeline.

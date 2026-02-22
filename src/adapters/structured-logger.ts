@@ -1,3 +1,9 @@
+/**
+ * Structured JSON logger — emits one JSON object per log line to stderr.
+ * Supports level filtering, component tagging, and safe serialization
+ * of Error objects and circular references.
+ */
+
 import type { Logger } from "../interfaces/logger.js";
 
 export enum LogLevel {

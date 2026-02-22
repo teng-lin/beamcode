@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 
 const REQUIRED_SCRIPTS = [
-  "test:e2e:deterministic",
+  "test:e2e:mock",
   "test:e2e:realcli:smoke:process",
   "test:e2e:real:claude:smoke",
 ];
@@ -26,10 +26,7 @@ const REQUIRED_TEST_FILES = [
   "src/e2e/real/handshake.e2e.test.ts",
 ];
 
-const REQUIRED_DOCS = [
-  "docs/refactor-plan/e2e-parity-matrix.md",
-  "docs/refactor-plan/rollback-runbook.md",
-];
+const REQUIRED_DOCS = [];
 
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));

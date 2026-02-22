@@ -1,3 +1,8 @@
+/**
+ * Console-based Logger implementation.
+ * Prefixes all output with a configurable tag (default: "claude-ws").
+ */
+
 import type { Logger } from "../interfaces/logger.js";
 
 export class ConsoleLogger implements Logger {

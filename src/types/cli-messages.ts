@@ -1,5 +1,13 @@
-// CLI Message Types (NDJSON from Claude Code CLI)
+/**
+ * CLI message types received as NDJSON from backend CLI processes.
+ *
+ * Each interface corresponds to one `type` discriminant in the NDJSON stream.
+ * The {@link CLIMessage} union covers all known shapes; unknown types are
+ * silently dropped by the adapter layer.
+ * @module
+ */
 
+/** First message sent by the CLI after connection — carries session metadata. */
 export interface CLISystemInitMessage {
   type: "system";
   subtype: "init";
@@ -17,6 +25,7 @@ export interface CLISystemInitMessage {
   uuid: string;
 }
 
+/** Status update from the CLI (e.g. compacting context). */
 export interface CLISystemStatusMessage {
   type: "system";
   subtype: "status";
@@ -26,6 +35,7 @@ export interface CLISystemStatusMessage {
   session_id: string;
 }
 
+/** An assistant turn with model output content blocks. */
 export interface CLIAssistantMessage {
   type: "assistant";
   message: {
@@ -48,6 +58,7 @@ export interface CLIAssistantMessage {
   session_id: string;
 }
 
+/** Final result of a CLI turn — includes cost, token usage, and outcome subtype. */
 export interface CLIResultMessage {
   type: "result";
   subtype:
@@ -114,6 +125,7 @@ export interface CLIToolUseSummaryMessage {
   session_id: string;
 }
 
+/** Permission request from the CLI — the bridge surfaces this to consumers for approval. */
 export interface CLIControlRequestMessage {
   type: "control_request";
   request_id: string;
@@ -128,6 +140,7 @@ export interface CLIControlRequestMessage {
   };
 }
 
+/** Response from the CLI to a control request (e.g. initialize handshake). */
 export interface CLIControlResponseMessage {
   type: "control_response";
   response: {
@@ -183,6 +196,7 @@ export interface CLIUserEchoMessage {
   session_id?: string;
 }
 
+/** Discriminated union of all CLI NDJSON message shapes. */
 export type CLIMessage =
   | CLISystemInitMessage
   | CLISystemStatusMessage
@@ -197,7 +211,7 @@ export type CLIMessage =
   | CLIAuthStatusMessage
   | CLIUserEchoMessage;
 
-// Content Block Types
+/** Content block inside an assistant message (text, tool_use, thinking, etc.). */
 export type ContentBlock =
   | { type: "text"; text: string }
   | {
@@ -217,7 +231,7 @@ export type ContentBlock =
   | { type: "code"; language: string; code: string }
   | { type: "refusal"; refusal: string };
 
-// Permission types
+/** Where a permission rule should be persisted. */
 export type PermissionDestination =
   | "userSettings"
   | "projectSettings"
@@ -225,6 +239,7 @@ export type PermissionDestination =
   | "session"
   | "cliArg";
 
+/** A permission rule change suggested by the CLI alongside a tool-use request. */
 export type PermissionUpdate =
   | {
       type: "addRules";
@@ -260,6 +275,7 @@ export type PermissionUpdate =
       destination: PermissionDestination;
     };
 
+/** A pending permission request tracked by the bridge until the consumer responds. */
 export interface PermissionRequest {
   request_id: string;
   tool_name: string;

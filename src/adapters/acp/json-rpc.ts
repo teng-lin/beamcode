@@ -1,8 +1,8 @@
 /**
- * JSON-RPC 2.0 Codec — Phase 3
+ * JSON-RPC 2.0 Codec for ACP communication.
  *
- * Minimal JSON-RPC 2.0 message framing for ACP communication.
- * Handles request/response/notification creation and line-delimited encoding.
+ * Minimal message framing: request/response/notification creation,
+ * auto-incrementing IDs, and newline-delimited JSON encoding/decoding.
  */
 
 // ---------------------------------------------------------------------------

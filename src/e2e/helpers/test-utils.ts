@@ -12,6 +12,8 @@ import type { ProviderConfig } from "../../types/config.js";
 import { isClaudeAvailable } from "../../utils/claude-detection.js";
 import { getE2EProfile, isRealCliProfile } from "./e2e-profile.js";
 
+// Prebuffer: WebSocket messages arriving before a test starts listening are
+// captured in a per-socket buffer so they're not lost to race conditions.
 const PREBUFFER_KEY = Symbol("e2ePrebuffer");
 
 type BufferedWebSocket = WebSocket & { [PREBUFFER_KEY]?: string[] };
@@ -24,6 +26,7 @@ function getPrebuffer(ws: WebSocket): string[] {
   return toBuffered(ws)[PREBUFFER_KEY] ?? [];
 }
 
+/** Attach a message prebuffer to a WebSocket so early messages aren't lost. Idempotent. */
 export function attachPrebuffer(ws: WebSocket): void {
   const buffered = toBuffered(ws);
   if (buffered[PREBUFFER_KEY]) return;
@@ -47,7 +50,7 @@ function removeFirstRaw(prebuffer: string[], raw: string): void {
  * 1. USE_MOCK_CLI=true -> MockProcessManager
  * 2. USE_REAL_CLI=true -> NodeProcessManager
  * 3. E2E_PROFILE in {real-smoke, real-full} -> NodeProcessManager
- * 4. deterministic profile -> auto-detect Claude availability
+ * 4. mock profile -> auto-detect Claude availability
  */
 export function createProcessManager(): ProcessManager {
   if (process.env.USE_MOCK_CLI === "true") {
@@ -78,16 +81,19 @@ export function createProcessManager(): ProcessManager {
 
 // ── Session Coordinator Setup ────────────────────────────────────────────────
 
+/** Options for spinning up a test SessionCoordinator with ephemeral port. */
 export interface TestSessionCoordinatorOptions {
   config?: Partial<ProviderConfig>;
   authenticator?: Authenticator;
 }
 
+/** Running test coordinator with its backing WebSocket server. */
 export interface TestSessionCoordinator {
   coordinator: SessionCoordinator;
   server: NodeWebSocketServer;
 }
 
+/** Boot a SessionCoordinator on an ephemeral port with in-memory storage. */
 export async function setupTestSessionCoordinator(
   options: TestSessionCoordinatorOptions = {},
 ): Promise<TestSessionCoordinator> {
@@ -108,11 +114,13 @@ export async function setupTestSessionCoordinator(
   return { coordinator, server };
 }
 
+/** A launched test session with its assigned port. */
 export interface TestSession {
   sessionId: string;
   port: number;
 }
 
+/** Launch a new session within a test coordinator and return its ID + port. */
 export function createTestSession(testCoordinator: TestSessionCoordinator): TestSession {
   const launched = testCoordinator.coordinator.launcher.launch({ cwd: process.cwd() });
   testCoordinator.coordinator.bridge.seedSessionState(launched.sessionId, {
@@ -141,14 +149,17 @@ function connectWebSocket(port: number, role: ClientRole, sessionId: string): Pr
   return connectWebSocketUrl(`ws://localhost:${port}/ws/${role}/${sessionId}`);
 }
 
+/** Connect a consumer WebSocket to the given session. Resolves once the socket is open. */
 export function connectTestConsumer(port: number, sessionId: string): Promise<WebSocket> {
   return connectWebSocket(port, "consumer", sessionId);
 }
 
+/** Connect a CLI WebSocket to the given session. Resolves once the socket is open. */
 export function connectTestCLI(port: number, sessionId: string): Promise<WebSocket> {
   return connectWebSocket(port, "cli", sessionId);
 }
 
+/** Connect a consumer WebSocket with additional query-string parameters (e.g. auth tokens). */
 export function connectTestConsumerWithQuery(
   port: number,
   sessionId: string,
@@ -162,6 +173,10 @@ export function connectTestConsumerWithQuery(
 
 // ── Message Collection ───────────────────────────────────────────────────────
 
+/**
+ * Collect `count` raw JSON messages from a WebSocket, draining the prebuffer first.
+ * Resolves with whatever was collected when the timeout fires (may be fewer than `count`).
+ */
 export function collectMessages(ws: WebSocket, count: number, timeoutMs = 2000): Promise<string[]> {
   return new Promise((resolve) => {
     const prebuffer = getPrebuffer(ws);
@@ -195,6 +210,10 @@ export function collectMessages(ws: WebSocket, count: number, timeoutMs = 2000):
   });
 }
 
+/**
+ * Wait for a WebSocket message matching `predicate`. Checks the prebuffer first,
+ * then listens for new arrivals. Rejects with diagnostics on timeout.
+ */
 export function waitForMessage(
   ws: WebSocket,
   predicate: (msg: unknown) => boolean,
@@ -276,6 +295,7 @@ function hasType(type: string): (msg: unknown) => boolean {
     (msg as { type: string }).type === type;
 }
 
+/** Shorthand for `waitForMessage` with a type-field predicate. */
 export function waitForMessageType(
   ws: WebSocket,
   type: string,
@@ -284,8 +304,8 @@ export function waitForMessageType(
   return waitForMessage(ws, hasType(type), timeoutMs);
 }
 
+/** Extract the first text content block from an assistant-style message. Throws on bad shape. */
 export function getMessageText(msg: unknown): string {
-  // Validate the message structure before accessing nested properties
   if (typeof msg !== "object" || msg === null) {
     throw new Error(`Expected object, got ${typeof msg}. Raw message: ${JSON.stringify(msg)}`);
   }
@@ -321,6 +341,7 @@ export function getMessageText(msg: unknown): string {
 
 // ── Mock Data Generators ─────────────────────────────────────────────────────
 
+/** Build a mock CLI assistant message with a single text content block. */
 export function mockAssistantMessage(text: string, id = "test-msg") {
   return {
     type: "assistant",
@@ -343,6 +364,7 @@ export function mockAssistantMessage(text: string, id = "test-msg") {
   };
 }
 
+/** Build a mock CLI system:init message for a given session. */
 export function mockSystemInit(
   sessionId: string,
   options?: {
@@ -368,6 +390,7 @@ export function mockSystemInit(
   };
 }
 
+/** Build a mock inbound slash_command message. */
 export function mockSlashCommand(command: string, requestId?: string) {
   return {
     type: "slash_command",
@@ -376,6 +399,7 @@ export function mockSlashCommand(command: string, requestId?: string) {
   };
 }
 
+/** Build a mock CLI result message with optional cost and error overrides. */
 export function mockResultMessage(
   sessionId: string,
   options?: { text?: string; costUsd?: number; isError?: boolean },
@@ -393,6 +417,7 @@ export function mockResultMessage(
   };
 }
 
+/** Send a message on `sender` and wait for a response of `responseType` on `receiver`. */
 export function sendAndWait(
   sender: WebSocket,
   receiver: WebSocket,
@@ -407,6 +432,7 @@ export function sendAndWait(
 
 // ── Cleanup Helpers ──────────────────────────────────────────────────────────
 
+/** Close all provided WebSockets and wait briefly for graceful shutdown. */
 export async function closeWebSockets(...sockets: WebSocket[]): Promise<void> {
   for (const ws of sockets) {
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
@@ -417,6 +443,7 @@ export async function closeWebSockets(...sockets: WebSocket[]): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
+/** Stop a test SessionCoordinator, swallowing errors to avoid masking test failures. */
 export async function cleanupSessionCoordinator(
   testCoordinator: TestSessionCoordinator,
 ): Promise<void> {

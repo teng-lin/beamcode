@@ -1,8 +1,9 @@
 /**
- * AsyncMessageQueue<T> — generic async iterable queue.
+ * AsyncMessageQueue<T> — generic async iterable queue shared by all adapter sessions.
  *
- * Extracted from adapter sessions (Phase 4 / H2) where 4 of 5 adapters
- * duplicated identical ~50-line queue implementations.
+ * Part of the **BackendPlane** layer. Each BackendSession implementation uses
+ * this queue to bridge its internal message stream with the `for await` consumer
+ * loop in BackendConnector.
  *
  * Usage:
  *   const queue = new AsyncMessageQueue<UnifiedMessage>();

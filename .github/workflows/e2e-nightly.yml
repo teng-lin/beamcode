@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  e2e-deterministic-full:
-    name: E2E Deterministic Full
+  e2e-mock-full:
+    name: E2E Mock Full
     runs-on: ubuntu-latest
 
     steps:
@@ -30,8 +30,8 @@ jobs:
       - name: Verify E2E parity matrix prerequisites
         run: pnpm test:e2e:parity:check
 
-      - name: Run deterministic e2e full lane
-        run: pnpm test:e2e:deterministic
+      - name: Run mock e2e full lane
+        run: pnpm test:e2e:mock
 
   e2e-realcli-full-process:
     name: E2E Real CLI Full (Process)

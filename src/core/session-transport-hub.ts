@@ -1,3 +1,13 @@
+/**
+ * SessionTransportHub — WebSocket server multiplexer for CLI and consumer connections.
+ *
+ * Listens on the configured port and routes incoming WebSocket connections to
+ * either CliGateway (for inverted CLI connections) or ConsumerGateway (for
+ * browser/mobile consumers). Owned by SessionCoordinator.
+ *
+ * @module SessionControl
+ */
+
 import type { AuthContext } from "../interfaces/auth.js";
 import type { WebSocketLike } from "../interfaces/transport.js";
 import { CliGateway } from "./cli-gateway.js";

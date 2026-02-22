@@ -1,9 +1,12 @@
 /**
- * GitInfoTracker — extracted from SessionBridge.
+ * GitInfoTracker — session-level git metadata resolver.
  *
  * Manages git info resolution for sessions: initial resolve with idempotency
  * guard, refresh with change detection, and attempt tracking to avoid repeated
- * subprocess spawns for non-git directories.
+ * subprocess spawns for non-git directories. Populates SessionState fields
+ * like `git_branch`, `is_worktree`, `git_ahead`, and `git_behind`.
+ *
+ * @module SessionControl
  */
 
 import type { GitInfo, GitInfoResolver } from "../interfaces/git-resolver.js";

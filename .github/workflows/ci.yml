@@ -44,8 +44,8 @@ jobs:
       - name: Build
         run: pnpm run build
 
-  e2e-deterministic:
-    name: E2E Deterministic
+  e2e-mock:
+    name: E2E Mock
     runs-on: ubuntu-latest
 
     steps:
@@ -68,8 +68,8 @@ jobs:
       - name: Verify E2E parity matrix prerequisites
         run: pnpm test:e2e:parity:check
 
-      - name: Run deterministic e2e lane
-        run: pnpm test:e2e:deterministic
+      - name: Run mock e2e lane
+        run: pnpm test:e2e:mock
 
   e2e-realcli-smoke-process:
     name: E2E Real CLI Smoke (Process)

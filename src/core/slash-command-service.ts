@@ -1,3 +1,13 @@
+/**
+ * SlashCommandService — entry point for slash command handling.
+ *
+ * Receives inbound `slash_command` messages from consumers and dispatches
+ * them through the SlashCommandChain. Also provides a programmatic API
+ * for executing commands without a WebSocket (used by the HTTP API).
+ *
+ * @module MessagePlane
+ */
+
 import type { InboundCommand } from "./interfaces/runtime-commands.js";
 import type { MessageTracer } from "./message-tracer.js";
 import type { Session } from "./session-repository.js";

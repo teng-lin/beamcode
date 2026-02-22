@@ -124,6 +124,7 @@ export function waitForUnifiedMessageType(
 // ACP mock helpers
 // ---------------------------------------------------------------------------
 
+/** In-memory writable stream that records chunks and emits events for testing. */
 export class MockStream extends EventEmitter {
   readonly chunks: string[] = [];
 
@@ -133,6 +134,7 @@ export class MockStream extends EventEmitter {
   }
 }
 
+/** Create a mock ChildProcess with attached stdin/stdout/stderr MockStreams. */
 export function createMockChild() {
   const stdin = new MockStream();
   const stdout = new MockStream();
@@ -155,16 +157,19 @@ export function createMockChild() {
   return { child, stdin, stdout, stderr };
 }
 
+/** Emit a JSON-RPC success response on the given stdout stream. */
 export function respondToRequest(stdout: MockStream, id: number, result: unknown) {
   const response = `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`;
   stdout.emit("data", Buffer.from(response));
 }
 
+/** Emit a JSON-RPC notification (no `id`) on the given stdout stream. */
 export function sendNotification(stdout: MockStream, method: string, params: unknown) {
   const notification = `${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`;
   stdout.emit("data", Buffer.from(notification));
 }
 
+/** Emit a JSON-RPC request (with `id` + `method`) on the given stdout stream. */
 export function sendJsonRpcRequest(
   stdout: MockStream,
   id: number,
@@ -229,6 +234,7 @@ export function createAcpAutoResponder(
 // Codex mock helpers
 // ---------------------------------------------------------------------------
 
+/** Minimal mock WebSocket that records sent messages and emits events. */
 export class MockWebSocket extends EventEmitter {
   static readonly OPEN = 1;
   readyState = MockWebSocket.OPEN;
@@ -244,6 +250,7 @@ export class MockWebSocket extends EventEmitter {
   }
 }
 
+/** Create a vitest-mocked ProcessManager with a never-exiting process stub. */
 export function createMockProcessManager(): ProcessManager {
   const exitPromise = new Promise<number | null>(() => {});
   return {
@@ -258,14 +265,17 @@ export function createMockProcessManager(): ProcessManager {
   };
 }
 
+/** Simulate a Codex JSON-RPC notification arriving over WebSocket. */
 export function sendCodexNotification(ws: MockWebSocket, method: string, params: unknown) {
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", method, params })));
 }
 
+/** Simulate a Codex JSON-RPC success response arriving over WebSocket. */
 export function sendCodexResponse(ws: MockWebSocket, id: number, result: unknown) {
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, result })));
 }
 
+/** Simulate a Codex JSON-RPC error response arriving over WebSocket. */
 export function sendCodexErrorResponse(
   ws: MockWebSocket,
   id: number,
@@ -275,6 +285,7 @@ export function sendCodexErrorResponse(
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })));
 }
 
+/** Simulate a Codex JSON-RPC request arriving over WebSocket. */
 export function sendCodexRequest(ws: MockWebSocket, id: number, method: string, params: unknown) {
   ws.emit("message", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params })));
 }
@@ -312,7 +323,8 @@ export function createInterruptMessage(): UnifiedMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Opencode mock helpers
+// Opencode mock helpers — factory functions for OpencodeEvent payloads.
+// Each builder returns a typed OpencodeEvent matching one SSE event shape.
 // ---------------------------------------------------------------------------
 
 import type { OpencodeHttpClient } from "../../adapters/opencode/opencode-http-client.js";
@@ -321,6 +333,7 @@ import type {
   OpencodeMessageError,
 } from "../../adapters/opencode/opencode-types.js";
 
+/** Create a vitest-mocked OpencodeHttpClient with all methods stubbed. */
 export function createMockOpencodeHttpClient() {
   return {
     promptAsync: vi.fn().mockResolvedValue(undefined),
@@ -336,6 +349,7 @@ export function createMockOpencodeHttpClient() {
   };
 }
 
+/** Create a controllable SSE subscription mock — call `push()` to deliver events. */
 export function createMockOpencodeSubscribe(): {
   subscribe: (h: (event: OpencodeEvent) => void) => () => void;
   push: (event: OpencodeEvent) => void;
