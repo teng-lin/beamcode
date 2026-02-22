@@ -28,6 +28,7 @@ import { noopLogger } from "../utils/noop-logger.js";
 import { redactSecrets } from "../utils/redact-secrets.js";
 import type { RateLimiterFactory } from "./consumer-gatekeeper.js";
 import { BackendRecoveryService } from "./coordinator/backend-recovery-service.js";
+import { CoordinatorEventRelay } from "./coordinator/coordinator-event-relay.js";
 import { ProcessLogService } from "./coordinator/process-log-service.js";
 import { StartupRestoreService } from "./coordinator/startup-restore-service.js";
 import { DomainEventBus } from "./domain-event-bus.js";
@@ -35,7 +36,6 @@ import { IdlePolicy } from "./idle-policy.js";
 import type { CliAdapterName } from "./interfaces/adapter-names.js";
 import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
-import type { DomainEventMap } from "./interfaces/domain-events.js";
 import { isInvertedConnectionAdapter } from "./interfaces/inverted-connection-adapter.js";
 import type {
   IdleSessionReaper as IIdleSessionReaper,
@@ -93,7 +93,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   private processLogService = new ProcessLogService();
   private startupRestoreService: StartupRestoreService;
   private recoveryService: BackendRecoveryService;
-  private eventCleanups: (() => void)[] = [];
+  private relay: CoordinatorEventRelay;
   private started = false;
 
   constructor(options: SessionCoordinatorOptions) {
@@ -157,6 +157,66 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       relaunchDedupMs: this.config.relaunchDedupMs,
       initializeTimeoutMs: this.config.initializeTimeoutMs,
       killGracePeriodMs: this.config.killGracePeriodMs,
+    });
+    this.relay = new CoordinatorEventRelay({
+      emit: (event, payload) =>
+        // biome-ignore lint/suspicious/noExplicitAny: dynamic event forwarding
+        this.emit(event as any, payload as any),
+      domainEvents: this.domainEvents,
+      bridge: this.bridge,
+      launcher: this.launcher,
+      handlers: {
+        onProcessSpawned: (payload) => {
+          const { sessionId } = payload;
+          const info = this.registry.getSession(sessionId);
+          if (!info) return;
+          this.bridge.seedSessionState(sessionId, {
+            cwd: info.cwd,
+            model: info.model,
+          });
+          this.bridge.setAdapterName(sessionId, info.adapterName ?? this.defaultAdapterName);
+        },
+        onBackendSessionId: (payload) => {
+          this.registry.setBackendSessionId(payload.sessionId, payload.backendSessionId);
+        },
+        onBackendConnected: (payload) => {
+          this.registry.markConnected(payload.sessionId);
+        },
+        onProcessResumeFailed: (payload) => {
+          this.bridge.broadcastResumeFailedToConsumers(payload.sessionId);
+        },
+        onProcessStdout: (payload) => {
+          this.handleProcessOutput(payload.sessionId, "stdout", payload.data);
+        },
+        onProcessStderr: (payload) => {
+          this.handleProcessOutput(payload.sessionId, "stderr", payload.data);
+        },
+        onProcessExited: (payload) => {
+          if (payload.circuitBreaker) {
+            this.bridge.broadcastCircuitBreakerState(payload.sessionId, payload.circuitBreaker);
+          }
+        },
+        onFirstTurnCompleted: (payload) => {
+          const { sessionId, firstUserMessage } = payload;
+          const session = this.registry.getSession(sessionId);
+          if (session?.name) return;
+          let name = firstUserMessage.split("\n")[0].trim();
+          name = redactSecrets(name);
+          if (name.length > 50) name = `${name.slice(0, 47)}...`;
+          if (!name) return;
+          this.bridge.broadcastNameUpdate(sessionId, name);
+          this.registry.setSessionName(sessionId, name);
+        },
+        onSessionClosed: (payload) => {
+          this.processLogService.cleanup(payload.sessionId);
+        },
+        onCapabilitiesTimeout: (payload) => {
+          this.bridge.applyPolicyCommand(payload.sessionId, { type: "capabilities_timeout" });
+        },
+        onBackendRelaunchNeeded: (payload) => {
+          void this.handleBackendRelaunchNeeded(payload.sessionId);
+        },
+      },
     });
   }
 
@@ -262,9 +322,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
    * 3. Clear timers
    */
   async stop(): Promise<void> {
-    // Remove all wired event listeners to prevent leaks on restart
-    for (const cleanup of this.eventCleanups) cleanup();
-    this.eventCleanups = [];
+    this.relay.stop();
 
     this.reconnectController.stop();
     this.idleSessionReaper.stop();
@@ -303,30 +361,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     return true;
   }
 
-  /**
-   * Register an event listener and record a cleanup function so it can be
-   * removed later (e.g. on stop()).  This prevents listener leaks when the
-   * manager is restarted.
-   */
-  // biome-ignore lint/suspicious/noExplicitAny: must accept any TypedEventEmitter variant
-  private trackListener<E extends TypedEventEmitter<any>>(
-    emitter: E,
-    event: string,
-    // biome-ignore lint/suspicious/noExplicitAny: generic event handler signature
-    handler: (...args: any[]) => void,
-  ): void {
-    emitter.on(event, handler);
-    this.eventCleanups.push(() => emitter.off(event, handler));
-  }
-
-  private trackDomainListener<K extends keyof DomainEventMap & string>(
-    event: K,
-    handler: (domainEvent: DomainEventMap[K]) => void,
-  ): void {
-    this.domainEvents.on(event, handler);
-    this.eventCleanups.push(() => this.domainEvents.off(event, handler));
-  }
-
   private handleProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
     const redacted = this.processLogService.append(sessionId, stream, data);
     this.bridge.broadcastProcessOutput(sessionId, stream, redacted);
@@ -337,131 +371,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   }
 
   private wireEvents(): void {
-    // Forward all bridge events to session coordinator listeners
-    for (const event of [
-      "backend:connected",
-      "backend:disconnected",
-      "backend:session_id",
-      "backend:relaunch_needed",
-      "backend:message",
-      "consumer:connected",
-      "consumer:disconnected",
-      "consumer:authenticated",
-      "consumer:auth_failed",
-      "message:outbound",
-      "message:inbound",
-      "permission:requested",
-      "permission:resolved",
-      "session:first_turn_completed",
-      "session:closed",
-      "slash_command:executed",
-      "slash_command:failed",
-      "capabilities:ready",
-      "capabilities:timeout",
-      "auth_status",
-      "error",
-    ] as const) {
-      // biome-ignore lint/suspicious/noExplicitAny: event forwarding — TypeScript cannot narrow dynamic event names
-      const handler = (payload: any) => {
-        // `message:inbound` is an input command, not a domain event.
-        if (event !== "message:inbound") {
-          this.domainEvents.publishBridge(event, payload);
-        }
-        this.emit(event, payload);
-      };
-      this.trackListener(this.bridge, event, handler);
-    }
-
-    // Forward all launcher events
-    for (const event of [
-      "process:spawned",
-      "process:exited",
-      "process:connected",
-      "process:resume_failed",
-      "process:stdout",
-      "process:stderr",
-      "error",
-    ] as const) {
-      // biome-ignore lint/suspicious/noExplicitAny: event forwarding — TypeScript cannot narrow dynamic event names
-      const handler = (payload: any) => {
-        this.domainEvents.publishLauncher(event, payload);
-        this.emit(event, payload);
-      };
-      this.trackListener(this.launcher, event, handler);
-    }
-
-    // Keep bridge session state in sync for legacy launcher.launch() callers.
-    // SessionCoordinator.createSession already seeds bridge state directly.
-    this.trackDomainListener("process:spawned", ({ payload }) => {
-      const { sessionId } = payload;
-      const info = this.registry.getSession(sessionId);
-      if (!info) return;
-      this.bridge.seedSessionState(sessionId, {
-        cwd: info.cwd,
-        model: info.model,
-      });
-      this.bridge.setAdapterName(sessionId, info.adapterName ?? this.defaultAdapterName);
-    });
-
-    // When the backend reports its session_id, store it for --resume on relaunch.
-    this.trackDomainListener("backend:session_id", ({ payload }) => {
-      this.registry.setBackendSessionId(payload.sessionId, payload.backendSessionId);
-    });
-
-    // When backend connects, mark it in the registry.
-    this.trackDomainListener("backend:connected", ({ payload }) => {
-      this.registry.markConnected(payload.sessionId);
-    });
-
-    // Resume failure -> broadcast to consumers.
-    this.trackDomainListener("process:resume_failed", ({ payload }) => {
-      this.bridge.broadcastResumeFailedToConsumers(payload.sessionId);
-    });
-
-    // Process output forwarding with redaction.
-    this.trackDomainListener("process:stdout", ({ payload }) => {
-      this.handleProcessOutput(payload.sessionId, "stdout", payload.data);
-    });
-    this.trackDomainListener("process:stderr", ({ payload }) => {
-      this.handleProcessOutput(payload.sessionId, "stderr", payload.data);
-    });
-
-    // Circuit breaker state from process:exited.
-    this.trackDomainListener("process:exited", ({ payload }) => {
-      if (payload.circuitBreaker) {
-        this.bridge.broadcastCircuitBreakerState(payload.sessionId, payload.circuitBreaker);
-      }
-    });
-
-    // Session auto-naming on first turn.
-    this.trackDomainListener("session:first_turn_completed", ({ payload }) => {
-      const { sessionId, firstUserMessage } = payload;
-      const session = this.registry.getSession(sessionId);
-      if (session?.name) return;
-
-      let name = firstUserMessage.split("\n")[0].trim();
-      name = redactSecrets(name);
-      if (name.length > 50) name = `${name.slice(0, 47)}...`;
-      if (!name) return;
-
-      this.bridge.broadcastNameUpdate(sessionId, name);
-      this.registry.setSessionName(sessionId, name);
-    });
-
-    // Clean up process log buffer when a session is closed.
-    this.trackDomainListener("session:closed", ({ payload }) => {
-      this.processLogService.cleanup(payload.sessionId);
-    });
-
-    // Route policy advisory through runtime ownership boundary.
-    this.trackDomainListener("capabilities:timeout", ({ payload }) => {
-      this.bridge.applyPolicyCommand(payload.sessionId, { type: "capabilities_timeout" });
-    });
-
-    // Auto-relaunch when a consumer connects but backend is dead (with dedup).
-    this.trackDomainListener("backend:relaunch_needed", ({ payload }) => {
-      void this.handleBackendRelaunchNeeded(payload.sessionId);
-    });
+    this.relay.start();
   }
 
   /** Execute a slash command programmatically. */
