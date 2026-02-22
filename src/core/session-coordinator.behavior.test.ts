@@ -1520,4 +1520,70 @@ describe("SessionCoordinator", () => {
       }
     });
   });
+
+  // -----------------------------------------------------------------------
+  // wireEvents completeness snapshot (behavior lock)
+  // -----------------------------------------------------------------------
+
+  describe("wireEvents completeness snapshot", () => {
+    it("wires the expected bridge events", () => {
+      const bridgeEvents: string[] = [];
+      const origBridgeOn = mgr.bridge.on.bind(mgr.bridge);
+      vi.spyOn(mgr.bridge, "on").mockImplementation((event: string, handler: any) => {
+        bridgeEvents.push(event);
+        return origBridgeOn(event, handler);
+      });
+
+      mgr.start();
+
+      expect(bridgeEvents.sort()).toMatchInlineSnapshot(`
+        [
+          "auth_status",
+          "backend:connected",
+          "backend:disconnected",
+          "backend:message",
+          "backend:relaunch_needed",
+          "backend:session_id",
+          "capabilities:ready",
+          "capabilities:timeout",
+          "consumer:auth_failed",
+          "consumer:authenticated",
+          "consumer:connected",
+          "consumer:disconnected",
+          "error",
+          "message:inbound",
+          "message:outbound",
+          "permission:requested",
+          "permission:resolved",
+          "session:closed",
+          "session:first_turn_completed",
+          "slash_command:executed",
+          "slash_command:failed",
+        ]
+      `);
+    });
+
+    it("wires the expected launcher events", () => {
+      const launcherEvents: string[] = [];
+      const origLauncherOn = mgr.launcher.on.bind(mgr.launcher);
+      vi.spyOn(mgr.launcher, "on").mockImplementation((event: string, handler: any) => {
+        launcherEvents.push(event);
+        return origLauncherOn(event, handler);
+      });
+
+      mgr.start();
+
+      expect(launcherEvents.sort()).toMatchInlineSnapshot(`
+        [
+          "error",
+          "process:connected",
+          "process:exited",
+          "process:resume_failed",
+          "process:spawned",
+          "process:stderr",
+          "process:stdout",
+        ]
+      `);
+    });
+  });
 });

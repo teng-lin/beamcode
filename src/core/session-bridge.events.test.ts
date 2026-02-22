@@ -504,3 +504,101 @@ describe("SessionBridge — seedSessionState", () => {
     expect(initMsg.session.git_branch).toBe("develop");
   });
 });
+
+// ─── Behavior lock: lifecycle signal dispatch ─────────────────────────────────
+
+describe("SessionBridge — lifecycle signal dispatch (behavior lock)", () => {
+  let bridge: SessionBridgeType;
+  let adapter: MockBackendAdapter;
+
+  beforeEach(() => {
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    adapter = created.adapter;
+  });
+
+  it("backend:connected transitions lifecycle to active", async () => {
+    await bridge.connectBackend("sess-1");
+    expect(bridge.getLifecycleState("sess-1")).toBe("active");
+  });
+
+  it("backend:disconnected transitions lifecycle to degraded", async () => {
+    await bridge.connectBackend("sess-1");
+    expect(bridge.getLifecycleState("sess-1")).toBe("active");
+
+    await bridge.disconnectBackend("sess-1");
+    expect(bridge.getLifecycleState("sess-1")).toBe("degraded");
+  });
+
+  it("session:closed transitions lifecycle to closed (session removed)", async () => {
+    await bridge.connectBackend("sess-1");
+    expect(bridge.getLifecycleState("sess-1")).toBe("active");
+
+    await bridge.closeSession("sess-1");
+    // Session is removed after close — getLifecycleState returns undefined
+    expect(bridge.getLifecycleState("sess-1")).toBeUndefined();
+  });
+
+  it("non-lifecycle event types do NOT trigger handleSignal", async () => {
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
+
+    // Push a regular message — forwardEvent("backend:message", ...) should
+    // NOT call handleSignal; lifecycle state stays "active"
+    backendSession.pushMessage(makeAssistantUnifiedMsg());
+    await tick();
+
+    expect(bridge.getLifecycleState("sess-1")).toBe("active");
+  });
+});
+
+// ─── Behavior lock: connectBackend event ordering ─────────────────────────────
+
+describe("SessionBridge — connectBackend event ordering (behavior lock)", () => {
+  let bridge: SessionBridgeType;
+  let adapter: MockBackendAdapter;
+
+  beforeEach(() => {
+    const created = createBridgeWithAdapter();
+    bridge = created.bridge;
+    adapter = created.adapter;
+  });
+
+  it("backend:connected is emitted before backend:session_id", async () => {
+    const events: string[] = [];
+
+    bridge.on("backend:connected", () => events.push("backend:connected"));
+    bridge.on("backend:session_id", () => events.push("backend:session_id"));
+
+    await bridge.connectBackend("sess-1");
+    const backendSession = adapter.getSession("sess-1")!;
+
+    // At this point only backend:connected should have fired
+    expect(events).toEqual(["backend:connected"]);
+
+    // backend:session_id arrives later via system_init from the CLI
+    backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-xyz" }));
+    await tick();
+
+    expect(events).toEqual(["backend:connected", "backend:session_id"]);
+  });
+
+  it("backend:session_id does NOT fire until system_init arrives", async () => {
+    const sessionIdHandler = vi.fn();
+    bridge.on("backend:session_id", sessionIdHandler);
+
+    await bridge.connectBackend("sess-1");
+
+    // Not yet — no system_init has been pushed
+    expect(sessionIdHandler).not.toHaveBeenCalled();
+
+    const backendSession = adapter.getSession("sess-1")!;
+    backendSession.pushMessage(makeSessionInitMsg({ session_id: "cli-abc" }));
+    await tick();
+
+    expect(sessionIdHandler).toHaveBeenCalledWith({
+      sessionId: "sess-1",
+      backendSessionId: "cli-abc",
+    });
+  });
+});
