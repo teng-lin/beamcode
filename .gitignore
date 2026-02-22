@@ -5,6 +5,7 @@ dist/
 # TypeScript build output (tsc -b emits .js next to .ts sources)
 web/src/**/*.js
 shared/**/*.js
+shared/**/*.d.ts
 .DS_Store
 
 # Coverage

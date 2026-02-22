@@ -48,8 +48,9 @@
   ],
   "scripts": {
     "build:lib": "tsdown && node scripts/fix-dts.js",
+    "build:shared": "tsc --target ES2022 --module ESNext --moduleResolution bundler --declaration --outDir shared shared/consumer-types.ts",
     "build:web": "node scripts/build-web.mjs",
-    "build": "pnpm build:lib && pnpm build:web",
+    "build": "pnpm build:shared && pnpm build:lib && pnpm build:web",
     "dev:web": "cd web && npx vite --port 5174",
     "start": "node dist/bin/beamcode.mjs",
     "trace:inspect": "node scripts/trace-inspect.mjs",
