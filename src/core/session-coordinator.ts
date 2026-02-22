@@ -99,12 +99,14 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
   constructor(options: SessionCoordinatorOptions) {
     super();
 
+    // ── Core config ─────────────────────────────────────────────────────
     this.config = resolveConfig(options.config);
     this.logger = options.logger ?? noopLogger;
     this.adapterResolver = options.adapterResolver ?? null;
     this._defaultAdapterName = options.defaultAdapterName ?? "claude";
     this.domainEvents = new DomainEventBus();
 
+    // ── SessionBridge (message routing + runtime map) ───────────────────
     this.bridge = new SessionBridge({
       storage: options.storage,
       gitResolver: options.gitResolver,
@@ -118,6 +120,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       tracer: options.tracer,
     });
 
+    // ── Transport + policies ────────────────────────────────────────────
     this.launcher = options.launcher;
     this.registry = options.registry ?? options.launcher;
     this.transportHub = new SessionTransportHub({
@@ -143,6 +146,8 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       idleSessionTimeoutMs: this.config.idleSessionTimeoutMs,
       domainEvents: this.domainEvents,
     });
+
+    // ── Extracted services (coordinator/) ────────────────────────────────
     this.startupRestoreService = new StartupRestoreService({
       launcher: this.launcher,
       registry: this.registry,
@@ -158,6 +163,8 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
       initializeTimeoutMs: this.config.initializeTimeoutMs,
       killGracePeriodMs: this.config.killGracePeriodMs,
     });
+
+    // ── Event relay (coordinator/) ──────────────────────────────────────
     this.relay = new CoordinatorEventRelay({
       emit: (event, payload) =>
         // biome-ignore lint/suspicious/noExplicitAny: dynamic event forwarding
@@ -214,7 +221,7 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
           this.bridge.applyPolicyCommand(payload.sessionId, { type: "capabilities_timeout" });
         },
         onBackendRelaunchNeeded: (payload) => {
-          void this.handleBackendRelaunchNeeded(payload.sessionId);
+          void this.recoveryService.handleRelaunchNeeded(payload.sessionId);
         },
       },
     });
@@ -308,10 +315,10 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     if (this.started) return;
     this.started = true;
 
-    this.wireEvents();
-    this.restoreFromStorage();
+    this.relay.start();
+    this.startupRestoreService.restore();
     this.startReconnectWatchdog();
-    this.startIdleReaper();
+    this.idleSessionReaper.start();
     await this.transportHub.start();
   }
 
@@ -366,14 +373,6 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     this.bridge.broadcastProcessOutput(sessionId, stream, redacted);
   }
 
-  private async handleBackendRelaunchNeeded(sessionId: string): Promise<void> {
-    return this.recoveryService.handleRelaunchNeeded(sessionId);
-  }
-
-  private wireEvents(): void {
-    this.relay.start();
-  }
-
   /** Execute a slash command programmatically. */
   async executeSlashCommand(
     sessionId: string,
@@ -397,23 +396,8 @@ export class SessionCoordinator extends TypedEventEmitter<SessionCoordinatorEven
     return this.bridge.getAccountInfo(sessionId);
   }
 
-  private restoreFromStorage(): void {
-    this.startupRestoreService.restore();
-  }
-
-  /**
-   * Backward-compatible shim retained for tests and legacy internal callers.
-   * Delegates to ReconnectController after extraction.
-   */
+  /** Delegates to ReconnectController. Kept as named method for E2E test access. */
   private startReconnectWatchdog(): void {
     this.reconnectController.start();
-  }
-
-  /**
-   * Backward-compatible shim retained for tests and legacy internal callers.
-   * Delegates to IdleSessionReaper after extraction.
-   */
-  private startIdleReaper(): void {
-    this.idleSessionReaper.start();
   }
 }
