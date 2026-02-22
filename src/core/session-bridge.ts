@@ -30,6 +30,7 @@ import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { noopLogger } from "../utils/noop-logger.js";
 import { BackendConnector } from "./backend-connector.js";
 import { BackendApi } from "./bridge/backend-api.js";
+import { forwardBridgeEventWithLifecycle } from "./bridge/bridge-event-forwarder.js";
 import {
   generateSlashRequestId,
   generateTraceId,
@@ -122,7 +123,17 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.tracer = options?.tracer ?? noopTracer;
     this.gitResolver = options?.gitResolver ?? null;
     this.metrics = options?.metrics ?? null;
-    const emitEvent = this.forwardEvent.bind(this);
+    const emitEvent = (type: string, payload: unknown) =>
+      forwardBridgeEventWithLifecycle(
+        this.runtimeManager,
+        (eventType, eventPayload) =>
+          this.emit(
+            eventType as keyof BridgeEventMap,
+            eventPayload as BridgeEventMap[keyof BridgeEventMap],
+          ),
+        type,
+        payload,
+      );
 
     // ── RuntimeManager (lazy SessionRuntime factory) ────────────────────
     this.runtimeManager = createRuntimeManager({
@@ -286,22 +297,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   getLifecycleState(sessionId: string): LifecycleState | undefined {
     return this.runtimeManager.getLifecycleState(sessionId);
-  }
-
-  /** Forward a typed event from a delegate to the bridge's event emitter. */
-  private forwardEvent(type: string, payload: unknown): void {
-    if (payload && typeof payload === "object" && "sessionId" in payload) {
-      const sessionId = (payload as { sessionId?: unknown }).sessionId;
-      if (
-        typeof sessionId === "string" &&
-        (type === "backend:connected" ||
-          type === "backend:disconnected" ||
-          type === "session:closed")
-      ) {
-        this.runtimeManager.handleLifecycleSignal(sessionId, type);
-      }
-    }
-    this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]);
   }
 
   private runtime(session: Session): SessionRuntime {
