@@ -49,6 +49,7 @@ import {
 import { SessionBroadcastApi } from "./bridge/session-broadcast-api.js";
 import { SessionInfoApi } from "./bridge/session-info-api.js";
 import { SessionLifecycleService } from "./bridge/session-lifecycle-service.js";
+import { SessionPersistenceService } from "./bridge/session-persistence-service.js";
 import { createSlashService } from "./bridge/slash-service-factory.js";
 import { CapabilitiesPolicy } from "./capabilities-policy.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
@@ -94,6 +95,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private broadcastApi: SessionBroadcastApi;
   private backendApi!: BackendApi;
   private infoApi!: SessionInfoApi;
+  private persistenceService!: SessionPersistenceService;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -146,7 +148,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         this.backendConnector.sendToBackend(runtimeSession, message),
       tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
         tracedNormalizeInbound(this.tracer, inbound, runtimeSession.id, trace),
-      persistSession: (runtimeSession) => this.persistSession(runtimeSession),
+      persistSession: (runtimeSession) => this.persistenceService.persist(runtimeSession),
       warnUnknownPermission: (sessionId, requestId) =>
         this.logger.warn(
           `Permission response for unknown request_id ${requestId} in session ${sessionId}`,
@@ -167,6 +169,10 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.runtimeApi = new RuntimeApi({
       store: this.store,
       runtimeManager: this.runtimeManager,
+      logger: this.logger,
+    });
+    this.persistenceService = new SessionPersistenceService({
+      store: this.store,
       logger: this.logger,
     });
     this.infoApi = new SessionInfoApi({
@@ -205,7 +211,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       this.logger,
       this.broadcaster,
       emitEvent,
-      (session) => this.persistSession(session),
+      (session) => this.persistenceService.persist(session),
       createCapabilitiesPolicyStateAccessors((session) => this.runtime(session)),
     );
     this.queueHandler = new MessageQueueHandler(
@@ -247,7 +253,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         gitTracker: this.gitTracker,
         gitResolver: this.gitResolver,
         emitEvent,
-        persistSession: (session) => this.persistSession(session),
+        persistSession: (session) => this.persistenceService.persist(session),
         maxMessageHistoryLength: this.config.maxMessageHistoryLength,
         tracer: this.tracer,
         runtime: (session) => this.runtime(session),
@@ -307,16 +313,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   /** Restore sessions from disk (call once at startup). */
   restoreFromStorage(): number {
-    const count = this.store.restoreAll();
-    if (count > 0) {
-      this.logger.info(`Restored ${count} session(s) from disk`);
-    }
-    return count;
-  }
-
-  /** Persist a session to disk. */
-  private persistSession(session: Session): void {
-    this.store.persist(session);
+    return this.persistenceService.restoreFromStorage();
   }
 
   // ── Session management ───────────────────────────────────────────────────
