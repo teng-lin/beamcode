@@ -36,7 +36,8 @@ import {
   tracedNormalizeInbound,
 } from "./bridge/message-tracing-utils.js";
 import { RuntimeApi } from "./bridge/runtime-api.js";
-import { RuntimeManager } from "./bridge/runtime-manager.js";
+import type { RuntimeManager } from "./bridge/runtime-manager.js";
+import { createRuntimeManager } from "./bridge/runtime-manager-factory.js";
 import {
   createBackendConnectorDeps,
   createCapabilitiesPolicyStateAccessors,
@@ -45,6 +46,7 @@ import {
   createUnifiedMessageRouterDeps,
 } from "./bridge/session-bridge-deps-factory.js";
 import { SessionBroadcastApi } from "./bridge/session-broadcast-api.js";
+import { SessionInfoApi } from "./bridge/session-info-api.js";
 import { SessionLifecycleService } from "./bridge/session-lifecycle-service.js";
 import { createSlashService } from "./bridge/slash-service-factory.js";
 import { CapabilitiesPolicy } from "./capabilities-policy.js";
@@ -59,7 +61,7 @@ import { MessageQueueHandler } from "./message-queue-handler.js";
 import { type MessageTracer, noopTracer } from "./message-tracer.js";
 import type { LifecycleState } from "./session-lifecycle.js";
 import { type Session, SessionRepository } from "./session-repository.js";
-import { SessionRuntime } from "./session-runtime.js";
+import type { SessionRuntime } from "./session-runtime.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
 import type { SlashCommandService } from "./slash-command-service.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
@@ -90,6 +92,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private runtimeApi: RuntimeApi;
   private broadcastApi: SessionBroadcastApi;
   private backendApi!: BackendApi;
+  private infoApi!: SessionInfoApi;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -122,41 +125,43 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     const emitEvent = this.forwardEvent.bind(this);
 
     // ── RuntimeManager (lazy SessionRuntime factory) ────────────────────
-    this.runtimeManager = new RuntimeManager(
-      (session) =>
-        new SessionRuntime(session, {
-          now: () => Date.now(),
-          maxMessageHistoryLength: this.config.maxMessageHistoryLength,
-          broadcaster: this.broadcaster,
-          queueHandler: this.queueHandler,
-          slashService: this.slashService,
-          sendToBackend: (runtimeSession, message) =>
-            this.backendConnector.sendToBackend(runtimeSession, message),
-          tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
-            tracedNormalizeInbound(this.tracer, inbound, runtimeSession.id, trace),
-          persistSession: (runtimeSession) => this.persistSession(runtimeSession),
-          warnUnknownPermission: (sessionId, requestId) =>
-            this.logger.warn(
-              `Permission response for unknown request_id ${requestId} in session ${sessionId}`,
-            ),
-          emitPermissionResolved: (sessionId, requestId, behavior) =>
-            this.emit("permission:resolved", { sessionId, requestId, behavior }),
-          onSessionSeeded: (runtimeSession) => this.gitTracker.resolveGitInfo(runtimeSession),
-          onInvalidLifecycleTransition: ({ sessionId, from, to, reason }) =>
-            this.logger.warn("Session lifecycle invalid transition", {
-              sessionId,
-              current: from,
-              next: to,
-              reason,
-            }),
-          routeBackendMessage: (runtimeSession, unified) =>
-            this.messageRouter.route(runtimeSession, unified),
+    this.runtimeManager = createRuntimeManager({
+      now: () => Date.now(),
+      maxMessageHistoryLength: this.config.maxMessageHistoryLength,
+      getBroadcaster: () => this.broadcaster,
+      getQueueHandler: () => this.queueHandler,
+      getSlashService: () => this.slashService,
+      sendToBackend: (runtimeSession, message) =>
+        this.backendConnector.sendToBackend(runtimeSession, message),
+      tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
+        tracedNormalizeInbound(this.tracer, inbound, runtimeSession.id, trace),
+      persistSession: (runtimeSession) => this.persistSession(runtimeSession),
+      warnUnknownPermission: (sessionId, requestId) =>
+        this.logger.warn(
+          `Permission response for unknown request_id ${requestId} in session ${sessionId}`,
+        ),
+      emitPermissionResolved: (sessionId, requestId, behavior) =>
+        this.emit("permission:resolved", { sessionId, requestId, behavior }),
+      onSessionSeeded: (runtimeSession) => this.gitTracker.resolveGitInfo(runtimeSession),
+      onInvalidLifecycleTransition: ({ sessionId, from, to, reason }) =>
+        this.logger.warn("Session lifecycle invalid transition", {
+          sessionId,
+          current: from,
+          next: to,
+          reason,
         }),
-    );
+      routeBackendMessage: (runtimeSession, unified) =>
+        this.messageRouter.route(runtimeSession, unified),
+    });
     this.runtimeApi = new RuntimeApi({
       store: this.store,
       runtimeManager: this.runtimeManager,
       logger: this.logger,
+    });
+    this.infoApi = new SessionInfoApi({
+      store: this.store,
+      runtimeManager: this.runtimeManager,
+      getOrCreateSession: (sessionId) => this.getOrCreateSession(sessionId),
     });
 
     // ── ConsumerPlane ───────────────────────────────────────────────────
@@ -246,7 +251,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         logger: this.logger,
         metrics: this.metrics,
         broadcaster: this.broadcaster,
-        routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
+        routeUnifiedMessage: (session, msg) => this.runtime(session).handleBackendMessage(msg),
         emitEvent,
         runtime: (session) => this.runtime(session),
         tracer: this.tracer,
@@ -268,7 +273,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
         gitTracker: this.gitTracker,
         logger: this.logger,
         metrics: this.metrics,
-        emit: this.forwardBridgeEvent.bind(this),
+        emit: (type, payload) => this.emit(type, payload),
         routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
         maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
         tracer: this.tracer,
@@ -281,10 +286,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   getLifecycleState(sessionId: string): LifecycleState | undefined {
     return this.runtimeManager.getLifecycleState(sessionId);
-  }
-
-  private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
-    this.runtime(session).handleBackendMessage(msg);
   }
 
   /** Forward a typed event from a delegate to the bridge's event emitter. */
@@ -301,13 +302,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       }
     }
     this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]);
-  }
-
-  private forwardBridgeEvent<K extends keyof BridgeEventMap>(
-    type: K,
-    payload: BridgeEventMap[K],
-  ): void {
-    this.emit(type, payload);
   }
 
   private runtime(session: Session): SessionRuntime {
@@ -338,8 +332,7 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   /** Set the adapter name for a session (persisted for restore). */
   setAdapterName(sessionId: string, name: string): void {
-    const session = this.getOrCreateSession(sessionId);
-    this.runtime(session).setAdapterName(name);
+    this.infoApi.setAdapterName(sessionId, name);
   }
 
   /**
@@ -348,26 +341,25 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
    * so consumers connecting before the CLI's system.init see useful state.
    */
   seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
-    const session = this.getOrCreateSession(sessionId);
-    this.runtime(session).seedSessionState(params);
+    this.infoApi.seedSessionState(sessionId, params);
   }
 
   /** Get a read-only snapshot of a session's state. */
   getSession(sessionId: string): SessionSnapshot | undefined {
-    return this.runtimeApi.getSession(sessionId);
+    return this.infoApi.getSession(sessionId);
   }
 
   getAllSessions(): SessionState[] {
-    return this.store.getAllStates();
+    return this.infoApi.getAllSessions();
   }
 
   isCliConnected(sessionId: string): boolean {
-    return this.runtimeApi.isCliConnected(sessionId);
+    return this.infoApi.isCliConnected(sessionId);
   }
 
   /** Expose storage for archival operations (BridgeOperations interface). */
   get storage(): SessionStorage | null {
-    return this.store.getStorage();
+    return this.infoApi.getStorage();
   }
 
   removeSession(sessionId: string): void {

@@ -4,13 +4,10 @@ import type {
   InitializeCommand,
   InitializeModel,
 } from "../../types/cli-messages.js";
-import type { SessionSnapshot } from "../../types/session-state.js";
 import type { PolicyCommand } from "../interfaces/runtime-commands.js";
 import type { Session, SessionRepository } from "../session-repository.js";
 import type { UnifiedMessage } from "../types/unified-message.js";
 import type { RuntimeManager } from "./runtime-manager.js";
-
-type SessionLookupResult<T> = T | undefined;
 
 export interface RuntimeApiOptions {
   store: SessionRepository;
@@ -27,18 +24,6 @@ export class RuntimeApi {
     this.store = options.store;
     this.runtimeManager = options.runtimeManager;
     this.logger = options.logger;
-  }
-
-  getSession(sessionId: string): SessionSnapshot | undefined {
-    return this.withSession(sessionId, undefined, (session) =>
-      this.runtime(session).getSessionSnapshot(),
-    );
-  }
-
-  isCliConnected(sessionId: string): boolean {
-    return this.withSession(sessionId, false, (session) =>
-      this.runtime(session).isBackendConnected(),
-    );
   }
 
   sendUserMessage(
@@ -138,10 +123,5 @@ export class RuntimeApi {
     const session = this.store.get(sessionId);
     if (!session) return;
     run(session);
-  }
-
-  // Exposed for bridge methods that still need direct session access.
-  getSessionRef(sessionId: string): SessionLookupResult<Session> {
-    return this.store.get(sessionId);
   }
 }
