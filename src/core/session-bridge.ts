@@ -7,12 +7,11 @@
  * - **MessagePlane**: UnifiedMessageRouter, ConsumerMessageMapper, InboundNormalizer
  * - **SessionControl**: CapabilitiesPolicy, GitInfoTracker, SessionRepository
  *
- * Also manages the SessionRuntime instances (one per session).
+ * Delegates runtime ownership to RuntimeManager.
  *
  * @module SessionControl
  */
 
-import { randomUUID } from "node:crypto";
 import type { AuthContext, Authenticator } from "../interfaces/auth.js";
 import type { GitInfoResolver } from "../interfaces/git-resolver.js";
 import type { Logger } from "../interfaces/logger.js";
@@ -30,12 +29,33 @@ import type { BridgeEventMap } from "../types/events.js";
 import type { SessionSnapshot, SessionState } from "../types/session-state.js";
 import { noopLogger } from "../utils/noop-logger.js";
 import { BackendConnector } from "./backend-connector.js";
+import { BackendApi } from "./bridge/backend-api.js";
+import { forwardBridgeEventWithLifecycle } from "./bridge/bridge-event-forwarder.js";
+import {
+  generateSlashRequestId,
+  generateTraceId,
+  tracedNormalizeInbound,
+} from "./bridge/message-tracing-utils.js";
+import { RuntimeApi } from "./bridge/runtime-api.js";
+import type { RuntimeManager } from "./bridge/runtime-manager.js";
+import { createRuntimeManager } from "./bridge/runtime-manager-factory.js";
+import {
+  createBackendConnectorDeps,
+  createCapabilitiesPolicyStateAccessors,
+  createConsumerGatewayDeps,
+  createQueueStateAccessors,
+  createUnifiedMessageRouterDeps,
+} from "./bridge/session-bridge-deps-factory.js";
+import { SessionBroadcastApi } from "./bridge/session-broadcast-api.js";
+import { SessionInfoApi } from "./bridge/session-info-api.js";
+import { SessionLifecycleService } from "./bridge/session-lifecycle-service.js";
+import { SessionPersistenceService } from "./bridge/session-persistence-service.js";
+import { createSlashService } from "./bridge/slash-service-factory.js";
 import { CapabilitiesPolicy } from "./capabilities-policy.js";
 import { ConsumerBroadcaster, MAX_CONSUMER_MESSAGE_SIZE } from "./consumer-broadcaster.js";
 import { ConsumerGatekeeper, type RateLimiterFactory } from "./consumer-gatekeeper.js";
 import { ConsumerGateway } from "./consumer-gateway.js";
 import { GitInfoTracker } from "./git-info-tracker.js";
-import { normalizeInbound } from "./inbound-normalizer.js";
 import type { AdapterResolver } from "./interfaces/adapter-resolver.js";
 import type { BackendAdapter } from "./interfaces/backend-adapter.js";
 import type { InboundCommand, PolicyCommand } from "./interfaces/runtime-commands.js";
@@ -43,17 +63,9 @@ import { MessageQueueHandler } from "./message-queue-handler.js";
 import { type MessageTracer, noopTracer } from "./message-tracer.js";
 import type { LifecycleState } from "./session-lifecycle.js";
 import { type Session, SessionRepository } from "./session-repository.js";
-import { SessionRuntime } from "./session-runtime.js";
-import {
-  AdapterNativeHandler,
-  LocalHandler,
-  PassthroughHandler,
-  SlashCommandChain,
-  UnsupportedHandler,
-} from "./slash-command-chain.js";
-import { SlashCommandExecutor } from "./slash-command-executor.js";
+import type { SessionRuntime } from "./session-runtime.js";
 import { SlashCommandRegistry } from "./slash-command-registry.js";
-import { SlashCommandService } from "./slash-command-service.js";
+import type { SlashCommandService } from "./slash-command-service.js";
 import { TeamToolCorrelationBuffer } from "./team-tool-correlation.js";
 import { TypedEventEmitter } from "./typed-emitter.js";
 import type { UnifiedMessage } from "./types/unified-message.js";
@@ -77,7 +89,13 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
   private messageRouter: UnifiedMessageRouter;
   private consumerGateway: ConsumerGateway;
   private tracer: MessageTracer;
-  private runtimes = new Map<string, SessionRuntime>();
+  private runtimeManager: RuntimeManager;
+  private lifecycleService: SessionLifecycleService;
+  private runtimeApi: RuntimeApi;
+  private broadcastApi: SessionBroadcastApi;
+  private backendApi!: BackendApi;
+  private infoApi!: SessionInfoApi;
+  private persistenceService!: SessionPersistenceService;
 
   constructor(options?: {
     storage?: SessionStorage;
@@ -86,16 +104,14 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     logger?: Logger;
     config?: ProviderConfig;
     metrics?: MetricsCollector;
-    /** BackendAdapter for adapter-based sessions (coexistence with CLI WebSocket path). */
     adapter?: BackendAdapter;
-    /** Per-session adapter resolver (resolves adapter by name). */
     adapterResolver?: AdapterResolver;
-    /** Factory for creating rate limiters (injected from outside core). */
     rateLimiterFactory?: RateLimiterFactory;
-    /** Message tracer for debug tracing. */
     tracer?: MessageTracer;
   }) {
     super();
+
+    // ── Core infrastructure ─────────────────────────────────────────────
     this.store = new SessionRepository(options?.storage ?? null, {
       createCorrelationBuffer: () => new TeamToolCorrelationBuffer(),
       createRegistry: () => new SlashCommandRegistry(),
@@ -103,338 +119,239 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
     this.logger = options?.logger ?? noopLogger;
     this.config = resolveConfig(options?.config ?? { port: 9414 });
     this.tracer = options?.tracer ?? noopTracer;
+    this.gitResolver = options?.gitResolver ?? null;
+    this.metrics = options?.metrics ?? null;
+    const emitEvent = (type: string, payload: unknown) =>
+      forwardBridgeEventWithLifecycle(
+        this.runtimeManager,
+        (eventType, eventPayload) =>
+          this.emit(
+            eventType as keyof BridgeEventMap,
+            eventPayload as BridgeEventMap[keyof BridgeEventMap],
+          ),
+        type,
+        payload,
+      );
+
+    // ── RuntimeManager (lazy SessionRuntime factory) ────────────────────
+    this.runtimeManager = createRuntimeManager({
+      now: () => Date.now(),
+      maxMessageHistoryLength: this.config.maxMessageHistoryLength,
+      getBroadcaster: () => this.broadcaster,
+      getQueueHandler: () => this.queueHandler,
+      getSlashService: () => this.slashService,
+      sendToBackend: (runtimeSession, message) =>
+        this.backendConnector.sendToBackend(runtimeSession, message),
+      tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
+        tracedNormalizeInbound(this.tracer, inbound, runtimeSession.id, trace),
+      persistSession: (runtimeSession) => this.persistenceService.persist(runtimeSession),
+      warnUnknownPermission: (sessionId, requestId) =>
+        this.logger.warn(
+          `Permission response for unknown request_id ${requestId} in session ${sessionId}`,
+        ),
+      emitPermissionResolved: (sessionId, requestId, behavior) =>
+        this.emit("permission:resolved", { sessionId, requestId, behavior }),
+      onSessionSeeded: (runtimeSession) => this.gitTracker.resolveGitInfo(runtimeSession),
+      onInvalidLifecycleTransition: ({ sessionId, from, to, reason }) =>
+        this.logger.warn("Session lifecycle invalid transition", {
+          sessionId,
+          current: from,
+          next: to,
+          reason,
+        }),
+      routeBackendMessage: (runtimeSession, unified) =>
+        this.messageRouter.route(runtimeSession, unified),
+    });
+    this.runtimeApi = new RuntimeApi({
+      store: this.store,
+      runtimeManager: this.runtimeManager,
+      logger: this.logger,
+    });
+    this.persistenceService = new SessionPersistenceService({
+      store: this.store,
+      logger: this.logger,
+    });
+    this.infoApi = new SessionInfoApi({
+      store: this.store,
+      runtimeManager: this.runtimeManager,
+      getOrCreateSession: (sessionId) => this.getOrCreateSession(sessionId),
+    });
+
+    // ── ConsumerPlane ───────────────────────────────────────────────────
     this.broadcaster = new ConsumerBroadcaster(
       this.logger,
       (sessionId, msg) => this.emit("message:outbound", { sessionId, message: msg }),
       this.tracer,
-      (session, ws) => {
-        this.getSessionRuntime(session).removeConsumer(ws);
-      },
+      (session, ws) => this.runtime(session).removeConsumer(ws),
       {
-        getConsumerSockets: (session) => this.getSessionRuntime(session).getConsumerSockets(),
+        getConsumerSockets: (session) => this.runtime(session).getConsumerSockets(),
       },
     );
+    this.broadcastApi = new SessionBroadcastApi({
+      store: this.store,
+      broadcaster: this.broadcaster,
+    });
     this.gatekeeper = new ConsumerGatekeeper(
       options?.authenticator ?? null,
       this.config,
       options?.rateLimiterFactory,
     );
-    this.gitResolver = options?.gitResolver ?? null;
     this.gitTracker = new GitInfoTracker(this.gitResolver, {
-      getState: (session) => this.getSessionRuntime(session).getState(),
-      setState: (session, state) => this.getSessionRuntime(session).setState(state),
+      getState: (session) => this.runtime(session).getState(),
+      setState: (session, state) => this.runtime(session).setState(state),
     });
-    this.metrics = options?.metrics ?? null;
-    const emitEvent = this.forwardEvent.bind(this);
+
+    // ── SessionControl (capabilities + queue) ───────────────────────────
     this.capabilitiesPolicy = new CapabilitiesPolicy(
       this.config,
       this.logger,
       this.broadcaster,
       emitEvent,
-      (session) => this.persistSession(session),
-      {
-        getState: (session) => this.getSessionRuntime(session).getState(),
-        setState: (session, state) => this.getSessionRuntime(session).setState(state),
-        getPendingInitialize: (session) => this.getSessionRuntime(session).getPendingInitialize(),
-        setPendingInitialize: (session, pendingInitialize) =>
-          this.getSessionRuntime(session).setPendingInitialize(pendingInitialize),
-        trySendRawToBackend: (session, ndjson) =>
-          this.getSessionRuntime(session).trySendRawToBackend(ndjson),
-        registerCLICommands: (session, commands) =>
-          this.getSessionRuntime(session).registerCLICommands(commands),
-      },
+      (session) => this.persistenceService.persist(session),
+      createCapabilitiesPolicyStateAccessors((session) => this.runtime(session)),
     );
     this.queueHandler = new MessageQueueHandler(
       this.broadcaster,
       (sessionId, content, opts) => this.sendUserMessage(sessionId, content, opts),
-      {
-        getLastStatus: (session) => this.getSessionRuntime(session).getLastStatus(),
-        setLastStatus: (session, status) => {
-          this.getSessionRuntime(session).setLastStatus(status);
-        },
-        getQueuedMessage: (session) => this.getSessionRuntime(session).getQueuedMessage(),
-        setQueuedMessage: (session, queued) => {
-          this.getSessionRuntime(session).setQueuedMessage(queued);
-        },
-        getConsumerIdentity: (session, ws) =>
-          this.getSessionRuntime(session).getConsumerIdentity(ws),
-      },
+      createQueueStateAccessors((session) => this.runtime(session)),
     );
-    const executor = new SlashCommandExecutor();
-    const localHandler = new LocalHandler({
-      executor,
+    this.lifecycleService = new SessionLifecycleService({
+      store: this.store,
+      runtimeManager: this.runtimeManager,
+      capabilitiesPolicy: this.capabilitiesPolicy,
+      metrics: this.metrics,
+      logger: this.logger,
+      emitSessionClosed: (sessionId) => this.emit("session:closed", { sessionId }),
+    });
+
+    // ── MessagePlane (slash commands + routing) ─────────────────────────
+    this.slashService = createSlashService({
       broadcaster: this.broadcaster,
       emitEvent,
-      tracer: this.tracer,
-    });
-    const commandChain = new SlashCommandChain([
-      localHandler,
-      new AdapterNativeHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
-      new PassthroughHandler({
-        broadcaster: this.broadcaster,
-        emitEvent,
-        registerPendingPassthrough: (session, entry) =>
-          this.getSessionRuntime(session).enqueuePendingPassthrough(entry),
-        sendUserMessage: (sessionId, content, trace) =>
-          this.sendUserMessage(sessionId, content, {
-            traceId: trace?.traceId,
-            slashRequestId: trace?.requestId,
-            slashCommand: trace?.command,
-          }),
-        tracer: this.tracer,
-      }),
-      new UnsupportedHandler({ broadcaster: this.broadcaster, emitEvent, tracer: this.tracer }),
-    ]);
-    this.slashService = new SlashCommandService({
       tracer: this.tracer,
       now: () => Date.now(),
-      generateTraceId: () => this.generateTraceId(),
-      generateSlashRequestId: () => this.generateSlashRequestId(),
-      commandChain,
-      localHandler,
+      generateTraceId: () => generateTraceId(),
+      generateSlashRequestId: () => generateSlashRequestId(),
+      registerPendingPassthrough: (session, entry) =>
+        this.runtime(session).enqueuePendingPassthrough(entry),
+      sendUserMessage: (sessionId, content, trace) =>
+        this.sendUserMessage(sessionId, content, {
+          traceId: trace?.traceId,
+          slashRequestId: trace?.requestId,
+          slashCommand: trace?.command,
+        }),
     });
-    this.messageRouter = new UnifiedMessageRouter({
-      broadcaster: this.broadcaster,
+    this.messageRouter = new UnifiedMessageRouter(
+      createUnifiedMessageRouterDeps({
+        broadcaster: this.broadcaster,
+        capabilitiesPolicy: this.capabilitiesPolicy,
+        queueHandler: this.queueHandler,
+        gitTracker: this.gitTracker,
+        gitResolver: this.gitResolver,
+        emitEvent,
+        persistSession: (session) => this.persistenceService.persist(session),
+        maxMessageHistoryLength: this.config.maxMessageHistoryLength,
+        tracer: this.tracer,
+        runtime: (session) => this.runtime(session),
+      }),
+    );
+
+    // ── BackendPlane ────────────────────────────────────────────────────
+    this.backendConnector = new BackendConnector(
+      createBackendConnectorDeps({
+        adapter: options?.adapter ?? null,
+        adapterResolver: options?.adapterResolver ?? null,
+        logger: this.logger,
+        metrics: this.metrics,
+        broadcaster: this.broadcaster,
+        routeUnifiedMessage: (session, msg) => this.runtime(session).handleBackendMessage(msg),
+        emitEvent,
+        runtime: (session) => this.runtime(session),
+        tracer: this.tracer,
+      }),
+    );
+    this.backendApi = new BackendApi({
+      store: this.store,
+      backendConnector: this.backendConnector,
       capabilitiesPolicy: this.capabilitiesPolicy,
-      queueHandler: this.queueHandler,
-      gitTracker: this.gitTracker,
-      gitResolver: this.gitResolver,
-      emitEvent,
-      persistSession: (session) => this.persistSession(session),
-      maxMessageHistoryLength: this.config.maxMessageHistoryLength,
-      tracer: this.tracer,
-      getState: (session) => this.getSessionRuntime(session).getState(),
-      setState: (session, state) => this.getSessionRuntime(session).setState(state),
-      setBackendSessionId: (session, backendSessionId) =>
-        this.getSessionRuntime(session).setBackendSessionId(backendSessionId),
-      getMessageHistory: (session) => this.getSessionRuntime(session).getMessageHistory(),
-      setMessageHistory: (session, history) =>
-        this.getSessionRuntime(session).setMessageHistory(history),
-      getLastStatus: (session) => this.getSessionRuntime(session).getLastStatus(),
-      setLastStatus: (session, status) => this.getSessionRuntime(session).setLastStatus(status),
-      storePendingPermission: (session, requestId, request) =>
-        this.getSessionRuntime(session).storePendingPermission(requestId, request),
-      clearDynamicSlashRegistry: (session) =>
-        this.getSessionRuntime(session).clearDynamicSlashRegistry(),
-      registerCLICommands: (session, commands) =>
-        this.getSessionRuntime(session).registerCLICommands(commands),
-      registerSkillCommands: (session, skills) =>
-        this.getSessionRuntime(session).registerSkillCommands(skills),
+      getOrCreateSession: (sessionId) => this.getOrCreateSession(sessionId),
     });
-    this.backendConnector = new BackendConnector({
-      adapter: options?.adapter ?? null,
-      adapterResolver: options?.adapterResolver ?? null,
-      logger: this.logger,
-      metrics: this.metrics,
-      broadcaster: this.broadcaster,
-      routeUnifiedMessage: (session, msg) => this.routeUnifiedMessage(session, msg),
-      emitEvent,
-      onBackendConnectedState: (session, params) => {
-        this.getSessionRuntime(session).attachBackendConnection(params);
-      },
-      onBackendDisconnectedState: (session) => {
-        this.getSessionRuntime(session).resetBackendConnectionState();
-      },
-      getBackendSession: (session) => this.getSessionRuntime(session).getBackendSession(),
-      getBackendAbort: (session) => this.getSessionRuntime(session).getBackendAbort(),
-      drainPendingMessages: (session) => this.getSessionRuntime(session).drainPendingMessages(),
-      drainPendingPermissionIds: (session) =>
-        this.getSessionRuntime(session).drainPendingPermissionIds(),
-      peekPendingPassthrough: (session) => this.getSessionRuntime(session).peekPendingPassthrough(),
-      shiftPendingPassthrough: (session) =>
-        this.getSessionRuntime(session).shiftPendingPassthrough(),
-      setSlashCommandsState: (session, commands) => {
-        const runtime = this.getSessionRuntime(session);
-        runtime.setState({ ...runtime.getState(), slash_commands: commands });
-      },
-      registerCLICommands: (session, commands) =>
-        this.getSessionRuntime(session).registerSlashCommandNames(commands),
-      tracer: this.tracer,
-    });
-    this.consumerGateway = new ConsumerGateway({
-      sessions: {
-        get: (sessionId) => this.store.get(sessionId),
-      },
-      gatekeeper: this.gatekeeper,
-      broadcaster: this.broadcaster,
-      gitTracker: this.gitTracker,
-      logger: this.logger,
-      metrics: this.metrics,
-      emit: this.forwardBridgeEvent.bind(this),
-      allocateAnonymousIdentityIndex: (session) =>
-        this.getSessionRuntime(session).allocateAnonymousIdentityIndex(),
-      checkRateLimit: (session, ws) =>
-        this.getSessionRuntime(session).checkRateLimit(ws, () =>
-          this.gatekeeper.createRateLimiter(),
-        ),
-      getConsumerIdentity: (session, ws) => this.getSessionRuntime(session).getConsumerIdentity(ws),
-      getConsumerCount: (session) => this.getSessionRuntime(session).getConsumerCount(),
-      getState: (session) => this.getSessionRuntime(session).getState(),
-      getMessageHistory: (session) => this.getSessionRuntime(session).getMessageHistory(),
-      getPendingPermissions: (session) => this.getSessionRuntime(session).getPendingPermissions(),
-      getQueuedMessage: (session) => this.getSessionRuntime(session).getQueuedMessage(),
-      isBackendConnected: (session) => this.getSessionRuntime(session).isBackendConnected(),
-      registerConsumer: (session, ws, identity) => {
-        this.getSessionRuntime(session).addConsumer(ws, identity);
-      },
-      unregisterConsumer: (session, ws) => this.getSessionRuntime(session).removeConsumer(ws),
-      routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
-      maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
-      tracer: this.tracer,
-    });
+
+    // ── ConsumerGateway (WebSocket accept/reject/route) ─────────────────
+    this.consumerGateway = new ConsumerGateway(
+      createConsumerGatewayDeps({
+        store: this.store,
+        gatekeeper: this.gatekeeper,
+        broadcaster: this.broadcaster,
+        gitTracker: this.gitTracker,
+        logger: this.logger,
+        metrics: this.metrics,
+        emit: (type, payload) => this.emit(type, payload),
+        routeConsumerMessage: (session, msg, ws) => this.routeConsumerMessage(session, msg, ws),
+        maxConsumerMessageSize: MAX_CONSUMER_MESSAGE_SIZE,
+        tracer: this.tracer,
+        runtime: (session) => this.runtime(session),
+      }),
+    );
   }
 
   // ── Event forwarding ─────────────────────────────────────────────────────
 
   getLifecycleState(sessionId: string): LifecycleState | undefined {
-    const session = this.store.get(sessionId);
-    if (!session) return undefined;
-    return this.getSessionRuntime(session).getLifecycleState();
+    return this.runtimeManager.getLifecycleState(sessionId);
   }
 
-  private routeUnifiedMessage(session: Session, msg: UnifiedMessage): void {
-    this.getSessionRuntime(session).handleBackendMessage(msg);
-  }
-
-  /** Forward a typed event from a delegate to the bridge's event emitter. */
-  private forwardEvent(type: string, payload: unknown): void {
-    if (payload && typeof payload === "object" && "sessionId" in payload) {
-      const sessionId = (payload as { sessionId?: unknown }).sessionId;
-      if (typeof sessionId === "string") {
-        const session = this.store.get(sessionId);
-        if (
-          session &&
-          (type === "backend:connected" ||
-            type === "backend:disconnected" ||
-            type === "session:closed")
-        ) {
-          this.getSessionRuntime(session).handleSignal(type);
-        }
-      }
-    }
-    this.emit(type as keyof BridgeEventMap, payload as BridgeEventMap[keyof BridgeEventMap]);
-  }
-
-  private forwardBridgeEvent<K extends keyof BridgeEventMap>(
-    type: K,
-    payload: BridgeEventMap[K],
-  ): void {
-    this.emit(type, payload);
+  private runtime(session: Session): SessionRuntime {
+    return this.runtimeManager.getOrCreate(session);
   }
 
   // ── Persistence ──────────────────────────────────────────────────────────
 
-  /** Restore sessions from disk (call once at startup). */
   restoreFromStorage(): number {
-    const count = this.store.restoreAll();
-    if (count > 0) {
-      this.logger.info(`Restored ${count} session(s) from disk`);
-    }
-    return count;
-  }
-
-  /** Persist a session to disk. */
-  private persistSession(session: Session): void {
-    this.store.persist(session);
+    return this.persistenceService.restoreFromStorage();
   }
 
   // ── Session management ───────────────────────────────────────────────────
 
   getOrCreateSession(sessionId: string): Session {
-    const existed = this.store.has(sessionId);
-    const session = this.store.getOrCreate(sessionId);
-    this.getSessionRuntime(session);
-    if (!existed) {
-      this.metrics?.recordEvent({
-        timestamp: Date.now(),
-        type: "session:created",
-        sessionId,
-      });
-    }
-    return session;
+    return this.lifecycleService.getOrCreateSession(sessionId);
   }
 
-  /** Set the adapter name for a session (persisted for restore). */
   setAdapterName(sessionId: string, name: string): void {
-    const session = this.getOrCreateSession(sessionId);
-    this.getSessionRuntime(session).setAdapterName(name);
+    this.infoApi.setAdapterName(sessionId, name);
   }
 
-  /**
-   * Seed a session's state with known launch parameters (cwd, model, etc.)
-   * and eagerly resolve git info. Call this right after launcher.launch()
-   * so consumers connecting before the CLI's system.init see useful state.
-   */
+  /** Seed launch-known state (cwd/model) before init arrives from backend. */
   seedSessionState(sessionId: string, params: { cwd?: string; model?: string }): void {
-    const session = this.getOrCreateSession(sessionId);
-    this.getSessionRuntime(session).seedSessionState(params);
+    this.infoApi.seedSessionState(sessionId, params);
   }
 
-  /** Get a read-only snapshot of a session's state. */
   getSession(sessionId: string): SessionSnapshot | undefined {
-    const session = this.store.get(sessionId);
-    if (!session) return undefined;
-    return this.getSessionRuntime(session).getSessionSnapshot();
+    return this.infoApi.getSession(sessionId);
   }
 
   getAllSessions(): SessionState[] {
-    return this.store.getAllStates();
+    return this.infoApi.getAllSessions();
   }
 
   isCliConnected(sessionId: string): boolean {
-    const session = this.store.get(sessionId);
-    if (!session) return false;
-    return this.getSessionRuntime(session).isBackendConnected();
+    return this.infoApi.isCliConnected(sessionId);
   }
 
-  /** Expose storage for archival operations (BridgeOperations interface). */
   get storage(): SessionStorage | null {
-    return this.store.getStorage();
+    return this.infoApi.getStorage();
   }
 
   removeSession(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (session) {
-      this.capabilitiesPolicy.cancelPendingInitialize(session);
-    }
-    this.runtimes.delete(sessionId);
-    this.store.remove(sessionId);
+    this.lifecycleService.removeSession(sessionId);
   }
 
-  /** Close all sockets (CLI + consumers) and backend sessions, then remove. */
   async closeSession(sessionId: string): Promise<void> {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    const runtime = this.getSessionRuntime(session);
-    runtime.transitionLifecycle("closing", "session:close");
-
-    this.capabilitiesPolicy.cancelPendingInitialize(session);
-
-    // Close backend session and await it so the subprocess is fully terminated
-    // before the caller proceeds (prevents port-reuse races in sequential tests).
-    if (runtime.getBackendSession()) {
-      await runtime.closeBackendConnection().catch((err) => {
-        this.logger.warn("Failed to close backend session", { sessionId: session.id, error: err });
-      });
-    }
-
-    runtime.closeAllConsumers();
-    runtime.handleSignal("session:closed");
-
-    this.store.remove(sessionId);
-    this.runtimes.delete(sessionId);
-    this.metrics?.recordEvent({
-      timestamp: Date.now(),
-      type: "session:closed",
-      sessionId,
-    });
-    this.emit("session:closed", { sessionId });
+    return this.lifecycleService.closeSession(sessionId);
   }
 
-  /** Close all sessions and clear all state (for graceful shutdown). */
   async close(): Promise<void> {
-    await Promise.allSettled(Array.from(this.store.keys()).map((id) => this.closeSession(id)));
-    this.runtimes.clear();
+    await this.lifecycleService.closeAllSessions();
     this.tracer.destroy();
     this.removeAllListeners();
   }
@@ -455,7 +372,6 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
 
   // ── Programmatic API ─────────────────────────────────────────────────────
 
-  /** Send a user message to the CLI for a session (no WebSocket needed). */
   sendUserMessage(
     sessionId: string,
     content: string,
@@ -467,12 +383,9 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       slashCommand?: string;
     },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).sendUserMessage(content, options);
+    this.runtimeApi.sendUserMessage(sessionId, content, options);
   }
 
-  /** Respond to a pending permission request (no WebSocket needed). */
   sendPermissionResponse(
     sessionId: string,
     requestId: string,
@@ -483,244 +396,102 @@ export class SessionBridge extends TypedEventEmitter<BridgeEventMap> {
       message?: string;
     },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).sendPermissionResponse(requestId, behavior, options);
+    this.runtimeApi.sendPermissionResponse(sessionId, requestId, behavior, options);
   }
 
-  /** Send an interrupt to the CLI for a session. */
   sendInterrupt(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).sendInterrupt();
+    this.runtimeApi.sendInterrupt(sessionId);
   }
 
-  /** Send a set_model control request to the CLI. */
   sendSetModel(sessionId: string, model: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).sendSetModel(model);
+    this.runtimeApi.sendSetModel(sessionId, model);
   }
 
-  /** Send a set_permission_mode control request to the CLI. */
   sendSetPermissionMode(sessionId: string, mode: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).sendSetPermissionMode(mode);
+    this.runtimeApi.sendSetPermissionMode(sessionId, mode);
   }
 
   // ── Structured data APIs ───────────────────────────────────────────────
 
   getSupportedModels(sessionId: string): InitializeModel[] {
-    const session = this.store.get(sessionId);
-    if (!session) return [];
-    return this.getSessionRuntime(session).getSupportedModels();
+    return this.runtimeApi.getSupportedModels(sessionId);
   }
 
   getSupportedCommands(sessionId: string): InitializeCommand[] {
-    const session = this.store.get(sessionId);
-    if (!session) return [];
-    return this.getSessionRuntime(session).getSupportedCommands();
+    return this.runtimeApi.getSupportedCommands(sessionId);
   }
 
   getAccountInfo(sessionId: string): InitializeAccount | null {
-    const session = this.store.get(sessionId);
-    if (!session) return null;
-    return this.getSessionRuntime(session).getAccountInfo();
+    return this.runtimeApi.getAccountInfo(sessionId);
   }
 
   // ── Consumer message routing ─────────────────────────────────────────────
 
-  private getSessionRuntime(session: Session): SessionRuntime {
-    const existing = this.runtimes.get(session.id);
-    if (existing) return existing;
-
-    const created = new SessionRuntime(session, {
-      now: () => Date.now(),
-      maxMessageHistoryLength: this.config.maxMessageHistoryLength,
-      broadcaster: this.broadcaster,
-      queueHandler: this.queueHandler,
-      slashService: this.slashService,
-      sendToBackend: (runtimeSession, message) =>
-        this.backendConnector.sendToBackend(runtimeSession, message),
-      tracedNormalizeInbound: (runtimeSession, inbound, trace) =>
-        this.tracedNormalizeInbound(inbound, runtimeSession.id, trace),
-      persistSession: (runtimeSession) => this.persistSession(runtimeSession),
-      warnUnknownPermission: (sessionId, requestId) =>
-        this.logger.warn(
-          `Permission response for unknown request_id ${requestId} in session ${sessionId}`,
-        ),
-      emitPermissionResolved: (sessionId, requestId, behavior) => {
-        this.emit("permission:resolved", { sessionId, requestId, behavior });
-      },
-      onSessionSeeded: (runtimeSession) => {
-        this.gitTracker.resolveGitInfo(runtimeSession);
-      },
-      onInvalidLifecycleTransition: ({ sessionId, from, to, reason }) => {
-        this.logger.warn("Session lifecycle invalid transition", {
-          sessionId,
-          current: from,
-          next: to,
-          reason,
-        });
-      },
-      routeBackendMessage: (runtimeSession, unified) => {
-        this.messageRouter.route(runtimeSession, unified);
-      },
-    });
-    this.runtimes.set(session.id, created);
-    return created;
-  }
-
   private routeConsumerMessage(session: Session, msg: InboundCommand, ws: WebSocketLike): void {
-    this.getSessionRuntime(session).handleInboundCommand(msg, ws);
+    this.runtime(session).handleInboundCommand(msg, ws);
   }
 
   // ── Slash command handling (delegated via SessionRuntime -> SlashCommandService) ─────
 
-  /** Execute a slash command programmatically (no WebSocket needed). */
   async executeSlashCommand(
     sessionId: string,
     command: string,
   ): Promise<{ content: string; source: "emulated" } | null> {
-    const session = this.store.get(sessionId);
-    if (!session) return null;
-    return this.getSessionRuntime(session).executeSlashCommand(command);
+    return this.runtimeApi.executeSlashCommand(sessionId, command);
   }
 
-  /** Push a session name update to all connected consumers for a session. */
   broadcastNameUpdate(sessionId: string, name: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastNameUpdate(session, name);
+    this.broadcastApi.broadcastNameUpdate(sessionId, name);
   }
 
-  /** Broadcast resume_failed to all consumers for a session. */
   broadcastResumeFailedToConsumers(sessionId: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastResumeFailed(session, sessionId);
+    this.broadcastApi.broadcastResumeFailedToConsumers(sessionId);
   }
 
-  /** Broadcast process output to participants only (observers must not see process logs). */
   broadcastProcessOutput(sessionId: string, stream: "stdout" | "stderr", data: string): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastProcessOutput(session, stream, data);
+    this.broadcastApi.broadcastProcessOutput(sessionId, stream, data);
   }
 
-  /** Broadcast watchdog state update via session_update. */
   broadcastWatchdogState(
     sessionId: string,
     watchdog: { gracePeriodMs: number; startedAt: number } | null,
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastWatchdogState(session, watchdog);
+    this.broadcastApi.broadcastWatchdogState(sessionId, watchdog);
   }
 
-  /** Broadcast circuit breaker state update via session_update. */
   broadcastCircuitBreakerState(
     sessionId: string,
     circuitBreaker: { state: string; failureCount: number; recoveryTimeRemainingMs: number },
   ): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.broadcaster.broadcastCircuitBreakerState(session, circuitBreaker);
+    this.broadcastApi.broadcastCircuitBreakerState(sessionId, circuitBreaker);
   }
 
   applyPolicyCommand(sessionId: string, command: PolicyCommand): void {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.getSessionRuntime(session).handlePolicyCommand(command);
-  }
-
-  // ── Traced normalizeInbound (T1 boundary) ────────────────────────────────
-
-  private tracedNormalizeInbound(
-    msg: InboundCommand,
-    sessionId: string,
-    trace?: { traceId?: string; requestId?: string; command?: string },
-  ): UnifiedMessage | null {
-    const unified = normalizeInbound(msg);
-    if (unified && trace) {
-      if (trace.traceId) unified.metadata.trace_id = trace.traceId;
-      if (trace.requestId) unified.metadata.slash_request_id = trace.requestId;
-      if (trace.command) unified.metadata.slash_command = trace.command;
-    }
-    this.tracer.translate(
-      "normalizeInbound",
-      "T1",
-      { format: "InboundMessage", body: msg },
-      { format: "UnifiedMessage", body: unified },
-      {
-        sessionId,
-        traceId: trace?.traceId,
-        requestId: trace?.requestId,
-        command: trace?.command,
-        phase: "t1",
-      },
-    );
-    if (!unified) {
-      this.tracer.error("bridge", msg.type, "normalizeInbound returned null", {
-        sessionId,
-        traceId: trace?.traceId,
-        requestId: trace?.requestId,
-        command: trace?.command,
-        action: "dropped",
-        phase: "t1",
-        outcome: "unmapped_type",
-      });
-    }
-    return unified;
-  }
-
-  private generateTraceId(): string {
-    return `t_${randomUUID().slice(0, 8)}`;
-  }
-
-  private generateSlashRequestId(): string {
-    return `sr_${randomUUID().slice(0, 8)}`;
+    this.runtimeApi.applyPolicyCommand(sessionId, command);
   }
 
   // ── BackendAdapter path (delegated to BackendConnector) ──────────
 
-  /** Whether a BackendAdapter is configured. */
   get hasAdapter(): boolean {
-    return this.backendConnector.hasAdapter;
+    return this.backendApi.hasAdapter;
   }
 
-  /** Connect a session via BackendAdapter and start consuming messages. */
   async connectBackend(
     sessionId: string,
     options?: { resume?: boolean; adapterOptions?: Record<string, unknown> },
   ): Promise<void> {
-    const session = this.getOrCreateSession(sessionId);
-    return this.backendConnector.connectBackend(session, options);
+    return this.backendApi.connectBackend(sessionId, options);
   }
 
-  /** Disconnect the backend session. */
   async disconnectBackend(sessionId: string): Promise<void> {
-    const session = this.store.get(sessionId);
-    if (!session) return;
-    this.capabilitiesPolicy.cancelPendingInitialize(session);
-    return this.backendConnector.disconnectBackend(session);
+    return this.backendApi.disconnectBackend(sessionId);
   }
 
-  /** Whether a backend session is connected for a given session ID. */
   isBackendConnected(sessionId: string): boolean {
-    const session = this.store.get(sessionId);
-    if (!session) return false;
-    return this.backendConnector.isBackendConnected(session);
+    return this.backendApi.isBackendConnected(sessionId);
   }
 
-  /** Send a UnifiedMessage to the backend session. */
   sendToBackend(sessionId: string, message: UnifiedMessage): void {
-    const session = this.store.get(sessionId);
-    if (!session) {
-      this.logger.warn(`No backend session for ${sessionId}, cannot send message`);
-      return;
-    }
-    this.getSessionRuntime(session).sendToBackend(message);
+    this.runtimeApi.sendToBackend(sessionId, message);
   }
 }
