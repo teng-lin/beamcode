@@ -16,6 +16,22 @@ const reconnectState = new Map<
 >();
 const MAX_RECONNECT_DELAY = 30_000;
 
+// ── Message flow tap (dev panel) ──────────────────────────────────────────
+type FlowInboundListener = (sessionId: string, msg: ConsumerMessage) => void;
+type FlowOutboundListener = (sessionId: string, msg: InboundMessage) => void;
+const flowInboundListeners = new Set<FlowInboundListener>();
+const flowOutboundListeners = new Set<FlowOutboundListener>();
+
+export function addFlowInboundListener(cb: FlowInboundListener): () => void {
+  flowInboundListeners.add(cb);
+  return () => flowInboundListeners.delete(cb);
+}
+
+export function addFlowOutboundListener(cb: FlowOutboundListener): () => void {
+  flowOutboundListeners.add(cb);
+  return () => flowOutboundListeners.delete(cb);
+}
+
 // ── Streaming delta batching ──────────────────────────────────────────────
 // Coalesce rapid content_block_delta events into at most one Zustand set()
 // per animation frame, reducing re-renders from hundreds/s to ~60/s.
@@ -113,6 +129,7 @@ function handleMessage(sessionId: string, data: string): void {
   // Guard: ensure parsed value is an object with a string `type` discriminant
   if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return;
   const msg = parsed as ConsumerMessage;
+  for (const cb of flowInboundListeners) cb(sessionId, msg);
 
   store.ensureSessionData(sessionId);
 
@@ -412,6 +429,10 @@ function handleMessage(sessionId: string, data: string): void {
       // Informational only — no store action needed
       break;
 
+    case "adapter_drop":
+      store.addMessage(sessionId, msg);
+      break;
+
     default: {
       // Compile-time exhaustiveness guard; runtime remains forward-compatible.
       const _exhaustive: never = msg;
@@ -531,6 +552,7 @@ export function send(message: InboundMessage, sessionId?: string): void {
   if (!targetId) return;
   const socket = connections.get(targetId);
   if (socket?.readyState === WebSocket.OPEN) {
+    for (const cb of flowOutboundListeners) cb(targetId, message);
     socket.send(JSON.stringify(message));
   }
 }
@@ -540,4 +562,6 @@ export function _resetForTesting(): void {
   disconnect();
   pendingDeltas.clear();
   flushScheduled = false;
+  flowInboundListeners.clear();
+  flowOutboundListeners.clear();
 }

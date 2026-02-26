@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { listSessions } from "./api";
 import { ChatView } from "./components/ChatView";
 import { LogDrawer } from "./components/LogDrawer";
+import { MessageFlowPanel } from "./components/MessageFlowPanel";
 import { NewSessionDialog } from "./components/NewSessionDialog";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { ShortcutsModal } from "./components/ShortcutsModal";
@@ -104,6 +105,7 @@ export default function App() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const logDrawerOpen = useStore((s) => s.logDrawerOpen);
+  const messageFlowOpen = useStore((s) => s.messageFlowOpen);
   const darkMode = useStore((s) => s.darkMode);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const quickSwitcherOpen = useStore((s) => s.quickSwitcherOpen);
@@ -149,6 +151,11 @@ export default function App() {
       {/* Process logs drawer */}
       <ErrorBoundary fallback={<div className="p-4 text-bc-error">Logs error</div>}>
         {logDrawerOpen && <LogDrawer />}
+      </ErrorBoundary>
+
+      {/* Message flow panel */}
+      <ErrorBoundary fallback={<div className="p-4 text-bc-error">Flow error</div>}>
+        {messageFlowOpen && <MessageFlowPanel />}
       </ErrorBoundary>
 
       <ShortcutsModal />

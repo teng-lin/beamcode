@@ -320,6 +320,39 @@ function LogsButton() {
   );
 }
 
+// ── Message Flow Button ──────────────────────────────────────────────────────
+
+function MessageFlowButton() {
+  const messageFlowOpen = useStore((s) => s.messageFlowOpen);
+  const setMessageFlowOpen = useStore((s) => s.setMessageFlowOpen);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setMessageFlowOpen(!messageFlowOpen)}
+      className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+        messageFlowOpen
+          ? "text-bc-accent"
+          : "text-bc-text-muted hover:bg-bc-hover hover:text-bc-text"
+      }`}
+      aria-label="Toggle message flow panel (⌥M)"
+      title="Message Flow (⌥M)"
+    >
+      <svg width="10" height="10" viewBox="0 0 16 10" fill="currentColor" aria-hidden="true">
+        <path
+          d="M2 8L5 4L8 8L11 4L14 8"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      Flow
+    </button>
+  );
+}
+
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
 export function StatusBar() {
@@ -402,6 +435,7 @@ export function StatusBar() {
       )}
 
       <LogsButton />
+      <MessageFlowButton />
 
       {adapterType && <AdapterSelector type={adapterType} />}
     </footer>

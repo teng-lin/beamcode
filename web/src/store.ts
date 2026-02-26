@@ -106,6 +106,7 @@ export interface AppState {
   toasts: Toast[];
   processLogs: Record<string, string[]>;
   logDrawerOpen: boolean;
+  messageFlowOpen: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
@@ -124,6 +125,7 @@ export interface AppState {
   removeToast: (id: string) => void;
   appendProcessLog: (sessionId: string, line: string) => void;
   setLogDrawerOpen: (open: boolean) => void;
+  setMessageFlowOpen: (open: boolean) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -296,6 +298,7 @@ export const useStore = create<AppState>()((set, get) => ({
   toasts: [],
   processLogs: {},
   logDrawerOpen: false,
+  messageFlowOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -353,6 +356,7 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
 
   setLogDrawerOpen: (open) => set({ logDrawerOpen: open }),
+  setMessageFlowOpen: (open) => set({ messageFlowOpen: open }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {

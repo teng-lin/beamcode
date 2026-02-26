@@ -875,6 +875,16 @@ function buildEffects(
           eventType: "permission:requested",
           payload: { request: mapped.cliPerm },
         });
+      } else {
+        effects.push({
+          type: "BROADCAST",
+          message: {
+            type: "adapter_drop",
+            reason: `permission_request subtype '${String(message.metadata?.subtype ?? "unknown")}' is not supported (only 'can_use_tool' is handled)`,
+            dropped_type: "permission_request",
+            dropped_metadata: message.metadata as Record<string, unknown>,
+          },
+        });
       }
       break;
     }
