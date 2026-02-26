@@ -94,6 +94,11 @@ export function executeEffects(
         case "SEND_TO_CONSUMER":
           deps.broadcaster.sendTo(effect.ws, effect.message);
           break;
+
+        case "EMIT_TRANSLATION":
+          // Forward translation event to consumers for message flow panel visualization
+          deps.broadcaster.broadcast(session, effect.event);
+          break;
       }
     } catch (err) {
       // A failing effect must never abort subsequent effects.

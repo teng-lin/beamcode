@@ -467,6 +467,7 @@ function handleMessage(sessionId: string, data: string): void {
       break;
 
     case "adapter_drop":
+    case "translation_event":
       store.addMessage(sessionId, msg);
       break;
 

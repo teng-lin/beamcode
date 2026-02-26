@@ -121,8 +121,31 @@ export function useMessageFlow(sessionId: string | null): UseMessageFlowResult {
 
     const removeInbound = addFlowInboundListener((sid, msg) => {
       if (sid !== sessionId) return;
-      const flowMsg = buildFlowMessage("in", msg.type, msg);
-      ingest(flowMsg);
+
+      // Handle translation events separately to populate boundary metadata
+      if (msg.type === "translation_event") {
+        const evt = msg as {
+          type: "translation_event";
+          boundary: "T1" | "T2" | "T3" | "T4";
+          translator: string;
+          from: { format: string; body: unknown };
+          to: { format: string; body: unknown };
+          traceId?: string;
+          timestamp: number;
+          sessionId: string;
+        };
+        const direction = evt.boundary === "T1" || evt.boundary === "T2" ? "out" : "in";
+        const flowMsg = buildFlowMessage(direction, evt.boundary, evt.to.body);
+        flowMsg.boundary = evt.boundary;
+        flowMsg.translator = evt.translator;
+        flowMsg.nativeFormat = evt.from;
+        flowMsg.traceId = evt.traceId;
+        ingest(flowMsg);
+      } else {
+        // Regular consumer message
+        const flowMsg = buildFlowMessage("in", msg.type, msg);
+        ingest(flowMsg);
+      }
     });
 
     const removeOutbound = addFlowOutboundListener((sid, msg) => {

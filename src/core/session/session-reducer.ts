@@ -588,12 +588,13 @@ function reduceInboundCommand(
       );
 
       // Normalize message for backend send (pure — no I/O).
-      const baseUnified = normalizeInbound({
-        type: "user_message",
+      const inboundMsg = {
+        type: "user_message" as const,
         content: command.content,
         session_id: data.backendSessionId || command.session_id || "",
         images: command.images,
-      });
+      };
+      const baseUnified = normalizeInbound(inboundMsg);
       if (!baseUnified) return [data, []];
 
       // Apply slash passthrough trace context when present (always a complete group).
@@ -610,6 +611,21 @@ function reduceInboundCommand(
           }
         : baseUnified;
 
+      // Emit T1 translation event for message flow panel
+      const t1Event: Effect = {
+        type: "EMIT_TRANSLATION",
+        event: {
+          type: "translation_event",
+          boundary: "T1",
+          translator: "normalizeInbound",
+          from: { format: "InboundMessage", body: inboundMsg },
+          to: { format: "UnifiedMessage", body: unified },
+          traceId: unified.metadata.trace_id as string | undefined,
+          timestamp: Date.now(),
+          sessionId: data.state.session_id,
+        },
+      };
+
       const isConnected = data.lifecycle === "active" || data.lifecycle === "idle";
 
       if (isConnected) {
@@ -624,6 +640,7 @@ function reduceInboundCommand(
           [
             { type: "BROADCAST", message: userMsg },
             { type: "PERSIST_NOW" },
+            t1Event,
             { type: "SEND_TO_BACKEND", message: unified },
           ],
         ];
@@ -644,7 +661,7 @@ function reduceInboundCommand(
           messageHistory: nextHistory,
           pendingMessages: [...data.pendingMessages, unified],
         },
-        [{ type: "BROADCAST", message: userMsg }, { type: "PERSIST_NOW" }],
+        [{ type: "BROADCAST", message: userMsg }, { type: "PERSIST_NOW" }, t1Event],
       ];
     }
 
@@ -824,6 +841,20 @@ function buildEffects(
       if (nextData.messageHistory !== prevData.messageHistory) {
         const mapped = mapAssistantMessage(message);
         if (mapped.type === "assistant") {
+          // Emit T4 translation event
+          effects.push({
+            type: "EMIT_TRANSLATION",
+            event: {
+              type: "translation_event",
+              boundary: "T4",
+              translator: "mapAssistantMessage",
+              from: { format: "UnifiedMessage", body: message },
+              to: { format: "ConsumerMessage", body: mapped },
+              traceId: message.metadata?.trace_id as string | undefined,
+              timestamp: Date.now(),
+              sessionId: prevData.state.session_id,
+            },
+          });
           effects.push({ type: "BROADCAST", message: mapped });
         }
       }
@@ -831,7 +862,22 @@ function buildEffects(
     }
 
     case "result": {
-      effects.push({ type: "BROADCAST", message: mapResultMessage(message) });
+      const resultMsg = mapResultMessage(message);
+      // Emit T4 translation event
+      effects.push({
+        type: "EMIT_TRANSLATION",
+        event: {
+          type: "translation_event",
+          boundary: "T4",
+          translator: "mapResultMessage",
+          from: { format: "UnifiedMessage", body: message },
+          to: { format: "ConsumerMessage", body: resultMsg },
+          traceId: message.metadata?.trace_id as string | undefined,
+          timestamp: Date.now(),
+          sessionId: prevData.state.session_id,
+        },
+      });
+      effects.push({ type: "BROADCAST", message: resultMsg });
       effects.push({ type: "AUTO_SEND_QUEUED" });
       // Emit first-turn completion event when num_turns reaches 1
       const numTurns = message.metadata?.num_turns as number | undefined;

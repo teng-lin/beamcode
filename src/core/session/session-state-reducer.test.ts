@@ -671,15 +671,16 @@ describe("sessionReducer INBOUND_COMMAND", () => {
     expect(next.lastStatus).toBe("running");
     expect(next.messageHistory).toHaveLength(1);
     expect(next.messageHistory[0]).toMatchObject({ type: "user_message", content: "hi" });
-    // Reducer now produces 3 effects: BROADCAST, PERSIST_NOW, and SEND_TO_BACKEND
+    // Reducer now produces 4 effects: BROADCAST, PERSIST_NOW, EMIT_TRANSLATION, and SEND_TO_BACKEND
     // (backend connected path — lifecycle is "active")
-    expect(effects).toHaveLength(3);
+    expect(effects).toHaveLength(4);
     expect(effects[0]).toMatchObject({
       type: "BROADCAST",
       message: { type: "user_message", content: "hi" },
     });
     expect(effects[1]).toMatchObject({ type: "PERSIST_NOW" });
-    expect(effects[2]).toMatchObject({ type: "SEND_TO_BACKEND" });
+    expect(effects[2]).toMatchObject({ type: "EMIT_TRANSLATION" });
+    expect(effects[3]).toMatchObject({ type: "SEND_TO_BACKEND" });
   });
 
   it("returns data unchanged and empty effects for user_message when lifecycle is closing", () => {

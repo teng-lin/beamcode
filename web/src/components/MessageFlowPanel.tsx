@@ -15,6 +15,7 @@ export function MessageFlowPanel() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(560);
+  const [detailLevel, setDetailLevel] = useState<"compact" | "detailed">("compact");
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -158,6 +159,16 @@ export function MessageFlowPanel() {
             )}
           </div>
 
+          {/* Detail level toggle */}
+          <button
+            type="button"
+            onClick={() => setDetailLevel((d) => (d === "compact" ? "detailed" : "compact"))}
+            className={`rounded px-1.5 py-0.5 font-mono-code text-[10px] transition-colors hover:bg-bc-hover ${detailLevel === "detailed" ? "text-[#8B5CF6]" : "text-bc-text-muted"}`}
+            title={detailLevel === "compact" ? "Show boundaries" : "Hide boundaries"}
+          >
+            T1→T4
+          </button>
+
           {/* Auto-scroll toggle */}
           <button
             type="button"
@@ -227,6 +238,7 @@ export function MessageFlowPanel() {
                     <>
                       <MessagePill
                         message={msg}
+                        detailLevel={detailLevel}
                         dimmed={isDimmed}
                         onHoverStart={() => setHoveredId(msg.id)}
                         onHoverEnd={() => setHoveredId(null)}
@@ -244,6 +256,7 @@ export function MessageFlowPanel() {
                       </span>
                       <MessagePill
                         message={msg}
+                        detailLevel={detailLevel}
                         dimmed={isDimmed}
                         onHoverStart={() => setHoveredId(msg.id)}
                         onHoverEnd={() => setHoveredId(null)}

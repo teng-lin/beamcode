@@ -9,6 +9,11 @@ export interface FlowMessage {
   wallTime: number;
   pairedId?: string;
   groupIds?: string[];
+  // Translation boundary metadata (for message flow visualization)
+  boundary?: "T1" | "T2" | "T3" | "T4";
+  translator?: string;
+  nativeFormat?: { format: string; body: unknown };
+  traceId?: string;
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -31,6 +36,7 @@ const COLOR_MAP: Record<string, string> = {
   update_queued_message: "#E9D5FF",
   cancel_queued_message: "#F87171",
   adapter_drop: "#EF4444",
+  translation_event: "#8B5CF6",
 };
 
 const DEFAULT_COLOR = "#71717A";
@@ -41,16 +47,26 @@ export function getColor(type: string): string {
 
 interface MessagePillProps {
   message: FlowMessage;
+  detailLevel: "compact" | "detailed";
   dimmed: boolean;
   onHoverStart: () => void;
   onHoverEnd: () => void;
 }
 
-export function MessagePill({ message, dimmed, onHoverStart, onHoverEnd }: MessagePillProps) {
+export function MessagePill({
+  message,
+  detailLevel,
+  dimmed,
+  onHoverStart,
+  onHoverEnd,
+}: MessagePillProps) {
   const [expanded, setExpanded] = useState(false);
+  const [boundaryExpanded, setBoundaryExpanded] = useState(false);
   const color = getColor(message.type);
   const payloadStr = JSON.stringify(message.payload);
   const preview = payloadStr.length > 80 ? `${payloadStr.slice(0, 80)}…` : payloadStr;
+
+  const showBoundary = detailLevel === "detailed" && message.boundary;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: pill is a visual dev tool element, not interactive UI
@@ -65,6 +81,11 @@ export function MessagePill({ message, dimmed, onHoverStart, onHoverEnd }: Messa
         <span className="font-bold text-bc-text" style={{ color }}>
           {message.type}
         </span>
+        {showBoundary && (
+          <span className="rounded bg-[#8B5CF6]/20 px-1 py-0.5 text-[9px] font-bold text-[#8B5CF6]">
+            {message.boundary}
+          </span>
+        )}
         <span className="text-bc-text-muted">+{message.timestamp}ms</span>
         <span className="text-bc-text-muted">{message.direction === "out" ? "↗" : "↙"}</span>
         <button
@@ -81,6 +102,36 @@ export function MessagePill({ message, dimmed, onHoverStart, onHoverEnd }: Messa
         </pre>
       ) : (
         <span className="truncate font-mono-code text-[10px] text-bc-text-muted">{preview}</span>
+      )}
+
+      {/* Boundary details (detailed mode only) */}
+      {showBoundary && message.nativeFormat && (
+        <div className="mt-1 border-t border-bc-border/30 pt-1">
+          <button
+            type="button"
+            onClick={() => setBoundaryExpanded((e) => !e)}
+            className="w-full text-left font-mono-code text-[9px] text-bc-text-muted/70 hover:text-bc-text-muted"
+          >
+            {boundaryExpanded ? "▼" : "▶"} {message.translator} → {message.nativeFormat.format}
+          </button>
+          {boundaryExpanded && (
+            <div className="mt-1">
+              <pre className="max-h-32 overflow-auto rounded bg-bc-code-bg p-2 font-mono-code text-[9px] leading-relaxed text-bc-text-muted/80">
+                {JSON.stringify(message.nativeFormat.body, null, 2).slice(0, 500)}
+                {JSON.stringify(message.nativeFormat.body).length > 500 && "…"}
+              </pre>
+              <button
+                type="button"
+                onClick={() =>
+                  navigator.clipboard.writeText(JSON.stringify(message.nativeFormat!.body, null, 2))
+                }
+                className="mt-1 font-mono-code text-[9px] text-[#8B5CF6] hover:underline"
+              >
+                Copy full
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
