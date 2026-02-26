@@ -45,10 +45,38 @@ export function getColor(type: string): string {
   return COLOR_MAP[type] ?? DEFAULT_COLOR;
 }
 
+/**
+ * Generate a consistent color from a traceId for visual correlation.
+ * Uses a simple hash to pick from a palette of distinct colors.
+ */
+function getTraceColor(traceId: string): string {
+  const colors = [
+    "#22D3EE", // cyan
+    "#F59E0B", // amber
+    "#A78BFA", // purple
+    "#FB923C", // orange
+    "#34D399", // emerald
+    "#F472B6", // pink
+    "#FACC15", // yellow
+    "#60A5FA", // blue
+    "#FB7185", // rose
+    "#A3E635", // lime
+  ];
+
+  let hash = 0;
+  for (let i = 0; i < traceId.length; i++) {
+    hash = (hash << 5) - hash + traceId.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+
+  return colors[Math.abs(hash) % colors.length];
+}
+
 interface MessagePillProps {
   message: FlowMessage;
   detailLevel: "compact" | "detailed";
   dimmed: boolean;
+  highlighted?: boolean;
   onHoverStart: () => void;
   onHoverEnd: () => void;
 }
@@ -57,6 +85,7 @@ export function MessagePill({
   message,
   detailLevel,
   dimmed,
+  highlighted = false,
   onHoverStart,
   onHoverEnd,
 }: MessagePillProps) {
@@ -67,13 +96,23 @@ export function MessagePill({
   const preview = payloadStr.length > 80 ? `${payloadStr.slice(0, 80)}…` : payloadStr;
 
   const showBoundary = detailLevel === "detailed" && message.boundary;
+  const traceColor = message.traceId ? getTraceColor(message.traceId) : null;
+  const truncatedTraceId = message.traceId?.slice(0, 8);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: pill is a visual dev tool element, not interactive UI
     <div
       data-flow-id={message.id}
-      className={`flex min-w-0 flex-col gap-1 overflow-hidden rounded bg-bc-surface px-2 py-1.5 ${dimmed ? "opacity-30" : ""}`}
-      style={{ borderLeft: `3px solid ${color}` }}
+      data-trace-id={message.traceId}
+      className={`flex min-w-0 flex-col gap-1 overflow-hidden rounded px-2 py-1.5 transition-all ${
+        dimmed ? "opacity-30" : ""
+      } ${highlighted ? "ring-2 ring-offset-1 ring-offset-[#0A0B0D]" : "bg-bc-surface"}`}
+      style={{
+        borderLeft: `3px solid ${color}`,
+        ...(highlighted && traceColor
+          ? { backgroundColor: `${traceColor}15`, ringColor: traceColor }
+          : {}),
+      }}
       onMouseEnter={onHoverStart}
       onMouseLeave={onHoverEnd}
     >
@@ -84,6 +123,15 @@ export function MessagePill({
         {showBoundary && (
           <span className="rounded bg-[#8B5CF6]/20 px-1 py-0.5 text-[9px] font-bold text-[#8B5CF6]">
             {message.boundary}
+          </span>
+        )}
+        {message.traceId && (
+          <span
+            className="rounded px-1 py-0.5 text-[9px] font-mono-code font-bold opacity-80"
+            style={{ backgroundColor: `${traceColor}30`, color: traceColor ?? undefined }}
+            title={`Trace ID: ${message.traceId}`}
+          >
+            {truncatedTraceId}
           </span>
         )}
         <span className="text-bc-text-muted">+{message.timestamp}ms</span>
