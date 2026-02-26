@@ -39,8 +39,12 @@ export function addFlowOutboundListener(cb: FlowOutboundListener): () => void {
 interface PendingDelta {
   /** Accumulated text for the main session streaming. */
   main: string;
+  /** Accumulated thinking for the main session streaming. */
+  mainThinking: string;
   /** Accumulated text per agent sub-stream. */
   agents: Record<string, string>;
+  /** Accumulated thinking per agent sub-stream. */
+  agentsThinking: Record<string, string>;
 }
 
 const pendingDeltas = new Map<string, PendingDelta>();
@@ -64,8 +68,14 @@ export function flushDeltas(): void {
     if (delta.main) {
       store.appendStreaming(sessionId, delta.main);
     }
+    if (delta.mainThinking) {
+      store.appendStreamingThinking(sessionId, delta.mainThinking);
+    }
     for (const [agentId, text] of Object.entries(delta.agents)) {
       store.appendAgentStreaming(sessionId, agentId, text);
+    }
+    for (const [agentId, thinking] of Object.entries(delta.agentsThinking)) {
+      store.appendAgentStreamingThinking(sessionId, agentId, thinking);
     }
   }
 }
@@ -73,13 +83,31 @@ export function flushDeltas(): void {
 function bufferStreamingDelta(sessionId: string, agentId: string | null, text: string): void {
   let entry = pendingDeltas.get(sessionId);
   if (!entry) {
-    entry = { main: "", agents: {} };
+    entry = { main: "", mainThinking: "", agents: {}, agentsThinking: {} };
     pendingDeltas.set(sessionId, entry);
   }
   if (agentId) {
     entry.agents[agentId] = (entry.agents[agentId] ?? "") + text;
   } else {
     entry.main += text;
+  }
+  scheduleDeltaFlush();
+}
+
+function bufferStreamingThinkingDelta(
+  sessionId: string,
+  agentId: string | null,
+  thinking: string,
+): void {
+  let entry = pendingDeltas.get(sessionId);
+  if (!entry) {
+    entry = { main: "", mainThinking: "", agents: {}, agentsThinking: {} };
+    pendingDeltas.set(sessionId, entry);
+  }
+  if (agentId) {
+    entry.agentsThinking[agentId] = (entry.agentsThinking[agentId] ?? "") + thinking;
+  } else {
+    entry.mainThinking += thinking;
   }
   scheduleDeltaFlush();
 }
@@ -230,6 +258,15 @@ function handleMessage(sessionId: string, data: string): void {
               store.setSessionStatus(sessionId, "running");
             }
             bufferStreamingDelta(sessionId, agentId, delta.text);
+          } else if (delta?.type === "thinking_delta" && delta.thinking) {
+            // Auto-init streaming if no message_start was received
+            const sd = useStore.getState().sessionData[sessionId];
+            if (!agentId && sd?.streaming === null) {
+              store.setStreamingStarted(sessionId, Date.now());
+              store.setStreaming(sessionId, "");
+              store.setSessionStatus(sessionId, "running");
+            }
+            bufferStreamingThinkingDelta(sessionId, agentId, delta.thinking);
           }
           break;
         }

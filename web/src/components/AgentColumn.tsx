@@ -15,9 +15,14 @@ function AgentColumnStreamingIndicator({
   agentId: string;
 }) {
   const stream = useStore((s) => s.sessionData[sessionId]?.agentStreaming[agentId]);
-  if (!stream?.text && !stream?.startedAt) return null;
+  if (!stream?.text && !stream?.thinking && !stream?.startedAt) return null;
   return (
     <div className="px-2 pb-1">
+      {stream.thinking && (
+        <pre className="mb-1 max-h-40 overflow-auto rounded border border-bc-border/30 bg-bc-surface/50 p-2 font-mono-code text-[10px] text-bc-text-muted/70 leading-relaxed">
+          {stream.thinking}
+        </pre>
+      )}
       {stream.text && <MarkdownContent content={stream.text} />}
       <div className="flex items-center gap-1.5 py-1 text-[10px] text-bc-text-muted">
         <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-bc-accent" />
