@@ -8,6 +8,7 @@
  * queue outbound messages before the WebSocket handshake completes.
  */
 
+import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 import type { RawData } from "ws";
 import type { BackendSession } from "../../core/interfaces/backend-adapter.js";
@@ -99,6 +100,24 @@ export class ClaudeSession implements BackendSession {
       },
     );
     this.sendToSocket(ndjson);
+
+    // Emit T2 translation event for message flow panel
+    this.queue.enqueue({
+      id: randomUUID(),
+      timestamp: Date.now(),
+      type: "translation_event",
+      role: "system",
+      content: [],
+      metadata: {
+        boundary: "T2",
+        translator: "toNDJSON",
+        from: { format: "UnifiedMessage", body: message },
+        to: { format: "Claude NDJSON", body: ndjson },
+        trace_id: trace.traceId,
+        session_id: this.sessionId,
+        timestamp: Date.now(),
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -267,6 +286,25 @@ export class ClaudeSession implements BackendSession {
         },
       );
       this.queue.enqueue(unified);
+
+      // Emit T3 translation event for message flow panel
+      const trace = extractTraceContext(unified.metadata);
+      this.queue.enqueue({
+        id: randomUUID(),
+        timestamp: Date.now(),
+        type: "translation_event",
+        role: "system",
+        content: [],
+        metadata: {
+          boundary: "T3",
+          translator: "translate",
+          from: { format: "Claude NDJSON", body: cliMsg },
+          to: { format: "UnifiedMessage", body: unified },
+          trace_id: trace.traceId,
+          session_id: this.sessionId,
+          timestamp: Date.now(),
+        },
+      });
     } else {
       const consumedType = cliMsg.type === "user" || cliMsg.type === "keep_alive";
       this.tracer?.error(

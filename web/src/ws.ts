@@ -222,10 +222,6 @@ function handleMessage(sessionId: string, data: string): void {
     }
 
     case "queued_message_cancelled":
-      store.setQueuedMessage(sessionId, null);
-      store.setEditingQueue(sessionId, false);
-      break;
-
     case "queued_message_sent":
       store.setQueuedMessage(sessionId, null);
       store.setEditingQueue(sessionId, false);
@@ -249,23 +245,21 @@ function handleMessage(sessionId: string, data: string): void {
         case "content_block_delta": {
           const delta = (event as { delta?: { type: string; text?: string; thinking?: string } })
             .delta;
+
+          // Auto-init streaming if no message_start was received (ACP backends)
+          const needsAutoInit =
+            (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
+            !agentId &&
+            useStore.getState().sessionData[sessionId]?.streaming === null;
+          if (needsAutoInit) {
+            store.setStreamingStarted(sessionId, Date.now());
+            store.setStreaming(sessionId, "");
+            store.setSessionStatus(sessionId, "running");
+          }
+
           if (delta?.type === "text_delta" && delta.text) {
-            // Auto-init streaming if no message_start was received (ACP backends)
-            const sd = useStore.getState().sessionData[sessionId];
-            if (!agentId && sd?.streaming === null) {
-              store.setStreamingStarted(sessionId, Date.now());
-              store.setStreaming(sessionId, "");
-              store.setSessionStatus(sessionId, "running");
-            }
             bufferStreamingDelta(sessionId, agentId, delta.text);
           } else if (delta?.type === "thinking_delta" && delta.thinking) {
-            // Auto-init streaming if no message_start was received
-            const sd = useStore.getState().sessionData[sessionId];
-            if (!agentId && sd?.streaming === null) {
-              store.setStreamingStarted(sessionId, Date.now());
-              store.setStreaming(sessionId, "");
-              store.setSessionStatus(sessionId, "running");
-            }
             bufferStreamingThinkingDelta(sessionId, agentId, delta.thinking);
           }
           break;
@@ -468,7 +462,7 @@ function handleMessage(sessionId: string, data: string): void {
 
     case "adapter_drop":
     case "translation_event":
-      store.addMessage(sessionId, msg);
+      // Captured by flow panel listeners only; not surfaced in chat UI
       break;
 
     default: {

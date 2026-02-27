@@ -17,99 +17,58 @@ function makeMessage(overrides: Partial<FlowMessage> = {}): FlowMessage {
 
 const noop = () => {};
 
+type PillOverrides = Partial<Parameters<typeof MessagePill>[0]>;
+
+function renderPill(msgOverrides: Partial<FlowMessage> = {}, propOverrides: PillOverrides = {}) {
+  return render(
+    <MessagePill
+      message={makeMessage(msgOverrides)}
+      detailLevel="compact"
+      dimmed={false}
+      onHoverStart={noop}
+      onHoverEnd={noop}
+      {...propOverrides}
+    />,
+  );
+}
+
 describe("MessagePill", () => {
   it('renders with data-flow-id for direction "out"', () => {
-    const msg = makeMessage({ direction: "out" });
-    const { container } = render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    const { container } = renderPill({ direction: "out" });
     const root = container.firstElementChild as HTMLElement;
     expect(root.getAttribute("data-flow-id")).toBe("msg-1");
   });
 
   it('shows ↙ arrow for direction "in"', () => {
-    const msg = makeMessage({ direction: "in" });
-    render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    renderPill({ direction: "in" });
     expect(screen.getByText("↙")).toBeInTheDocument();
   });
 
   it("shows ↗ arrow for direction out", () => {
-    const msg = makeMessage({ direction: "out" });
-    render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    renderPill({ direction: "out" });
     expect(screen.getByText("↗")).toBeInTheDocument();
   });
 
   it("applies opacity-30 class when dimmed", () => {
-    const msg = makeMessage();
-    const { container } = render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={true}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    const { container } = renderPill({}, { dimmed: true });
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).toContain("opacity-30");
   });
 
   it("does not apply opacity-30 when not dimmed", () => {
-    const msg = makeMessage();
-    const { container } = render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    const { container } = renderPill({}, { dimmed: false });
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).not.toContain("opacity-30");
   });
 
   it("toggles expand/collapse on click", async () => {
     const user = userEvent.setup();
-    const msg = makeMessage({ payload: { key: "value" } });
-    render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    renderPill({ payload: { key: "value" } });
 
-    // Initially collapsed — toggle button shows [▾]
     const toggle = screen.getByText("[▾]");
     expect(toggle).toBeInTheDocument();
 
     await user.click(toggle);
-    // Now expanded — toggle shows [▴]
     expect(screen.getByText("[▴]")).toBeInTheDocument();
 
     await user.click(screen.getByText("[▴]"));
@@ -120,16 +79,7 @@ describe("MessagePill", () => {
     const user = userEvent.setup();
     const onHoverStart = vi.fn();
     const onHoverEnd = vi.fn();
-    const msg = makeMessage();
-    const { container } = render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={onHoverStart}
-        onHoverEnd={onHoverEnd}
-      />,
-    );
+    const { container } = renderPill({}, { onHoverStart, onHoverEnd });
     const root = container.firstElementChild as HTMLElement;
 
     await user.hover(root);
@@ -140,16 +90,7 @@ describe("MessagePill", () => {
   });
 
   it("displays timestamp formatted as +{n}ms", () => {
-    const msg = makeMessage({ timestamp: 5678 });
-    render(
-      <MessagePill
-        message={msg}
-        detailLevel="compact"
-        dimmed={false}
-        onHoverStart={noop}
-        onHoverEnd={noop}
-      />,
-    );
+    renderPill({ timestamp: 5678 });
     expect(screen.getByText("+5678ms")).toBeInTheDocument();
   });
 });

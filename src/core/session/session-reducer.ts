@@ -34,6 +34,7 @@ import {
   mapStreamEvent,
   mapToolProgress,
   mapToolUseSummary,
+  mapTranslationEvent,
 } from "../messaging/consumer-message-mapper.js";
 import { normalizeInbound } from "../messaging/inbound-normalizer.js";
 import { diffTeamState } from "../team/team-event-differ.js";
@@ -984,6 +985,11 @@ function buildEffects(
 
     case "session_lifecycle": {
       effects.push({ type: "BROADCAST", message: mapSessionLifecycle(message) });
+      break;
+    }
+
+    case "translation_event": {
+      effects.push({ type: "BROADCAST", message: mapTranslationEvent(message) });
       break;
     }
   }

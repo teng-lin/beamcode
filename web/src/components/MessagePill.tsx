@@ -96,7 +96,7 @@ export function MessagePill({
   const preview = payloadStr.length > 80 ? `${payloadStr.slice(0, 80)}…` : payloadStr;
 
   const showBoundary = detailLevel === "detailed" && message.boundary;
-  const traceColor = message.traceId ? getTraceColor(message.traceId) : null;
+  const traceColor = message.traceId ? getTraceColor(message.traceId) : undefined;
   const truncatedTraceId = message.traceId?.slice(0, 8);
 
   return (
@@ -128,7 +128,7 @@ export function MessagePill({
         {message.traceId && (
           <span
             className="rounded px-1 py-0.5 text-[9px] font-mono-code font-bold opacity-80"
-            style={{ backgroundColor: `${traceColor}30`, color: traceColor ?? undefined }}
+            style={{ backgroundColor: `${traceColor}30`, color: traceColor }}
             title={`Trace ID: ${message.traceId}`}
           >
             {truncatedTraceId}
@@ -171,7 +171,7 @@ export function MessagePill({
               <button
                 type="button"
                 onClick={() =>
-                  navigator.clipboard.writeText(JSON.stringify(message.nativeFormat!.body, null, 2))
+                  navigator.clipboard.writeText(JSON.stringify(message.nativeFormat?.body, null, 2))
                 }
                 className="mt-1 font-mono-code text-[9px] text-[#8B5CF6] hover:underline"
               >

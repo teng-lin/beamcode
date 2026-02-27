@@ -54,7 +54,7 @@ export function useMessageFlow(sessionId: string | null): UseMessageFlowResult {
     const index = pairingIndexRef.current;
     const p = msg.payload as Record<string, unknown>;
 
-    if (msg.direction === "out" && msg.type === "permission_response") {
+    if (msg.direction === "in" && msg.type === "permission_response") {
       const requestId = p.request_id as string | undefined;
       if (requestId) {
         const pairedFlowId = index.get(requestId);
@@ -69,7 +69,7 @@ export function useMessageFlow(sessionId: string | null): UseMessageFlowResult {
       }
     }
 
-    if (msg.direction === "in" && msg.type === "permission_request") {
+    if (msg.direction === "out" && msg.type === "permission_request") {
       const request = p.request as Record<string, unknown> | undefined;
       const requestId = request?.id as string | undefined;
       if (requestId) {
@@ -142,15 +142,16 @@ export function useMessageFlow(sessionId: string | null): UseMessageFlowResult {
         flowMsg.traceId = evt.traceId;
         ingest(flowMsg);
       } else {
-        // Regular consumer message
-        const flowMsg = buildFlowMessage("in", msg.type, msg);
+        // Regular consumer message — bridge→consumer = left/outbound column
+        const flowMsg = buildFlowMessage("out", msg.type, msg);
         ingest(flowMsg);
       }
     });
 
     const removeOutbound = addFlowOutboundListener((sid, msg) => {
       if (sid !== sessionId) return;
-      const flowMsg = buildFlowMessage("out", msg.type, msg);
+      // consumer→bridge = right/inbound column
+      const flowMsg = buildFlowMessage("in", msg.type, msg);
       ingest(flowMsg);
     });
 

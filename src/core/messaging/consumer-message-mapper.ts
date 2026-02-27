@@ -273,6 +273,27 @@ export function mapSessionLifecycle(msg: UnifiedMessage): ConsumerMessage {
   return mapMetadataMessage("session_lifecycle", msg);
 }
 
+/**
+ * Map a UnifiedMessage of type "translation_event" to a ConsumerMessage.
+ * Translation events carry message flow visualization metadata.
+ */
+export function mapTranslationEvent(msg: UnifiedMessage): ConsumerMessage {
+  const m = msg.metadata;
+  return {
+    type: "translation_event",
+    boundary: (m.boundary as "T1" | "T2" | "T3" | "T4") ?? "T1",
+    translator: (m.translator as string) ?? "unknown",
+    from: (m.from as { format: string; body: unknown }) ?? {
+      format: "unknown",
+      body: null,
+    },
+    to: (m.to as { format: string; body: unknown }) ?? { format: "unknown", body: null },
+    traceId: m.trace_id as string | undefined,
+    timestamp: (m.timestamp as number) ?? Date.now(),
+    sessionId: (m.session_id as string) ?? "",
+  };
+}
+
 /** Shared mapper for message types that forward subtype + metadata. */
 function mapMetadataMessage(
   type: "configuration_change" | "session_lifecycle",

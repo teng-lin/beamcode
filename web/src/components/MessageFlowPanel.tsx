@@ -11,6 +11,7 @@ export function MessageFlowPanel() {
   const { messages, paused, pendingCount, setPaused, clear } = useMessageFlow(currentSessionId);
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredTraceId, setHoveredTraceId] = useState<string | null>(null);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
   const [autoScroll, setAutoScroll] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -63,6 +64,18 @@ export function MessageFlowPanel() {
     for (const m of messages) types.add(m.type);
     return [...types].sort();
   }, [messages]);
+
+  const handleHoverStart = useCallback((msg: (typeof messages)[0]) => {
+    setHoveredId(msg.id);
+    if (msg.traceId) {
+      setHoveredTraceId(msg.traceId);
+    }
+  }, []);
+
+  const handleHoverEnd = useCallback(() => {
+    setHoveredId(null);
+    setHoveredTraceId(null);
+  }, []);
 
   if (!messageFlowOpen || !currentSessionId) return null;
 
@@ -232,6 +245,7 @@ export function MessageFlowPanel() {
             {filtered.map((msg) => {
               const isDimmed =
                 hoveredId !== null && msg.id !== hoveredId && msg.id !== pairedIdOfHovered;
+              const isHighlighted = hoveredTraceId !== null && msg.traceId === hoveredTraceId;
               return (
                 <div key={msg.id} className="grid grid-cols-[1fr_40px_1fr] items-start gap-1">
                   {msg.direction === "out" ? (
@@ -240,8 +254,9 @@ export function MessageFlowPanel() {
                         message={msg}
                         detailLevel={detailLevel}
                         dimmed={isDimmed}
-                        onHoverStart={() => setHoveredId(msg.id)}
-                        onHoverEnd={() => setHoveredId(null)}
+                        highlighted={isHighlighted}
+                        onHoverStart={() => handleHoverStart(msg)}
+                        onHoverEnd={handleHoverEnd}
                       />
                       <span className="self-center text-center font-mono-code text-[8px] text-bc-text-muted/40">
                         +{msg.timestamp}
@@ -258,8 +273,9 @@ export function MessageFlowPanel() {
                         message={msg}
                         detailLevel={detailLevel}
                         dimmed={isDimmed}
-                        onHoverStart={() => setHoveredId(msg.id)}
-                        onHoverEnd={() => setHoveredId(null)}
+                        highlighted={isHighlighted}
+                        onHoverStart={() => handleHoverStart(msg)}
+                        onHoverEnd={handleHoverEnd}
                       />
                     </>
                   )}
