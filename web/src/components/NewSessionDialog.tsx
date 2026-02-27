@@ -4,6 +4,12 @@ import { useStore } from "../store";
 import { updateSessionUrl } from "../utils/session";
 import { connectToSession } from "../ws";
 
+interface CreationError {
+  message: string;
+  validationLink?: string | null;
+  validationDescription?: string | null;
+}
+
 export const ADAPTER_LABELS: Record<string, string> = {
   claude: "Claude",
   codex: "Codex",
@@ -32,9 +38,7 @@ export function NewSessionDialog() {
   const [model, setModel] = useState("");
   const [cwd, setCwd] = useState("");
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [validationLink, setValidationLink] = useState<string | null>(null);
-  const [validationDescription, setValidationDescription] = useState<string | null>(null);
+  const [error, setError] = useState<CreationError | null>(null);
 
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
@@ -49,8 +53,6 @@ export function NewSessionDialog() {
       setModel("");
       setCwd("");
       setError(null);
-      setValidationLink(null);
-      setValidationDescription(null);
       newButtonRef.current = document.querySelector<HTMLButtonElement>(
         "[data-new-session-trigger]",
       );
@@ -67,8 +69,6 @@ export function NewSessionDialog() {
     if (creating) return;
     setCreating(true);
     setError(null);
-    setValidationLink(null);
-    setValidationDescription(null);
     try {
       const session = await createSession({
         adapter,
@@ -82,11 +82,13 @@ export function NewSessionDialog() {
       close();
     } catch (err) {
       if (err instanceof AuthRequiredError) {
-        setError(err.message);
-        if (err.validationLink) setValidationLink(err.validationLink);
-        if (err.validationDescription) setValidationDescription(err.validationDescription);
+        setError({
+          message: err.message,
+          validationLink: err.validationLink,
+          validationDescription: err.validationDescription,
+        });
       } else {
-        setError(err instanceof Error ? err.message : "Failed to create session");
+        setError({ message: err instanceof Error ? err.message : "Failed to create session" });
       }
     } finally {
       setCreating(false);
@@ -185,15 +187,15 @@ export function NewSessionDialog() {
               role="alert"
               className="mb-4 rounded-md bg-bc-error/10 px-3 py-2 text-xs text-bc-error"
             >
-              <p>{error}</p>
-              {validationLink && (
+              <p>{error.message}</p>
+              {error.validationLink && (
                 <a
-                  href={validationLink}
+                  href={error.validationLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-1.5 inline-block font-medium underline"
                 >
-                  {validationDescription ?? "Authorize →"}
+                  {error.validationDescription ?? "Authorize →"}
                 </a>
               )}
             </div>
