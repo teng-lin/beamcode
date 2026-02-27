@@ -85,6 +85,10 @@ function useBootstrap() {
         const byId: Record<string, (typeof sessions)[0]> = {};
         for (const s of sessions) byId[s.sessionId] = s;
         useStore.getState().setSessions(byId);
+        // No sessions and no session in the URL → prompt user to create one
+        if (sessions.length === 0 && !sessionId) {
+          useStore.getState().setNewSessionDialogOpen(true);
+        }
       })
       .catch((err) => console.warn("[bootstrap] Failed to load sessions:", err));
 
