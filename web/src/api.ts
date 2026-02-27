@@ -6,15 +6,24 @@ export class AuthRequiredError extends Error {
   readonly validationLink?: string;
   readonly validationDescription?: string;
   readonly learnMoreUrl?: string;
+
   constructor(
     message: string,
-    data: { validationLink?: string; validationDescription?: string; learnMoreUrl?: string },
+    {
+      validationLink,
+      validationDescription,
+      learnMoreUrl,
+    }: {
+      validationLink?: string;
+      validationDescription?: string;
+      learnMoreUrl?: string;
+    },
   ) {
     super(message);
     this.name = "AuthRequiredError";
-    this.validationLink = data.validationLink;
-    this.validationDescription = data.validationDescription;
-    this.learnMoreUrl = data.learnMoreUrl;
+    this.validationLink = validationLink;
+    this.validationDescription = validationDescription;
+    this.learnMoreUrl = learnMoreUrl;
   }
 }
 
@@ -52,8 +61,15 @@ export async function createSession(options: {
     if (res.status === 401) {
       const body = await res.json().catch(() => ({}));
       if (body.authRequired) {
-        throw new AuthRequiredError(body.error ?? "Authentication required", body);
+        const rawLink: unknown = body.validationLink;
+        const safeLink =
+          typeof rawLink === "string" && /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
+        throw new AuthRequiredError(body.error ?? "Authentication required", {
+          ...body,
+          validationLink: safeLink,
+        });
       }
+      throw new Error(body.error ?? `Failed to create session: ${res.status}`);
     }
     throw new Error(`Failed to create session: ${res.status}`);
   }

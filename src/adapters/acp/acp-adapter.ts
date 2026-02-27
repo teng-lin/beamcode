@@ -206,9 +206,9 @@ async function waitForResponse<T>(
             const remaining = lines.slice(i + 1);
             const leftover = remaining.length > 0 ? `${remaining.join("\n")}\n${buffer}` : buffer;
             if ("error" in msg && msg.error) {
-              settle(() =>
-                reject(new AcpError(msg.error!.code, msg.error!.message, msg.error!.data)),
-              );
+              const { code, message, data } = msg.error;
+              const safeCode = typeof code === "number" ? code : -32603;
+              settle(() => reject(new AcpError(safeCode, message, data)));
             } else {
               settle(() => resolve({ result: (msg as { result: T }).result, leftover }));
             }

@@ -5,6 +5,12 @@ import { AcpError } from "../adapters/acp/acp-adapter.js";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { SessionCoordinator } from "../core/session-coordinator.js";
 
+interface AcpAuthErrorData {
+  validationLink?: string;
+  validationDescription?: string;
+  learnMoreUrl?: string;
+}
+
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -95,10 +101,9 @@ export function handleApiSessions(
           });
           json(res, 201, result);
         } catch (err) {
-          if (err instanceof AcpError && err.code === 401) {
-            const data = err.data as
-              | { validationLink?: string; validationDescription?: string; learnMoreUrl?: string }
-              | undefined;
+          // 401 = legacy gemini-cli ≤0.30.0; -32000 = ACP-standard authRequired (≥0.31.0)
+          if (err instanceof AcpError && (err.code === 401 || err.code === -32000)) {
+            const data = err.data as AcpAuthErrorData | undefined;
             json(res, 401, {
               error: err.message,
               authRequired: true,

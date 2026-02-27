@@ -34,6 +34,7 @@ export function NewSessionDialog() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationLink, setValidationLink] = useState<string | null>(null);
+  const [validationDescription, setValidationDescription] = useState<string | null>(null);
 
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
@@ -49,6 +50,7 @@ export function NewSessionDialog() {
       setCwd("");
       setError(null);
       setValidationLink(null);
+      setValidationDescription(null);
       newButtonRef.current = document.querySelector<HTMLButtonElement>(
         "[data-new-session-trigger]",
       );
@@ -66,6 +68,7 @@ export function NewSessionDialog() {
     setCreating(true);
     setError(null);
     setValidationLink(null);
+    setValidationDescription(null);
     try {
       const session = await createSession({
         adapter,
@@ -81,6 +84,7 @@ export function NewSessionDialog() {
       if (err instanceof AuthRequiredError) {
         setError(err.message);
         if (err.validationLink) setValidationLink(err.validationLink);
+        if (err.validationDescription) setValidationDescription(err.validationDescription);
       } else {
         setError(err instanceof Error ? err.message : "Failed to create session");
       }
@@ -189,7 +193,7 @@ export function NewSessionDialog() {
                   rel="noopener noreferrer"
                   className="mt-1.5 inline-block font-medium underline"
                 >
-                  Authorize Gemini →
+                  {validationDescription ?? "Authorize →"}
                 </a>
               )}
             </div>
