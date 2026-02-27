@@ -49,11 +49,13 @@ describe("useMessageFlow", () => {
 
     act(() => fireInbound({ type: "assistant" }));
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].direction).toBe("in");
+    // bridge→consumer = left/outbound column
+    expect(result.current.messages[0].direction).toBe("out");
 
     act(() => fireOutbound({ type: "user_message" }));
     expect(result.current.messages).toHaveLength(2);
-    expect(result.current.messages[1].direction).toBe("out");
+    // consumer→bridge = right/inbound column
+    expect(result.current.messages[1].direction).toBe("in");
   });
 
   it("ring buffer caps at MAX_FLOW_MESSAGES", () => {
