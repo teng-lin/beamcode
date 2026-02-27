@@ -2,6 +2,22 @@ import type { SessionInfo } from "./store";
 
 const BASE = "/api";
 
+export class AuthRequiredError extends Error {
+  readonly validationLink?: string;
+  readonly validationDescription?: string;
+  readonly learnMoreUrl?: string;
+  constructor(
+    message: string,
+    data: { validationLink?: string; validationDescription?: string; learnMoreUrl?: string },
+  ) {
+    super(message);
+    this.name = "AuthRequiredError";
+    this.validationLink = data.validationLink;
+    this.validationDescription = data.validationDescription;
+    this.learnMoreUrl = data.learnMoreUrl;
+  }
+}
+
 function getApiKey(): string | null {
   return (
     document.querySelector<HTMLMetaElement>('meta[name="beamcode-api-token"]')?.content ??
@@ -32,7 +48,15 @@ export async function createSession(options: {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(options),
   });
-  if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}));
+      if (body.authRequired) {
+        throw new AuthRequiredError(body.error ?? "Authentication required", body);
+      }
+    }
+    throw new Error(`Failed to create session: ${res.status}`);
+  }
   return res.json();
 }
 

@@ -1,0 +1,25 @@
+--- a/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
++++ b/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
+@@ -102,6 +102,7 @@
+         const authType = loadedSettings.merged.security.auth.selectedType || AuthType.USE_GEMINI;
+         let isAuthenticated = false;
+         let authErrorMessage = '';
++        let authErrorData = undefined;
+         try {
+             await config.refreshAuth(authType);
+             isAuthenticated = true;
+@@ -116,10 +117,13 @@
+         catch (e) {
+             isAuthenticated = false;
+             authErrorMessage = getAcpErrorMessage(e);
++            if (e && typeof e === 'object' && 'validationLink' in e && e.validationLink) {
++                authErrorData = { validationLink: e.validationLink, validationDescription: e.validationDescription, learnMoreUrl: e.learnMoreUrl };
++            }
+             debugLogger.error(`Authentication failed: ${e instanceof Error ? e.stack : e}`);
+         }
+         if (!isAuthenticated) {
+-            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.');
++            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.', authErrorData);
+         }
+         if (this.clientCapabilities?.fs) {
+             const acpFileSystemService = new AcpFileSystemService(this.connection, sessionId, this.clientCapabilities.fs, config.getFileSystemService());

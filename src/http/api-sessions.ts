@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve as resolvePath } from "node:path";
+import { AcpError } from "../adapters/acp/acp-adapter.js";
 import { CLI_ADAPTER_NAMES, type CliAdapterName } from "../adapters/create-adapter.js";
 import type { SessionCoordinator } from "../core/session-coordinator.js";
 
@@ -94,9 +95,22 @@ export function handleApiSessions(
           });
           json(res, 201, result);
         } catch (err) {
-          json(res, 500, {
-            error: `Failed to create session: ${err instanceof Error ? err.message : err}`,
-          });
+          if (err instanceof AcpError && err.code === 401) {
+            const data = err.data as
+              | { validationLink?: string; validationDescription?: string; learnMoreUrl?: string }
+              | undefined;
+            json(res, 401, {
+              error: err.message,
+              authRequired: true,
+              validationLink: data?.validationLink,
+              validationDescription: data?.validationDescription,
+              learnMoreUrl: data?.learnMoreUrl,
+            });
+          } else {
+            json(res, 500, {
+              error: `Failed to create session: ${err instanceof Error ? err.message : err}`,
+            });
+          }
         }
       })
       .catch((err) => {

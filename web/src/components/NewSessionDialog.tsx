@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSession } from "../api";
+import { AuthRequiredError, createSession } from "../api";
 import { useStore } from "../store";
 import { updateSessionUrl } from "../utils/session";
 import { connectToSession } from "../ws";
@@ -33,6 +33,7 @@ export function NewSessionDialog() {
   const [cwd, setCwd] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationLink, setValidationLink] = useState<string | null>(null);
 
   const newButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
@@ -47,6 +48,7 @@ export function NewSessionDialog() {
       setModel("");
       setCwd("");
       setError(null);
+      setValidationLink(null);
       newButtonRef.current = document.querySelector<HTMLButtonElement>(
         "[data-new-session-trigger]",
       );
@@ -63,6 +65,7 @@ export function NewSessionDialog() {
     if (creating) return;
     setCreating(true);
     setError(null);
+    setValidationLink(null);
     try {
       const session = await createSession({
         adapter,
@@ -75,7 +78,12 @@ export function NewSessionDialog() {
       updateSessionUrl(session.sessionId, "push");
       close();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create session");
+      if (err instanceof AuthRequiredError) {
+        setError(err.message);
+        if (err.validationLink) setValidationLink(err.validationLink);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to create session");
+      }
     } finally {
       setCreating(false);
     }
@@ -169,12 +177,22 @@ export function NewSessionDialog() {
           </div>
 
           {error && (
-            <p
+            <div
               role="alert"
               className="mb-4 rounded-md bg-bc-error/10 px-3 py-2 text-xs text-bc-error"
             >
-              {error}
-            </p>
+              <p>{error}</p>
+              {validationLink && (
+                <a
+                  href={validationLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-block font-medium underline"
+                >
+                  Authorize Gemini →
+                </a>
+              )}
+            </div>
           )}
 
           <div className="flex justify-end gap-2">

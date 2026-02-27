@@ -24,6 +24,18 @@ import type { AcpInitializeResult, ErrorClassifier } from "./outbound-translator
 
 const PROTOCOL_VERSION = 1;
 
+/** Error thrown when an ACP JSON-RPC response contains an error object. Preserves code and data. */
+export class AcpError extends Error {
+  constructor(
+    public readonly code: number,
+    message: string,
+    public readonly data?: unknown,
+  ) {
+    super(`ACP error: ${message}`);
+    this.name = "AcpError";
+  }
+}
+
 /** Spawn function signature matching child_process.spawn. */
 export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
@@ -194,8 +206,9 @@ async function waitForResponse<T>(
             const remaining = lines.slice(i + 1);
             const leftover = remaining.length > 0 ? `${remaining.join("\n")}\n${buffer}` : buffer;
             if ("error" in msg && msg.error) {
-              const errorMsg = msg.error.message;
-              settle(() => reject(new Error(`ACP error: ${errorMsg}`)));
+              settle(() =>
+                reject(new AcpError(msg.error!.code, msg.error!.message, msg.error!.data)),
+              );
             } else {
               settle(() => resolve({ result: (msg as { result: T }).result, leftover }));
             }
