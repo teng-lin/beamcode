@@ -90,7 +90,7 @@
 -import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, } from '@google/gemini-cli-core';
 +import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, writeToStderr, clearOauthClientCache, } from '@google/gemini-cli-core';
 
-@@ -31,6 +31,27 @@
+@@ -31,6 +31,34 @@
  export class GeminiAgent {
      config;
      settings;
@@ -101,6 +101,11 @@
 +    // Pending resolver for capturing an OAuth URL from UserFeedback events.
 +    // Set to a Promise resolve function before calling refreshAuth; cleared after.
 +    _pendingAuthUrl = null;
++    // In-flight config.refreshAuth() promise when a validationLink was returned to the
++    // client. Kept so that a retry session/new reuses the same loopback server (same
++    // port) rather than clearing the cache and starting a fresh server on a new port,
++    // which would make the callback URL the client already opened unreachable.
++    _pendingOAuthRefresh = null;
      constructor(config, settings, argv, connection) {
          this.config = config;
          this.settings = settings;
@@ -124,7 +129,7 @@
 +        });
      }
 
-@@ -120,9 +141,29 @@
+@@ -120,9 +155,55 @@
      async newSession({ cwd, mcpServers, }) {
          const sessionId = randomUUID();
          const loadedSettings = loadSettings(cwd);
@@ -134,6 +139,24 @@
          let authErrorMessage = '';
 -        let authErrorData = undefined;
 +        let authErrorData = undefined;
++        // If a previous session/new returned a validationLink and the loopback OAuth
++        // server is still running, await that in-flight promise instead of calling
++        // clearOauthClientCache() (which kills the local HTTP server and makes the
++        // callback URL the client opened unreachable on a different port).
++        if (this._pendingOAuthRefresh) {
++            try {
++                await this._pendingOAuthRefresh;
++                this._pendingOAuthRefresh = null;
++                // Credentials are now cached on disk; authenticate the new config from cache.
++                await config.refreshAuth(authType);
++                isAuthenticated = true;
++            }
++            catch (e) {
++                this._pendingOAuthRefresh = null;
++                debugLogger.error(`Pending OAuth auth failed: ${e instanceof Error ? e.stack : e}`);
++            }
++        }
++        if (!isAuthenticated) {
 +        // The startup auth (in main()) may have cached a failed oauth client promise.
 +        // Clear it so this session gets a fresh auth attempt with our ConsentRequest listener registered.
 +        clearOauthClientCache();
@@ -152,6 +175,7 @@
 +            const winner = await Promise.race([refreshPromise, authUrlPromise]);
 +            if (winner === AUTH_DONE) {
 +                isAuthenticated = true;
++                this._pendingOAuthRefresh = null;
 +                // Extra validation for Gemini API key
 +                const contentGeneratorConfig = config.getContentGeneratorConfig();
 +                if (authType === AuthType.USE_GEMINI &&
@@ -160,14 +184,18 @@
 +                    authErrorMessage = 'Gemini API key is missing or not configured.';
 +                }
 +            } else {
-+                // URL captured from UserFeedback — auth is pending, surface the link
++                // URL captured from UserFeedback — auth is pending, surface the link.
++                // Store refreshPromise so the next session/new retry awaits the same
++                // loopback server (same port) rather than starting a new one.
 +                isAuthenticated = false;
 +                authErrorMessage = 'Authentication required.';
 +                authErrorData = { validationLink: winner, validationDescription: 'Authorize \u2192' };
++                this._pendingOAuthRefresh = refreshPromise;
 +            }
          }
          catch (e) {
              isAuthenticated = false;
++            this._pendingOAuthRefresh = null;
              authErrorMessage = getAcpErrorMessage(e);
 +            if (e && typeof e === 'object' && 'validationLink' in e && e.validationLink) {
 +                authErrorData = { validationLink: e.validationLink, validationDescription: e.validationDescription, learnMoreUrl: e.learnMoreUrl };
@@ -177,6 +205,7 @@
 +        finally {
 +            this._pendingAuthUrl = null;
 +        }
++        } // end if (!isAuthenticated)
          if (!isAuthenticated) {
 -            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.');
 +            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.', authErrorData);
