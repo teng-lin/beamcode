@@ -1,0 +1,205 @@
+diff --git a/packages/cli/src/zed-integration/zedIntegration.test.ts b/packages/cli/src/zed-integration/zedIntegration.test.ts
+index 37da303..1b29263 100644
+--- a/packages/cli/src/zed-integration/zedIntegration.test.ts
++++ b/packages/cli/src/zed-integration/zedIntegration.test.ts
+@@ -22,6 +22,7 @@ import {
+   StreamEventType,
+   isWithinRoot,
+   ReadManyFilesTool,
++  ValidationRequiredError,
+   type GeminiChat,
+   type Config,
+   type MessageBus,
+@@ -361,6 +362,54 @@ describe('GeminiAgent', () => {
+     debugSpy.mockRestore();
+   });
+ 
++  it('should forward validationLink data when ValidationRequiredError is thrown in newSession', async () => {
++    const validationError = new ValidationRequiredError(
++      'Validation required',
++      undefined,
++      'https://example.com/validate',
++      'Please verify your account',
++      'https://example.com/learn-more',
++    );
++    mockConfig.refreshAuth.mockRejectedValue(validationError);
++    vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    const thrown = await agent
++      .newSession({ cwd: '/tmp', mcpServers: [] })
++      .catch((e) => e);
++
++    expect(thrown).toBeInstanceOf(acp.RequestError);
++    expect(thrown.code).toBe(-32000);
++    expect(thrown.data).toEqual({
++      validationLink: 'https://example.com/validate',
++      validationDescription: 'Please verify your account',
++      learnMoreUrl: 'https://example.com/learn-more',
++    });
++  });
++
++  it('should forward validationLink data when ValidationRequiredError is thrown in loadSession', async () => {
++    const validationError = new ValidationRequiredError(
++      'Validation required',
++      undefined,
++      'https://example.com/validate',
++      'Please verify your account',
++      'https://example.com/learn-more',
++    );
++    mockConfig.refreshAuth.mockRejectedValue(validationError);
++    vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    const thrown = await agent
++      .loadSession({ sessionId: 'test-session', cwd: '/tmp', mcpServers: [] })
++      .catch((e) => e);
++
++    expect(thrown).toBeInstanceOf(acp.RequestError);
++    expect(thrown.code).toBe(-32000);
++    expect(thrown.data).toEqual({
++      validationLink: 'https://example.com/validate',
++      validationDescription: 'Please verify your account',
++      learnMoreUrl: 'https://example.com/learn-more',
++    });
++  });
++
+   it('should initialize file system service if client supports it', async () => {
+     agent = new GeminiAgent(mockConfig, mockSettings, mockArgv, mockConnection);
+     await agent.initialize({
+diff --git a/packages/cli/src/zed-integration/zedIntegration.ts b/packages/cli/src/zed-integration/zedIntegration.ts
+index e89a884..d82d78a 100644
+--- a/packages/cli/src/zed-integration/zedIntegration.ts
++++ b/packages/cli/src/zed-integration/zedIntegration.ts
+@@ -39,6 +39,7 @@ import {
+   ApprovalMode,
+   getVersion,
+   convertSessionToClientHistory,
++  ValidationRequiredError,
+ } from '@google/gemini-cli-core';
+ import * as acp from '@agentclientprotocol/sdk';
+ import { AcpFileSystemService } from './fileSystemService.js';
+@@ -197,6 +198,13 @@ export class GeminiAgent {
+ 
+     let isAuthenticated = false;
+     let authErrorMessage = '';
++    let authErrorData:
++      | {
++          validationLink?: string;
++          validationDescription?: string;
++          learnMoreUrl?: string;
++        }
++      | undefined;
+     try {
+       await config.refreshAuth(authType, this.apiKey);
+       isAuthenticated = true;
+@@ -213,6 +221,13 @@ export class GeminiAgent {
+     } catch (e) {
+       isAuthenticated = false;
+       authErrorMessage = getAcpErrorMessage(e);
++      if (e instanceof ValidationRequiredError) {
++        authErrorData = {
++          validationLink: e.validationLink,
++          validationDescription: e.validationDescription,
++          learnMoreUrl: e.learnMoreUrl,
++        };
++      }
+       debugLogger.error(
+         `Authentication failed: ${e instanceof Error ? e.stack : e}`,
+       );
+@@ -222,6 +237,7 @@ export class GeminiAgent {
+       throw new acp.RequestError(
+         -32000,
+         authErrorMessage || 'Authentication required.',
++        authErrorData,
+       );
+     }
+ 
+@@ -326,6 +342,13 @@ export class GeminiAgent {
+       await config.refreshAuth(selectedAuthType, this.apiKey);
+     } catch (e) {
+       debugLogger.error(`Authentication failed: ${e}`);
++      if (e instanceof ValidationRequiredError) {
++        throw acp.RequestError.authRequired({
++          validationLink: e.validationLink,
++          validationDescription: e.validationDescription,
++          learnMoreUrl: e.learnMoreUrl,
++        });
++      }
+       throw acp.RequestError.authRequired();
+     }
+
+diff --git a/packages/core/src/code_assist/oauth2.ts b/packages/core/src/code_assist/oauth2.ts
+--- a/packages/core/src/code_assist/oauth2.ts
++++ b/packages/core/src/code_assist/oauth2.ts
+@@ -authWithWeb +authWithWeb @@
+       coreEvents.emit(CoreEvent.UserFeedback, {
+         severity: 'info',
+         message:
+           `\n\nCode Assist login required.\n` +
+           `Attempting to open authentication page in your browser.\n` +
+           `Otherwise navigate to:\n\n${webLogin.authUrl}\n\n\n`,
+       });
+-      try {
+-        // Attempt to open the authentication URL in the default browser.
+-        // We do not use the `wait` option here because the main script's execution
+-        // is already paused by `loginCompletePromise`, which awaits the server callback.
+-        const childProcess = await open(webLogin.authUrl);
+-        // IMPORTANT: Attach an error handler to the returned child process.
+-        // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
+-        // in a minimal Docker container), it will emit an unhandled 'error' event,
+-        // causing the entire Node.js process to crash.
+-        childProcess.on('error', (error) => {
+-          coreEvents.emit(CoreEvent.UserFeedback, {
+-            severity: 'error',
+-            message:
+-              `Failed to open browser with error: ${getErrorMessage(error)}\n` +
+-              `Please try running again with NO_BROWSER=true set.`,
+-          });
+-        });
+-      } catch (err) {
+-        coreEvents.emit(CoreEvent.UserFeedback, {
+-          severity: 'error',
+-          message:
+-            `Failed to open browser with error: ${getErrorMessage(err)}\n` +
+-            `Please try running again with NO_BROWSER=true set.`,
+-        });
+-        throw new FatalAuthenticationError(
+-          `Failed to open browser: ${getErrorMessage(err)}`,
+-        );
+-      }
++      // Only open the browser when running in an interactive terminal.  When
++      // stdin/stdout are piped (e.g. as a subprocess of an IDE such as Zed),
++      // the parent process surfaces the URL via validationLink and opens the
++      // browser itself.  Opening it here too would cause two tabs to race for
++      // the same OAuth callback; the first one closes the local server, so the
++      // second gets "connection refused".  This mirrors the pattern used by
++      // GitHub CLI (isInteractive = stdout.isTTY && stdin.isTTY).
++      if (process.stdout.isTTY && process.stdin.isTTY) {
++        try {
++          // Attempt to open the authentication URL in the default browser.
++          // We do not use the `wait` option here because the main script's execution
++          // is already paused by `loginCompletePromise`, which awaits the server callback.
++          const childProcess = await open(webLogin.authUrl);
++          // IMPORTANT: Attach an error handler to the returned child process.
++          // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
++          // in a minimal Docker container), it will emit an unhandled 'error' event,
++          // causing the entire Node.js process to crash.
++          childProcess.on('error', (error) => {
++            coreEvents.emit(CoreEvent.UserFeedback, {
++              severity: 'error',
++              message:
++                `Failed to open browser with error: ${getErrorMessage(error)}\n` +
++                `Please try running again with NO_BROWSER=true set.`,
++            });
++          });
++        } catch (err) {
++          coreEvents.emit(CoreEvent.UserFeedback, {
++            severity: 'error',
++            message:
++              `Failed to open browser with error: ${getErrorMessage(err)}\n` +
++              `Please try running again with NO_BROWSER=true set.`,
++          });
++          throw new FatalAuthenticationError(
++            `Failed to open browser: ${getErrorMessage(err)}`,
++          );
++        }
++      }

@@ -14,6 +14,76 @@
 +}
 +export const coreEvents = globalThis.__geminiCoreEvents;
 
+--- a/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js
++++ b/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js
+@@ -204,16 +204,23 @@
+         const webLogin = await authWithWeb(client);
+         coreEvents.emit(CoreEvent.UserFeedback, {
+             severity: 'info',
+             message: `\n\nCode Assist login required.\n` +
+                 `Attempting to open authentication page in your browser.\n` +
+                 `Otherwise navigate to:\n\n${webLogin.authUrl}\n\n\n`,
+         });
+-        try {
+-            // Attempt to open the authentication URL in the default browser.
+-            // We do not use the `wait` option here because the main script's execution
+-            // is already paused by `loginCompletePromise`, which awaits the server callback.
+-            const childProcess = await open(webLogin.authUrl);
+-            // IMPORTANT: Attach an error handler to the returned child process.
+-            // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
+-            // in a minimal Docker container), it will emit an unhandled 'error' event,
+-            // causing the entire Node.js process to crash.
+-            childProcess.on('error', (error) => {
+-                coreEvents.emit(CoreEvent.UserFeedback, {
+-                    severity: 'error',
+-                    message: `Failed to open browser with error: ${getErrorMessage(error)}\n` +
+-                        `Please try running again with NO_BROWSER=true set.`,
+-                });
+-            });
+-        }
+-        catch (err) {
+-            coreEvents.emit(CoreEvent.UserFeedback, {
+-                severity: 'error',
+-                message: `Failed to open browser with error: ${getErrorMessage(err)}\n` +
+-                    `Please try running again with NO_BROWSER=true set.`,
+-            });
+-            throw new FatalAuthenticationError(`Failed to open browser: ${getErrorMessage(err)}`);
+-        }
++        // Only open the browser when running in an interactive terminal.  When
++        // stdin/stdout are piped (e.g. as a subprocess of an IDE such as Zed),
++        // the parent process surfaces the URL and opens the browser itself.
++        // Opening it here too would cause two tabs to race for the same OAuth
++        // callback; the first one closes the local server, so the second gets
++        // "connection refused".  This mirrors the pattern used by GitHub CLI
++        // (isInteractive = stdout.isTTY && stdin.isTTY → skip open() if false).
++        if (process.stdout.isTTY && process.stdin.isTTY) {
++            try {
++                // Attempt to open the authentication URL in the default browser.
++                // We do not use the `wait` option here because the main script's execution
++                // is already paused by `loginCompletePromise`, which awaits the server callback.
++                const childProcess = await open(webLogin.authUrl);
++                // IMPORTANT: Attach an error handler to the returned child process.
++                // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
++                // in a minimal Docker container), it will emit an unhandled 'error' event,
++                // causing the entire Node.js process to crash.
++                childProcess.on('error', (error) => {
++                    coreEvents.emit(CoreEvent.UserFeedback, {
++                        severity: 'error',
++                        message: `Failed to open browser with error: ${getErrorMessage(error)}\n` +
++                            `Please try running again with NO_BROWSER=true set.`,
++                    });
++                });
++            }
++            catch (err) {
++                coreEvents.emit(CoreEvent.UserFeedback, {
++                    severity: 'error',
++                    message: `Failed to open browser with error: ${getErrorMessage(err)}\n` +
++                        `Please try running again with NO_BROWSER=true set.`,
++                });
++                throw new FatalAuthenticationError(`Failed to open browser: ${getErrorMessage(err)}`);
++            }
++        }
+
 --- a/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
 +++ b/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
 @@ -6,7 +6,7 @@
