@@ -612,20 +612,14 @@ function reduceInboundCommand(
           }
         : baseUnified;
 
-      // Emit T1 translation event for message flow panel
-      const t1Event: Effect = {
-        type: "EMIT_TRANSLATION",
-        event: {
-          type: "translation_event",
-          boundary: "T1",
-          translator: "normalizeInbound",
-          from: { format: "InboundMessage", body: inboundMsg },
-          to: { format: "UnifiedMessage", body: unified },
-          traceId: unified.metadata.trace_id as string | undefined,
-          timestamp: Date.now(),
-          sessionId: data.state.session_id,
-        },
-      };
+      const t1Event = translationEffect(
+        "T1",
+        "normalizeInbound",
+        { format: "InboundMessage", body: inboundMsg },
+        { format: "UnifiedMessage", body: unified },
+        unified.metadata.trace_id as string | undefined,
+        data.state.session_id,
+      );
 
       const isConnected = data.lifecycle === "active" || data.lifecycle === "idle";
 
@@ -781,6 +775,33 @@ function reduceBackendMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function translationEffect(
+  boundary: "T1" | "T2" | "T3" | "T4",
+  translator: string,
+  from: { format: string; body: unknown },
+  to: { format: string; body: unknown },
+  traceId: string | undefined,
+  sessionId: string,
+): Effect {
+  return {
+    type: "EMIT_TRANSLATION",
+    event: {
+      type: "translation_event",
+      boundary,
+      translator,
+      from,
+      to,
+      traceId,
+      timestamp: Date.now(),
+      sessionId,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Effect builder — pure, depends only on prev/next data and the message
 // ---------------------------------------------------------------------------
 
@@ -842,20 +863,16 @@ function buildEffects(
       if (nextData.messageHistory !== prevData.messageHistory) {
         const mapped = mapAssistantMessage(message);
         if (mapped.type === "assistant") {
-          // Emit T4 translation event
-          effects.push({
-            type: "EMIT_TRANSLATION",
-            event: {
-              type: "translation_event",
-              boundary: "T4",
-              translator: "mapAssistantMessage",
-              from: { format: "UnifiedMessage", body: message },
-              to: { format: "ConsumerMessage", body: mapped },
-              traceId: message.metadata?.trace_id as string | undefined,
-              timestamp: Date.now(),
-              sessionId: prevData.state.session_id,
-            },
-          });
+          effects.push(
+            translationEffect(
+              "T4",
+              "mapAssistantMessage",
+              { format: "UnifiedMessage", body: message },
+              { format: "ConsumerMessage", body: mapped },
+              message.metadata?.trace_id as string | undefined,
+              prevData.state.session_id,
+            ),
+          );
           effects.push({ type: "BROADCAST", message: mapped });
         }
       }
@@ -864,20 +881,16 @@ function buildEffects(
 
     case "result": {
       const resultMsg = mapResultMessage(message);
-      // Emit T4 translation event
-      effects.push({
-        type: "EMIT_TRANSLATION",
-        event: {
-          type: "translation_event",
-          boundary: "T4",
-          translator: "mapResultMessage",
-          from: { format: "UnifiedMessage", body: message },
-          to: { format: "ConsumerMessage", body: resultMsg },
-          traceId: message.metadata?.trace_id as string | undefined,
-          timestamp: Date.now(),
-          sessionId: prevData.state.session_id,
-        },
-      });
+      effects.push(
+        translationEffect(
+          "T4",
+          "mapResultMessage",
+          { format: "UnifiedMessage", body: message },
+          { format: "ConsumerMessage", body: resultMsg },
+          message.metadata?.trace_id as string | undefined,
+          prevData.state.session_id,
+        ),
+      );
       effects.push({ type: "BROADCAST", message: resultMsg });
       effects.push({ type: "AUTO_SEND_QUEUED" });
       // Emit first-turn completion event when num_turns reaches 1

@@ -101,11 +101,15 @@ export function MessageFlowPanel() {
     >
       {/* Resize handle on left edge */}
       {/* biome-ignore lint/a11y/useSemanticElements: resize handle requires div */}
-      {/* biome-ignore lint/a11y/useFocusableInteractive: mouse-only resize handle */}
       <div
-        className="absolute left-0 top-0 z-10 h-full w-1 cursor-col-resize bg-bc-border/30 transition-colors hover:bg-bc-accent/60 active:bg-bc-accent"
+        className="absolute left-0 top-0 z-10 h-full w-1 cursor-col-resize bg-bc-border/30 transition-colors hover:bg-bc-accent/60 active:bg-bc-accent focus:outline-none focus:bg-bc-accent/80"
         onMouseDown={handleResizeMouseDown}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") setPanelWidth((w) => Math.min(1200, w + 8));
+          if (e.key === "ArrowRight") setPanelWidth((w) => Math.max(360, w - 8));
+        }}
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
         aria-valuenow={panelWidth}
         aria-valuemin={360}

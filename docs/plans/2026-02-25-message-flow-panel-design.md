@@ -95,7 +95,7 @@ in the expanded JSON view and in the pairing logic (which walks `content[]`).
 
 Related messages are highlighted on hover with a glowing connector line and latency badge.
 
-| Outbound | Paired Inbound | Match Key | Notes |
+| Outbound | Paired Message | Match Key | Notes |
 |----------|---------------|-----------|-------|
 | `permission_request` | `permission_response` | `request.id` / `request_id` | 1:1 by ID |
 | `assistant` (with `tool_use` block) | `tool_use_summary` or next `assistant` response | `content[].id` | Walk `content[]` for tool_use blocks |

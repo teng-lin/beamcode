@@ -101,23 +101,13 @@ export class ClaudeSession implements BackendSession {
     );
     this.sendToSocket(ndjson);
 
-    // Emit T2 translation event for message flow panel
-    this.queue.enqueue({
-      id: randomUUID(),
-      timestamp: Date.now(),
-      type: "translation_event",
-      role: "system",
-      content: [],
-      metadata: {
-        boundary: "T2",
-        translator: "toNDJSON",
-        from: { format: "UnifiedMessage", body: message },
-        to: { format: "Claude NDJSON", body: ndjson },
-        trace_id: trace.traceId,
-        session_id: this.sessionId,
-        timestamp: Date.now(),
-      },
-    });
+    this.enqueueTranslationEvent(
+      "T2",
+      "toNDJSON",
+      { format: "UnifiedMessage", body: message },
+      { format: "Claude NDJSON", body: ndjson },
+      trace.traceId,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -287,24 +277,14 @@ export class ClaudeSession implements BackendSession {
       );
       this.queue.enqueue(unified);
 
-      // Emit T3 translation event for message flow panel
       const trace = extractTraceContext(unified.metadata);
-      this.queue.enqueue({
-        id: randomUUID(),
-        timestamp: Date.now(),
-        type: "translation_event",
-        role: "system",
-        content: [],
-        metadata: {
-          boundary: "T3",
-          translator: "translate",
-          from: { format: "Claude NDJSON", body: cliMsg },
-          to: { format: "UnifiedMessage", body: unified },
-          trace_id: trace.traceId,
-          session_id: this.sessionId,
-          timestamp: Date.now(),
-        },
-      });
+      this.enqueueTranslationEvent(
+        "T3",
+        "translate",
+        { format: "Claude NDJSON", body: cliMsg },
+        { format: "UnifiedMessage", body: unified },
+        trace.traceId,
+      );
     } else {
       const consumedType = cliMsg.type === "user" || cliMsg.type === "keep_alive";
       this.tracer?.error(
@@ -321,6 +301,31 @@ export class ClaudeSession implements BackendSession {
         },
       );
     }
+  }
+
+  private enqueueTranslationEvent(
+    boundary: "T1" | "T2" | "T3" | "T4",
+    translator: string,
+    from: { format: string; body: unknown },
+    to: { format: string; body: unknown },
+    traceId: string | undefined,
+  ): void {
+    this.queue.enqueue({
+      id: randomUUID(),
+      timestamp: Date.now(),
+      type: "translation_event",
+      role: "system",
+      content: [],
+      metadata: {
+        boundary,
+        translator,
+        from,
+        to,
+        trace_id: traceId,
+        session_id: this.sessionId,
+        timestamp: Date.now(),
+      },
+    });
   }
 
   private traceUnparsedLine(line: string, error: string): void {

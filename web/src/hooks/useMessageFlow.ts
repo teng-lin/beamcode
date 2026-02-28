@@ -134,7 +134,9 @@ export function useMessageFlow(sessionId: string | null): UseMessageFlowResult {
           timestamp: number;
           sessionId: string;
         };
-        const direction = evt.boundary === "T1" || evt.boundary === "T2" ? "out" : "in";
+        // T1/T2 = consumer→backend path (right/inbound column)
+        // T3/T4 = backend→consumer path (left/outbound column)
+        const direction = evt.boundary === "T1" || evt.boundary === "T2" ? "in" : "out";
         const flowMsg = buildFlowMessage(direction, evt.boundary, evt.to.body);
         flowMsg.boundary = evt.boundary;
         flowMsg.translator = evt.translator;
