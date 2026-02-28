@@ -1,14 +1,101 @@
+--- a/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/utils/events.js
++++ b/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/utils/events.js
+@@ -157,4 +157,9 @@
+     emitTelemetryTokenStorageType(event) {
+         this._emitOrQueue(CoreEvent.TelemetryTokenStorageType, event);
+     }
+ }
+-export const coreEvents = new CoreEventEmitter();
++// Use globalThis to survive multiple dynamic imports of this module in the
++// same Node.js process (e.g. from zedIntegration.js and a lazy import() in
++// the auth/MCP path).  All copies of the module share one emitter.
++if (!globalThis.__geminiCoreEvents) {
++    globalThis.__geminiCoreEvents = new CoreEventEmitter();
++}
++export const coreEvents = globalThis.__geminiCoreEvents;
+
 --- a/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
 +++ b/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
-@@ -102,6 +102,7 @@
+@@ -6,7 +6,7 @@
+-import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, } from '@google/gemini-cli-core';
++import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, writeToStderr, clearOauthClientCache, } from '@google/gemini-cli-core';
+
+@@ -31,6 +31,27 @@
+ export class GeminiAgent {
+     config;
+     settings;
+     argv;
+     connection;
+     sessions = new Map();
+     clientCapabilities;
++    // Pending resolver for capturing an OAuth URL from UserFeedback events.
++    // Set to a Promise resolve function before calling refreshAuth; cleared after.
++    _pendingAuthUrl = null;
+     constructor(config, settings, argv, connection) {
+         this.config = config;
+         this.settings = settings;
+         this.argv = argv;
+         this.connection = connection;
++        // Register as a persistent headless UI listener so getConsentForOauth()
++        // sees listenerCount > 0 and takes the interactive path (which generates
++        // an OAuth URL) rather than throwing FatalAuthenticationError immediately.
++        coreEvents.on(CoreEvent.ConsentRequest, ({ onConfirm } = {}) => {
++            onConfirm?.(true);
++        });
++        coreEvents.on(CoreEvent.UserFeedback, ({ message = '' } = {}) => {
++            if (this._pendingAuthUrl) {
++                const m = String(message).match(/https?:\/\/[^\s\n]+/);
++                if (m) {
++                    const resolve = this._pendingAuthUrl;
++                    this._pendingAuthUrl = null;
++                    resolve(m[0]);
++                }
++            }
++        });
+     }
+
+@@ -120,9 +141,29 @@
+     async newSession({ cwd, mcpServers, }) {
+         const sessionId = randomUUID();
+         const loadedSettings = loadSettings(cwd);
+         const config = await this.newSessionConfig(sessionId, cwd, mcpServers, loadedSettings);
          const authType = loadedSettings.merged.security.auth.selectedType || AuthType.USE_GEMINI;
          let isAuthenticated = false;
          let authErrorMessage = '';
+-        let authErrorData = undefined;
 +        let authErrorData = undefined;
++        // The startup auth (in main()) may have cached a failed oauth client promise.
++        // Clear it so this session gets a fresh auth attempt with our ConsentRequest listener registered.
++        clearOauthClientCache();
++        // Arm the pending URL capture slot. The persistent UserFeedback listener
++        // registered in the constructor will resolve this when authWithWeb emits
++        // the OAuth URL, allowing the race to win before loginCompletePromise times out.
++        const AUTH_DONE = Symbol('auth_done');
++        const authUrlPromise = new Promise(resolve => { this._pendingAuthUrl = resolve; });
++        const refreshPromise = config.refreshAuth(authType).then(() => AUTH_DONE);
++        // Attach a no-op catch so that if authUrlPromise wins the race the eventual
++        // timeout rejection from refreshPromise does not become an unhandled rejection.
++        refreshPromise.catch(() => {});
          try {
-             await config.refreshAuth(authType);
-             isAuthenticated = true;
-@@ -116,10 +117,13 @@
+-            await config.refreshAuth(authType);
+-            isAuthenticated = true;
++            const winner = await Promise.race([refreshPromise, authUrlPromise]);
++            if (winner === AUTH_DONE) {
++                isAuthenticated = true;
++                // Extra validation for Gemini API key
++                const contentGeneratorConfig = config.getContentGeneratorConfig();
++                if (authType === AuthType.USE_GEMINI &&
++                    (!contentGeneratorConfig || !contentGeneratorConfig.apiKey)) {
++                    isAuthenticated = false;
++                    authErrorMessage = 'Gemini API key is missing or not configured.';
++                }
++            } else {
++                // URL captured from UserFeedback — auth is pending, surface the link
++                isAuthenticated = false;
++                authErrorMessage = 'Authentication required.';
++                authErrorData = { validationLink: winner, validationDescription: 'Authorize \u2192' };
++            }
+         }
          catch (e) {
              isAuthenticated = false;
              authErrorMessage = getAcpErrorMessage(e);
@@ -17,9 +104,35 @@
 +            }
              debugLogger.error(`Authentication failed: ${e instanceof Error ? e.stack : e}`);
          }
++        finally {
++            this._pendingAuthUrl = null;
++        }
          if (!isAuthenticated) {
 -            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.');
 +            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.', authErrorData);
          }
-         if (this.clientCapabilities?.fs) {
-             const acpFileSystemService = new AcpFileSystemService(this.connection, sessionId, this.clientCapabilities.fs, config.getFileSystemService());
+
+@@ -209,10 +250,25 @@
+         // 2. Authenticate BEFORE initializing configuration or starting MCP servers.
+         try {
+-            await config.refreshAuth(selectedAuthType);
++            const LOAD_AUTH_DONE = Symbol('load_auth_done');
++            const loadUrlPromise = new Promise(resolve => { this._pendingAuthUrl = resolve; });
++            const loadRefreshPromise = config.refreshAuth(selectedAuthType).then(() => LOAD_AUTH_DONE);
++            loadRefreshPromise.catch(() => {});
++            const winner = await Promise.race([loadRefreshPromise, loadUrlPromise]);
++            if (winner !== LOAD_AUTH_DONE) {
++                throw acp.RequestError.authRequired({ validationLink: winner, validationDescription: 'Authorize \u2192' });
++            }
+         }
+         catch (e) {
+             debugLogger.error(`Authentication failed: ${e}`);
++            if (e instanceof acp.RequestError) throw e;
++            if (e && typeof e === 'object' && 'validationLink' in e && e.validationLink) {
++                throw acp.RequestError.authRequired({ validationLink: e.validationLink, validationDescription: e.validationDescription, learnMoreUrl: e.learnMoreUrl });
++            }
+             throw acp.RequestError.authRequired();
+         }
++        finally {
++            this._pendingAuthUrl = null;
++        }
