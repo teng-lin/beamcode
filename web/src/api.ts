@@ -2,6 +2,31 @@ import type { SessionInfo } from "./store";
 
 const BASE = "/api";
 
+export class AuthRequiredError extends Error {
+  readonly validationLink?: string;
+  readonly validationDescription?: string;
+  readonly learnMoreUrl?: string;
+
+  constructor(
+    message: string,
+    {
+      validationLink,
+      validationDescription,
+      learnMoreUrl,
+    }: {
+      validationLink?: string;
+      validationDescription?: string;
+      learnMoreUrl?: string;
+    },
+  ) {
+    super(message);
+    this.name = "AuthRequiredError";
+    this.validationLink = validationLink;
+    this.validationDescription = validationDescription;
+    this.learnMoreUrl = learnMoreUrl;
+  }
+}
+
 function getApiKey(): string | null {
   return (
     document.querySelector<HTMLMetaElement>('meta[name="beamcode-api-token"]')?.content ??
@@ -32,7 +57,22 @@ export async function createSession(options: {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(options),
   });
-  if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}));
+      if (body.authRequired) {
+        const rawLink: unknown = body.validationLink;
+        const safeLink =
+          typeof rawLink === "string" && /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
+        throw new AuthRequiredError(body.error ?? "Authentication required", {
+          ...body,
+          validationLink: safeLink,
+        });
+      }
+      throw new Error(body.error ?? `Failed to create session: ${res.status}`);
+    }
+    throw new Error(`Failed to create session: ${res.status}`);
+  }
   return res.json();
 }
 

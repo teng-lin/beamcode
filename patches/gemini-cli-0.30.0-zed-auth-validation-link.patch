@@ -1,0 +1,237 @@
+--- a/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/utils/events.js
++++ b/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/utils/events.js
+@@ -157,4 +157,9 @@
+     emitTelemetryTokenStorageType(event) {
+         this._emitOrQueue(CoreEvent.TelemetryTokenStorageType, event);
+     }
+ }
+-export const coreEvents = new CoreEventEmitter();
++// Use globalThis to survive multiple dynamic imports of this module in the
++// same Node.js process (e.g. from zedIntegration.js and a lazy import() in
++// the auth/MCP path).  All copies of the module share one emitter.
++if (!globalThis.__geminiCoreEvents) {
++    globalThis.__geminiCoreEvents = new CoreEventEmitter();
++}
++export const coreEvents = globalThis.__geminiCoreEvents;
+
+--- a/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js
++++ b/gemini-cli-0.30.0/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js
+@@ -204,16 +204,23 @@
+         const webLogin = await authWithWeb(client);
+         coreEvents.emit(CoreEvent.UserFeedback, {
+             severity: 'info',
+             message: `\n\nCode Assist login required.\n` +
+                 `Attempting to open authentication page in your browser.\n` +
+                 `Otherwise navigate to:\n\n${webLogin.authUrl}\n\n\n`,
+         });
+-        try {
+-            // Attempt to open the authentication URL in the default browser.
+-            // We do not use the `wait` option here because the main script's execution
+-            // is already paused by `loginCompletePromise`, which awaits the server callback.
+-            const childProcess = await open(webLogin.authUrl);
+-            // IMPORTANT: Attach an error handler to the returned child process.
+-            // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
+-            // in a minimal Docker container), it will emit an unhandled 'error' event,
+-            // causing the entire Node.js process to crash.
+-            childProcess.on('error', (error) => {
+-                coreEvents.emit(CoreEvent.UserFeedback, {
+-                    severity: 'error',
+-                    message: `Failed to open browser with error: ${getErrorMessage(error)}\n` +
+-                        `Please try running again with NO_BROWSER=true set.`,
+-                });
+-            });
+-        }
+-        catch (err) {
+-            coreEvents.emit(CoreEvent.UserFeedback, {
+-                severity: 'error',
+-                message: `Failed to open browser with error: ${getErrorMessage(err)}\n` +
+-                    `Please try running again with NO_BROWSER=true set.`,
+-            });
+-            throw new FatalAuthenticationError(`Failed to open browser: ${getErrorMessage(err)}`);
+-        }
++        // Only open the browser when running in an interactive terminal.  When
++        // stdin/stdout are piped (e.g. as a subprocess of an IDE such as Zed),
++        // the parent process surfaces the URL and opens the browser itself.
++        // Opening it here too would cause two tabs to race for the same OAuth
++        // callback; the first one closes the local server, so the second gets
++        // "connection refused".  This mirrors the pattern used by GitHub CLI
++        // (isInteractive = stdout.isTTY && stdin.isTTY → skip open() if false).
++        if (process.stdout.isTTY && process.stdin.isTTY) {
++            try {
++                // Attempt to open the authentication URL in the default browser.
++                // We do not use the `wait` option here because the main script's execution
++                // is already paused by `loginCompletePromise`, which awaits the server callback.
++                const childProcess = await open(webLogin.authUrl);
++                // IMPORTANT: Attach an error handler to the returned child process.
++                // Without this, if `open` fails to spawn a process (e.g., `xdg-open` is not found
++                // in a minimal Docker container), it will emit an unhandled 'error' event,
++                // causing the entire Node.js process to crash.
++                childProcess.on('error', (error) => {
++                    coreEvents.emit(CoreEvent.UserFeedback, {
++                        severity: 'error',
++                        message: `Failed to open browser with error: ${getErrorMessage(error)}\n` +
++                            `Please try running again with NO_BROWSER=true set.`,
++                    });
++                });
++            }
++            catch (err) {
++                coreEvents.emit(CoreEvent.UserFeedback, {
++                    severity: 'error',
++                    message: `Failed to open browser with error: ${getErrorMessage(err)}\n` +
++                        `Please try running again with NO_BROWSER=true set.`,
++                });
++                throw new FatalAuthenticationError(`Failed to open browser: ${getErrorMessage(err)}`);
++            }
++        }
+
+--- a/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
++++ b/gemini-cli-0.30.0/dist/src/zed-integration/zedIntegration.js
+@@ -6,7 +6,7 @@
+-import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, } from '@google/gemini-cli-core';
++import { CoreToolCallStatus, AuthType, logToolCall, convertToFunctionResponse, ToolConfirmationOutcome, clearCachedCredentialFile, isNodeError, getErrorMessage, isWithinRoot, getErrorStatus, MCPServerConfig, DiscoveredMCPTool, StreamEventType, ToolCallEvent, debugLogger, ReadManyFilesTool, REFERENCE_CONTENT_START, resolveModel, createWorkingStdio, startupProfiler, Kind, partListUnionToString, LlmRole, coreEvents, CoreEvent, writeToStderr, clearOauthClientCache, } from '@google/gemini-cli-core';
+
+@@ -31,6 +31,34 @@
+ export class GeminiAgent {
+     config;
+     settings;
+     argv;
+     connection;
+     sessions = new Map();
+     clientCapabilities;
++    // Pending resolver for capturing an OAuth URL from UserFeedback events.
++    // Set to a Promise resolve function before calling refreshAuth; cleared after.
++    _pendingAuthUrl = null;
++    // In-flight config.refreshAuth() promise when a validationLink was returned to the
++    // client. Kept so that a retry session/new reuses the same loopback server (same
++    // port) rather than clearing the cache and starting a fresh server on a new port,
++    // which would make the callback URL the client already opened unreachable.
++    _pendingOAuthRefresh = null;
+     constructor(config, settings, argv, connection) {
+         this.config = config;
+         this.settings = settings;
+         this.argv = argv;
+         this.connection = connection;
++        // Register as a persistent headless UI listener so getConsentForOauth()
++        // sees listenerCount > 0 and takes the interactive path (which generates
++        // an OAuth URL) rather than throwing FatalAuthenticationError immediately.
++        coreEvents.on(CoreEvent.ConsentRequest, ({ onConfirm } = {}) => {
++            onConfirm?.(true);
++        });
++        coreEvents.on(CoreEvent.UserFeedback, ({ message = '' } = {}) => {
++            if (this._pendingAuthUrl) {
++                const m = String(message).match(/https?:\/\/[^\s\n]+/);
++                if (m) {
++                    const resolve = this._pendingAuthUrl;
++                    this._pendingAuthUrl = null;
++                    resolve(m[0]);
++                }
++            }
++        });
+     }
+
+@@ -120,9 +155,55 @@
+     async newSession({ cwd, mcpServers, }) {
+         const sessionId = randomUUID();
+         const loadedSettings = loadSettings(cwd);
+         const config = await this.newSessionConfig(sessionId, cwd, mcpServers, loadedSettings);
+         const authType = loadedSettings.merged.security.auth.selectedType || AuthType.USE_GEMINI;
+         let isAuthenticated = false;
+         let authErrorMessage = '';
+-        let authErrorData = undefined;
++        let authErrorData = undefined;
++        // If a previous session/new returned a validationLink and the loopback OAuth
++        // server is still running, await that in-flight promise instead of calling
++        // clearOauthClientCache() (which kills the local HTTP server and makes the
++        // callback URL the client opened unreachable on a different port).
++        if (this._pendingOAuthRefresh) {
++            try {
++                await this._pendingOAuthRefresh;
++                this._pendingOAuthRefresh = null;
++                // Credentials are now cached on disk; authenticate the new config from cache.
++                await config.refreshAuth(authType);
++                isAuthenticated = true;
++            }
++            catch (e) {
++                this._pendingOAuthRefresh = null;
++                debugLogger.error(`Pending OAuth auth failed: ${e instanceof Error ? e.stack : e}`);
++            }
++        }
++        if (!isAuthenticated) {
++        // The startup auth (in main()) may have cached a failed oauth client promise.
++        // Clear it so this session gets a fresh auth attempt with our ConsentRequest listener registered.
++        clearOauthClientCache();
++        // Arm the pending URL capture slot. The persistent UserFeedback listener
++        // registered in the constructor will resolve this when authWithWeb emits
++        // the OAuth URL, allowing the race to win before loginCompletePromise times out.
++        const AUTH_DONE = Symbol('auth_done');
++        const authUrlPromise = new Promise(resolve => { this._pendingAuthUrl = resolve; });
++        const refreshPromise = config.refreshAuth(authType).then(() => AUTH_DONE);
++        // Attach a no-op catch so that if authUrlPromise wins the race the eventual
++        // timeout rejection from refreshPromise does not become an unhandled rejection.
++        refreshPromise.catch(() => {});
+         try {
+-            await config.refreshAuth(authType);
+-            isAuthenticated = true;
++            const winner = await Promise.race([refreshPromise, authUrlPromise]);
++            if (winner === AUTH_DONE) {
++                isAuthenticated = true;
++                this._pendingOAuthRefresh = null;
++                // Extra validation for Gemini API key
++                const contentGeneratorConfig = config.getContentGeneratorConfig();
++                if (authType === AuthType.USE_GEMINI &&
++                    (!contentGeneratorConfig || !contentGeneratorConfig.apiKey)) {
++                    isAuthenticated = false;
++                    authErrorMessage = 'Gemini API key is missing or not configured.';
++                }
++            } else {
++                // URL captured from UserFeedback — auth is pending, surface the link.
++                // Store refreshPromise so the next session/new retry awaits the same
++                // loopback server (same port) rather than starting a new one.
++                isAuthenticated = false;
++                authErrorMessage = 'Authentication required.';
++                authErrorData = { validationLink: winner, validationDescription: 'Authorize \u2192' };
++                this._pendingOAuthRefresh = refreshPromise;
++            }
+         }
+         catch (e) {
+             isAuthenticated = false;
++            this._pendingOAuthRefresh = null;
+             authErrorMessage = getAcpErrorMessage(e);
++            if (e && typeof e === 'object' && 'validationLink' in e && e.validationLink) {
++                authErrorData = { validationLink: e.validationLink, validationDescription: e.validationDescription, learnMoreUrl: e.learnMoreUrl };
++            }
+             debugLogger.error(`Authentication failed: ${e instanceof Error ? e.stack : e}`);
+         }
++        finally {
++            this._pendingAuthUrl = null;
++        }
++        } // end if (!isAuthenticated)
+         if (!isAuthenticated) {
+-            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.');
++            throw new acp.RequestError(401, authErrorMessage || 'Authentication required.', authErrorData);
+         }
+
+@@ -209,10 +250,25 @@
+         // 2. Authenticate BEFORE initializing configuration or starting MCP servers.
+         try {
+-            await config.refreshAuth(selectedAuthType);
++            const LOAD_AUTH_DONE = Symbol('load_auth_done');
++            const loadUrlPromise = new Promise(resolve => { this._pendingAuthUrl = resolve; });
++            const loadRefreshPromise = config.refreshAuth(selectedAuthType).then(() => LOAD_AUTH_DONE);
++            loadRefreshPromise.catch(() => {});
++            const winner = await Promise.race([loadRefreshPromise, loadUrlPromise]);
++            if (winner !== LOAD_AUTH_DONE) {
++                throw acp.RequestError.authRequired({ validationLink: winner, validationDescription: 'Authorize \u2192' });
++            }
+         }
+         catch (e) {
+             debugLogger.error(`Authentication failed: ${e}`);
++            if (e instanceof acp.RequestError) throw e;
++            if (e && typeof e === 'object' && 'validationLink' in e && e.validationLink) {
++                throw acp.RequestError.authRequired({ validationLink: e.validationLink, validationDescription: e.validationDescription, learnMoreUrl: e.learnMoreUrl });
++            }
+             throw acp.RequestError.authRequired();
+         }
++        finally {
++            this._pendingAuthUrl = null;
++        }

@@ -8,6 +8,7 @@ vi.mock("node:fs", () => ({
 }));
 
 import { existsSync, statSync } from "node:fs";
+import { AcpError } from "../adapters/acp/acp-adapter.js";
 import type { SessionCoordinator } from "../core/session-coordinator.js";
 import { handleApiSessions } from "./api-sessions.js";
 
@@ -266,6 +267,72 @@ describe("handleApiSessions", () => {
       expect(res._status).toBe(500);
     });
     expect(parseBody(res)).toEqual({ error: "Failed to create session: internal failure" });
+  });
+
+  it("POST /api/sessions returns 401 with authRequired when createSession throws AcpError 401 with validationLink", async () => {
+    const coordinator = mockSessionCoordinator({
+      createSession: async () => {
+        throw new AcpError(401, "Authentication required.", {
+          validationLink: "https://example.com/auth",
+          validationDescription: "Sign in to continue",
+          learnMoreUrl: "https://example.com/docs",
+        });
+      },
+    });
+    const req = mockReq("POST");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
+    emitBody(req, JSON.stringify({}));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(401);
+    });
+    expect(parseBody(res)).toEqual({
+      error: "ACP error: Authentication required.",
+      authRequired: true,
+      validationLink: "https://example.com/auth",
+      validationDescription: "Sign in to continue",
+      learnMoreUrl: "https://example.com/docs",
+    });
+  });
+
+  it("POST /api/sessions returns 401 with authRequired when validationLink is absent", async () => {
+    const coordinator = mockSessionCoordinator({
+      createSession: async () => {
+        throw new AcpError(401, "Authentication required.", undefined);
+      },
+    });
+    const req = mockReq("POST");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
+    emitBody(req, JSON.stringify({}));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(401);
+    });
+    const body = parseBody(res) as Record<string, unknown>;
+    expect(body.authRequired).toBe(true);
+    expect(body.validationLink).toBeUndefined();
+  });
+
+  it("POST /api/sessions returns 500 for non-401 AcpError", async () => {
+    const coordinator = mockSessionCoordinator({
+      createSession: async () => {
+        throw new AcpError(403, "Forbidden");
+      },
+    });
+    const req = mockReq("POST");
+    const res = mockRes();
+
+    handleApiSessions(req, res, makeUrl("/api/sessions"), coordinator);
+    emitBody(req, JSON.stringify({}));
+
+    await vi.waitFor(() => {
+      expect(res._status).toBe(500);
+    });
+    expect(parseBody(res)).toEqual({ error: "Failed to create session: ACP error: Forbidden" });
   });
 
   it("POST /api/sessions with body too large returns 413", async () => {

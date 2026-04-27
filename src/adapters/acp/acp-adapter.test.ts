@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUnifiedMessage } from "../../core/types/unified-message.js";
 import type { SpawnFn } from "./acp-adapter.js";
-import { AcpAdapter } from "./acp-adapter.js";
+import { AcpAdapter, AcpError } from "./acp-adapter.js";
 import {
   autoRespond,
   createMockChild,
@@ -125,11 +125,73 @@ describe("AcpAdapter", () => {
       const errResponse = JSON.stringify({
         jsonrpc: "2.0",
         id: initReq.id,
-        error: { message: "agent initialization failed" },
+        error: { code: -32000, message: "agent initialization failed" },
       });
       mockChild.stdout.emit("data", Buffer.from(`${errResponse}\n`));
 
       await expect(connectPromise).rejects.toThrow("ACP error: agent initialization failed");
+    });
+
+    it("rejects with AcpError preserving code and data on JSON-RPC error", async () => {
+      setup();
+      const adapter = new AcpAdapter(mockSpawn);
+      const connectPromise = adapter.connect({
+        sessionId: "sess-1",
+        adapterOptions: { command: "my-agent" },
+      });
+
+      await tick();
+
+      const initReq = JSON.parse(mockChild.stdin.chunks[0]);
+      const errResponse = JSON.stringify({
+        jsonrpc: "2.0",
+        id: initReq.id,
+        error: {
+          code: 401,
+          message: "Authentication required.",
+          data: { validationLink: "https://example.com/auth", validationDescription: "Sign in" },
+        },
+      });
+      mockChild.stdout.emit("data", Buffer.from(`${errResponse}\n`));
+
+      const err = await connectPromise.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AcpError);
+      const acpErr = err as AcpError;
+      expect(acpErr.code).toBe(401);
+      expect(acpErr.message).toBe("ACP error: Authentication required.");
+      expect(acpErr.data).toEqual({
+        validationLink: "https://example.com/auth",
+        validationDescription: "Sign in",
+      });
+    });
+
+    it("rejects with code -32603 when JSON-RPC error omits code field", async () => {
+      setup();
+      const adapter = new AcpAdapter(mockSpawn);
+      const connectPromise = adapter.connect({
+        sessionId: "sess-1",
+        adapterOptions: { command: "my-agent" },
+      });
+
+      await tick();
+
+      const initReq = JSON.parse(mockChild.stdin.chunks[0]);
+      const errResponse = JSON.stringify({
+        jsonrpc: "2.0",
+        id: initReq.id,
+        error: { message: "no code field" },
+      });
+      mockChild.stdout.emit("data", Buffer.from(`${errResponse}\n`));
+
+      const err = await connectPromise.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AcpError);
+      expect((err as AcpError).code).toBe(-32603);
     });
 
     it("rejects when stdout emits an error during handshake", async () => {
