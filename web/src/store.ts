@@ -36,6 +36,7 @@ export interface SessionIdentity {
 export interface SessionData {
   messages: ConsumerMessage[];
   streaming: string | null;
+  streamingThinking: string | null;
   streamingStartedAt: number | null;
   streamingOutputTokens: number;
   streamingBlocks: ConsumerContentBlock[];
@@ -55,6 +56,7 @@ export interface SessionData {
     string,
     {
       text: string | null;
+      thinking: string | null;
       startedAt: number | null;
       outputTokens: number;
     }
@@ -106,6 +108,7 @@ export interface AppState {
   toasts: Toast[];
   processLogs: Record<string, string[]>;
   logDrawerOpen: boolean;
+  messageFlowOpen: boolean;
 
   // Actions
   setCurrentSession: (id: string) => void;
@@ -124,6 +127,7 @@ export interface AppState {
   removeToast: (id: string) => void;
   appendProcessLog: (sessionId: string, line: string) => void;
   setLogDrawerOpen: (open: boolean) => void;
+  setMessageFlowOpen: (open: boolean) => void;
 
   // Session data actions
   ensureSessionData: (id: string) => void;
@@ -131,6 +135,7 @@ export interface AppState {
   setMessages: (sessionId: string, messages: ConsumerMessage[]) => void;
   setStreaming: (sessionId: string, text: string | null) => void;
   appendStreaming: (sessionId: string, delta: string) => void;
+  appendStreamingThinking: (sessionId: string, delta: string) => void;
   setStreamingStarted: (sessionId: string, ts: number | null) => void;
   setStreamingOutputTokens: (sessionId: string, count: number) => void;
   setStreamingBlocks: (sessionId: string, blocks: ConsumerContentBlock[]) => void;
@@ -167,6 +172,7 @@ export interface AppState {
   ) => void;
   initAgentStreaming: (sessionId: string, agentId: string) => void;
   appendAgentStreaming: (sessionId: string, agentId: string, delta: string) => void;
+  appendAgentStreamingThinking: (sessionId: string, agentId: string, delta: string) => void;
   setAgentStreamingOutputTokens: (sessionId: string, agentId: string, count: number) => void;
   clearAgentStreaming: (sessionId: string, agentId: string) => void;
   setQueuedMessage: (sessionId: string, msg: SessionData["queuedMessage"]) => void;
@@ -192,6 +198,7 @@ function emptySessionData(): SessionData {
   return {
     messages: [],
     streaming: null,
+    streamingThinking: null,
     streamingStartedAt: null,
     streamingOutputTokens: 0,
     streamingBlocks: [],
@@ -296,6 +303,7 @@ export const useStore = create<AppState>()((set, get) => ({
   toasts: [],
   processLogs: {},
   logDrawerOpen: false,
+  messageFlowOpen: false,
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
   toggleSidebar: () =>
@@ -353,6 +361,7 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
 
   setLogDrawerOpen: (open) => set({ logDrawerOpen: open }),
+  setMessageFlowOpen: (open) => set({ messageFlowOpen: open }),
 
   ensureSessionData: (id) => {
     if (!get().sessionData[id]) {
@@ -389,6 +398,14 @@ export const useStore = create<AppState>()((set, get) => ({
       return patchSession(s, sessionId, { streaming: (data.streaming ?? "") + delta });
     }),
 
+  appendStreamingThinking: (sessionId, delta) =>
+    set((s) => {
+      const data = s.sessionData[sessionId] ?? emptySessionData();
+      return patchSession(s, sessionId, {
+        streamingThinking: (data.streamingThinking ?? "") + delta,
+      });
+    }),
+
   setStreamingStarted: (sessionId, ts) =>
     set((s) => patchSession(s, sessionId, { streamingStartedAt: ts })),
 
@@ -402,6 +419,7 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) =>
       patchSession(s, sessionId, {
         streaming: null,
+        streamingThinking: null,
         streamingStartedAt: null,
         streamingOutputTokens: 0,
         streamingBlocks: [],
@@ -471,7 +489,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return patchSession(s, sessionId, {
         agentStreaming: {
           ...data.agentStreaming,
-          [agentId]: { text: "", startedAt: Date.now(), outputTokens: 0 },
+          [agentId]: { text: "", thinking: null, startedAt: Date.now(), outputTokens: 0 },
         },
       });
     }),
@@ -485,6 +503,24 @@ export const useStore = create<AppState>()((set, get) => ({
           ...data.agentStreaming,
           [agentId]: {
             text: (current?.text ?? "") + delta,
+            thinking: current?.thinking ?? null,
+            startedAt: current?.startedAt ?? null,
+            outputTokens: current?.outputTokens ?? 0,
+          },
+        },
+      });
+    }),
+
+  appendAgentStreamingThinking: (sessionId, agentId, delta) =>
+    set((s) => {
+      const data = s.sessionData[sessionId] ?? emptySessionData();
+      const current = data.agentStreaming[agentId];
+      return patchSession(s, sessionId, {
+        agentStreaming: {
+          ...data.agentStreaming,
+          [agentId]: {
+            text: current?.text ?? null,
+            thinking: (current?.thinking ?? "") + delta,
             startedAt: current?.startedAt ?? null,
             outputTokens: current?.outputTokens ?? 0,
           },

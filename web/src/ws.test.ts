@@ -634,6 +634,69 @@ describe("handleMessage", () => {
     expect(getSessionData()?.agentStreaming?.["agent-1"]?.text).toBe("agent text");
   });
 
+  // ── stream_event → content_block_delta (thinking) ─────────────────────
+
+  it("stream_event thinking_delta: buffers thinking to main streaming", () => {
+    const ws = openSession();
+    useStore.getState().setStreaming("s1", "");
+    useStore.getState().setStreamingStarted("s1", Date.now());
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: "Let me think" },
+        },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    flushDeltas();
+    expect(getSessionData()?.streamingThinking).toBe("Let me think");
+  });
+
+  it("stream_event thinking_delta with agent: appends to agent thinking", () => {
+    const ws = openSession();
+    useStore.getState().initAgentStreaming("s1", "agent-1");
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: "agent thought" },
+        },
+        parent_tool_use_id: "agent-1",
+      }),
+    );
+
+    flushDeltas();
+    expect(getSessionData()?.agentStreaming?.["agent-1"]?.thinking).toBe("agent thought");
+  });
+
+  it("stream_event thinking_delta auto-inits streaming if needed", () => {
+    const ws = openSession();
+
+    ws.simulateMessage(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: "thought" },
+        },
+        parent_tool_use_id: null,
+      }),
+    );
+
+    // Streaming should have been auto-initialized
+    expect(getSessionData()?.streaming).toBe("");
+    expect(getSessionData()?.sessionStatus).toBe("running");
+
+    flushDeltas();
+    expect(getSessionData()?.streamingThinking).toBe("thought");
+  });
+
   // ── stream_event → message_delta ────────────────────────────────────────
 
   it("stream_event message_delta: sets output tokens", () => {

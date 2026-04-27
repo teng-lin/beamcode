@@ -39,4 +39,6 @@ export type Effect =
   /** Resolve git info for the session (after seeding cwd). */
   | { type: "RESOLVE_GIT_INFO" }
   /** Send a targeted message to a specific consumer WebSocket. */
-  | { type: "SEND_TO_CONSUMER"; ws: WebSocketLike; message: ConsumerMessage };
+  | { type: "SEND_TO_CONSUMER"; ws: WebSocketLike; message: ConsumerMessage }
+  /** Emit a translation event for message flow panel visualization (dev tool). */
+  | { type: "EMIT_TRANSLATION"; event: ConsumerMessage };

@@ -245,4 +245,36 @@ describe("ToolResultBlock", () => {
       expect(pre?.className).toContain("text-bc-error");
     });
   });
+
+  describe("persisted output", () => {
+    const persistedContent = `<persisted-output>
+Output too large (57.8KB). Full output saved to: /tmp/output.txt
+
+Preview (first 2KB):
+line 1 of preview
+line 2 of preview
+...
+</persisted-output>`;
+
+    it("renders persisted output banner for Bash tool", () => {
+      render(<ToolResultBlock toolName="Bash" content={persistedContent} />);
+      expect(screen.getByText(/Output truncated/)).toBeInTheDocument();
+      expect(screen.getByText("/tmp/output.txt")).toBeInTheDocument();
+    });
+
+    it("renders preview content", () => {
+      render(<ToolResultBlock toolName="Bash" content={persistedContent} />);
+      expect(screen.getByText(/line 1 of preview/)).toBeInTheDocument();
+    });
+
+    it("works for any tool name", () => {
+      render(<ToolResultBlock toolName="Read" content={persistedContent} />);
+      expect(screen.getByText(/Output truncated/)).toBeInTheDocument();
+    });
+
+    it("falls through to normal rendering for non-persisted content", () => {
+      render(<ToolResultBlock toolName="Bash" content="normal output" />);
+      expect(screen.queryByText(/Output truncated/)).not.toBeInTheDocument();
+    });
+  });
 });

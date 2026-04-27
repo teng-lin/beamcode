@@ -16,6 +16,22 @@ const reconnectState = new Map<
 >();
 const MAX_RECONNECT_DELAY = 30_000;
 
+// ── Message flow tap (dev panel) ──────────────────────────────────────────
+type FlowInboundListener = (sessionId: string, msg: ConsumerMessage) => void;
+type FlowOutboundListener = (sessionId: string, msg: InboundMessage) => void;
+const flowInboundListeners = new Set<FlowInboundListener>();
+const flowOutboundListeners = new Set<FlowOutboundListener>();
+
+export function addFlowInboundListener(cb: FlowInboundListener): () => void {
+  flowInboundListeners.add(cb);
+  return () => flowInboundListeners.delete(cb);
+}
+
+export function addFlowOutboundListener(cb: FlowOutboundListener): () => void {
+  flowOutboundListeners.add(cb);
+  return () => flowOutboundListeners.delete(cb);
+}
+
 // ── Streaming delta batching ──────────────────────────────────────────────
 // Coalesce rapid content_block_delta events into at most one Zustand set()
 // per animation frame, reducing re-renders from hundreds/s to ~60/s.
@@ -23,8 +39,12 @@ const MAX_RECONNECT_DELAY = 30_000;
 interface PendingDelta {
   /** Accumulated text for the main session streaming. */
   main: string;
+  /** Accumulated thinking for the main session streaming. */
+  mainThinking: string;
   /** Accumulated text per agent sub-stream. */
   agents: Record<string, string>;
+  /** Accumulated thinking per agent sub-stream. */
+  agentsThinking: Record<string, string>;
 }
 
 const pendingDeltas = new Map<string, PendingDelta>();
@@ -48,8 +68,14 @@ export function flushDeltas(): void {
     if (delta.main) {
       store.appendStreaming(sessionId, delta.main);
     }
+    if (delta.mainThinking) {
+      store.appendStreamingThinking(sessionId, delta.mainThinking);
+    }
     for (const [agentId, text] of Object.entries(delta.agents)) {
       store.appendAgentStreaming(sessionId, agentId, text);
+    }
+    for (const [agentId, thinking] of Object.entries(delta.agentsThinking)) {
+      store.appendAgentStreamingThinking(sessionId, agentId, thinking);
     }
   }
 }
@@ -57,13 +83,31 @@ export function flushDeltas(): void {
 function bufferStreamingDelta(sessionId: string, agentId: string | null, text: string): void {
   let entry = pendingDeltas.get(sessionId);
   if (!entry) {
-    entry = { main: "", agents: {} };
+    entry = { main: "", mainThinking: "", agents: {}, agentsThinking: {} };
     pendingDeltas.set(sessionId, entry);
   }
   if (agentId) {
     entry.agents[agentId] = (entry.agents[agentId] ?? "") + text;
   } else {
     entry.main += text;
+  }
+  scheduleDeltaFlush();
+}
+
+function bufferStreamingThinkingDelta(
+  sessionId: string,
+  agentId: string | null,
+  thinking: string,
+): void {
+  let entry = pendingDeltas.get(sessionId);
+  if (!entry) {
+    entry = { main: "", mainThinking: "", agents: {}, agentsThinking: {} };
+    pendingDeltas.set(sessionId, entry);
+  }
+  if (agentId) {
+    entry.agentsThinking[agentId] = (entry.agentsThinking[agentId] ?? "") + thinking;
+  } else {
+    entry.mainThinking += thinking;
   }
   scheduleDeltaFlush();
 }
@@ -113,6 +157,7 @@ function handleMessage(sessionId: string, data: string): void {
   // Guard: ensure parsed value is an object with a string `type` discriminant
   if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return;
   const msg = parsed as ConsumerMessage;
+  for (const cb of flowInboundListeners) cb(sessionId, msg);
 
   store.ensureSessionData(sessionId);
 
@@ -177,10 +222,6 @@ function handleMessage(sessionId: string, data: string): void {
     }
 
     case "queued_message_cancelled":
-      store.setQueuedMessage(sessionId, null);
-      store.setEditingQueue(sessionId, false);
-      break;
-
     case "queued_message_sent":
       store.setQueuedMessage(sessionId, null);
       store.setEditingQueue(sessionId, false);
@@ -204,15 +245,22 @@ function handleMessage(sessionId: string, data: string): void {
         case "content_block_delta": {
           const delta = (event as { delta?: { type: string; text?: string; thinking?: string } })
             .delta;
+
+          // Auto-init streaming if no message_start was received (ACP backends)
+          const needsAutoInit =
+            (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
+            !agentId &&
+            useStore.getState().sessionData[sessionId]?.streaming === null;
+          if (needsAutoInit) {
+            store.setStreamingStarted(sessionId, Date.now());
+            store.setStreaming(sessionId, "");
+            store.setSessionStatus(sessionId, "running");
+          }
+
           if (delta?.type === "text_delta" && delta.text) {
-            // Auto-init streaming if no message_start was received (ACP backends)
-            const sd = useStore.getState().sessionData[sessionId];
-            if (!agentId && sd?.streaming === null) {
-              store.setStreamingStarted(sessionId, Date.now());
-              store.setStreaming(sessionId, "");
-              store.setSessionStatus(sessionId, "running");
-            }
             bufferStreamingDelta(sessionId, agentId, delta.text);
+          } else if (delta?.type === "thinking_delta" && delta.thinking) {
+            bufferStreamingThinkingDelta(sessionId, agentId, delta.thinking);
           }
           break;
         }
@@ -412,6 +460,11 @@ function handleMessage(sessionId: string, data: string): void {
       // Informational only — no store action needed
       break;
 
+    case "adapter_drop":
+    case "translation_event":
+      // Captured by flow panel listeners only; not surfaced in chat UI
+      break;
+
     default: {
       // Compile-time exhaustiveness guard; runtime remains forward-compatible.
       const _exhaustive: never = msg;
@@ -531,6 +584,7 @@ export function send(message: InboundMessage, sessionId?: string): void {
   if (!targetId) return;
   const socket = connections.get(targetId);
   if (socket?.readyState === WebSocket.OPEN) {
+    for (const cb of flowOutboundListeners) cb(targetId, message);
     socket.send(JSON.stringify(message));
   }
 }
@@ -540,4 +594,6 @@ export function _resetForTesting(): void {
   disconnect();
   pendingDeltas.clear();
   flushScheduled = false;
+  flowInboundListeners.clear();
+  flowOutboundListeners.clear();
 }

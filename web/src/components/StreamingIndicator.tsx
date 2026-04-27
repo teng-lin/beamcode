@@ -46,6 +46,7 @@ function useElapsed(startedAt: number | null): number | null {
 
 export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
   const streaming = useStore((s) => s.sessionData[sessionId]?.streaming ?? null);
+  const streamingThinking = useStore((s) => s.sessionData[sessionId]?.streamingThinking ?? null);
   const streamingStartedAt = useStore((s) => s.sessionData[sessionId]?.streamingStartedAt ?? null);
   const streamingOutputTokens = useStore(
     (s) => s.sessionData[sessionId]?.streamingOutputTokens ?? 0,
@@ -90,6 +91,35 @@ export function StreamingIndicator({ sessionId }: StreamingIndicatorProps) {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3">
+      {streamingThinking && (
+        <div className="mb-1.5 rounded-lg border border-bc-border/40 bg-bc-surface/50">
+          <div className="flex items-center gap-2 px-3 py-2 text-xs text-bc-text-muted">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              className="flex-shrink-0"
+              aria-hidden="true"
+            >
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+              <circle cx="4.5" cy="5" r="1" fill="currentColor" opacity="0.4" />
+              <circle cx="7.5" cy="5" r="1" fill="currentColor" opacity="0.4" />
+              <path
+                d="M4.5 7.5Q6 8.5 7.5 7.5"
+                stroke="currentColor"
+                strokeWidth="0.8"
+                fill="none"
+                opacity="0.4"
+              />
+            </svg>
+            <span className="italic opacity-70">Thinking...</span>
+          </div>
+          <pre className="max-h-60 overflow-auto border-t border-bc-border/30 p-3 font-mono-code text-xs text-bc-text-muted/80 leading-relaxed">
+            {streamingThinking}
+          </pre>
+        </div>
+      )}
       {streaming && <MarkdownContent content={streaming} />}
 
       <div className="flex items-center gap-2 py-1.5 text-xs text-bc-text-muted">

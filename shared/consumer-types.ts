@@ -314,6 +314,22 @@ export type ConsumerMessage =
       type: "session_lifecycle";
       subtype: string;
       metadata: Record<string, unknown>;
+    }
+  | {
+      type: "adapter_drop";
+      reason: string;
+      dropped_type: string;
+      dropped_metadata?: Record<string, unknown>;
+    }
+  | {
+      type: "translation_event";
+      boundary: "T1" | "T2" | "T3" | "T4";
+      translator: string;
+      from: { format: string; body: unknown };
+      to: { format: string; body: unknown };
+      traceId?: string;
+      timestamp: number;
+      sessionId: string;
     };
 
 // ── Inbound Messages (consumer → bridge) ────────────────────────────────────

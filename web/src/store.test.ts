@@ -442,11 +442,31 @@ describe("store", () => {
     });
   });
 
+  describe("streaming thinking", () => {
+    it("appendStreamingThinking accumulates thinking text", () => {
+      store().appendStreamingThinking(SESSION_ID, "Let me");
+      store().appendStreamingThinking(SESSION_ID, " think...");
+      expect(store().sessionData[SESSION_ID].streamingThinking).toBe("Let me think...");
+    });
+
+    it("appendStreamingThinking initializes from null", () => {
+      store().appendStreamingThinking(SESSION_ID, "first");
+      expect(store().sessionData[SESSION_ID].streamingThinking).toBe("first");
+    });
+
+    it("clearStreaming also clears streamingThinking", () => {
+      store().appendStreamingThinking(SESSION_ID, "thinking");
+      store().clearStreaming(SESSION_ID);
+      expect(store().sessionData[SESSION_ID].streamingThinking).toBeNull();
+    });
+  });
+
   describe("agent streaming", () => {
     it("initAgentStreaming creates entry", () => {
       store().initAgentStreaming(SESSION_ID, "agent-1");
       const entry = store().sessionData[SESSION_ID].agentStreaming["agent-1"];
       expect(entry.text).toBe("");
+      expect(entry.thinking).toBeNull();
       expect(entry.startedAt).toBeTypeOf("number");
       expect(entry.outputTokens).toBe(0);
     });
@@ -491,6 +511,21 @@ describe("store", () => {
       store().clearAgentStreaming(SESSION_ID, "agent-1");
       expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"]).toBeUndefined();
       expect(store().sessionData[SESSION_ID].agentStreaming["agent-2"].text).toBe("a2");
+    });
+
+    it("appendAgentStreamingThinking accumulates thinking", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().appendAgentStreamingThinking(SESSION_ID, "agent-1", "thought");
+      expect(store().sessionData[SESSION_ID].agentStreaming["agent-1"].thinking).toBe("thought");
+    });
+
+    it("appendAgentStreaming preserves thinking when text appended", () => {
+      store().initAgentStreaming(SESSION_ID, "agent-1");
+      store().appendAgentStreamingThinking(SESSION_ID, "agent-1", "thought");
+      store().appendAgentStreaming(SESSION_ID, "agent-1", "text");
+      const entry = store().sessionData[SESSION_ID].agentStreaming["agent-1"];
+      expect(entry.thinking).toBe("thought");
+      expect(entry.text).toBe("text");
     });
   });
 

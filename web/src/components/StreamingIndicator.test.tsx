@@ -44,6 +44,26 @@ describe("StreamingIndicator", () => {
     expect(bold.tagName).toBe("STRONG");
   });
 
+  it("renders streaming thinking content above text", () => {
+    store().ensureSessionData(SESSION);
+    store().setStreamingStarted(SESSION, Date.now());
+    store().appendStreamingThinking(SESSION, "Let me think about this");
+    store().setStreaming(SESSION, "Here is my answer");
+    render(<StreamingIndicator sessionId={SESSION} />);
+    expect(screen.getByText("Thinking...")).toBeInTheDocument();
+    expect(screen.getByText("Let me think about this")).toBeInTheDocument();
+    expect(screen.getByText(/Here is my answer/)).toBeInTheDocument();
+  });
+
+  it("renders thinking block without text content", () => {
+    store().ensureSessionData(SESSION);
+    store().setStreamingStarted(SESSION, Date.now());
+    store().setSessionStatus(SESSION, "running");
+    store().appendStreamingThinking(SESSION, "Pondering...");
+    render(<StreamingIndicator sessionId={SESSION} />);
+    expect(screen.getByText("Pondering...")).toBeInTheDocument();
+  });
+
   it("displays token count when available", () => {
     store().ensureSessionData(SESSION);
     store().setStreamingStarted(SESSION, Date.now());

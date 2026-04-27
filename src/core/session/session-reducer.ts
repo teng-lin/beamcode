@@ -34,6 +34,7 @@ import {
   mapStreamEvent,
   mapToolProgress,
   mapToolUseSummary,
+  mapTranslationEvent,
 } from "../messaging/consumer-message-mapper.js";
 import { normalizeInbound } from "../messaging/inbound-normalizer.js";
 import { diffTeamState } from "../team/team-event-differ.js";
@@ -588,12 +589,13 @@ function reduceInboundCommand(
       );
 
       // Normalize message for backend send (pure — no I/O).
-      const baseUnified = normalizeInbound({
-        type: "user_message",
+      const inboundMsg = {
+        type: "user_message" as const,
         content: command.content,
         session_id: data.backendSessionId || command.session_id || "",
         images: command.images,
-      });
+      };
+      const baseUnified = normalizeInbound(inboundMsg);
       if (!baseUnified) return [data, []];
 
       // Apply slash passthrough trace context when present (always a complete group).
@@ -610,6 +612,15 @@ function reduceInboundCommand(
           }
         : baseUnified;
 
+      const t1Event = translationEffect(
+        "T1",
+        "normalizeInbound",
+        { format: "InboundMessage", body: inboundMsg },
+        { format: "UnifiedMessage", body: unified },
+        unified.metadata.trace_id as string | undefined,
+        data.state.session_id,
+      );
+
       const isConnected = data.lifecycle === "active" || data.lifecycle === "idle";
 
       if (isConnected) {
@@ -624,6 +635,7 @@ function reduceInboundCommand(
           [
             { type: "BROADCAST", message: userMsg },
             { type: "PERSIST_NOW" },
+            t1Event,
             { type: "SEND_TO_BACKEND", message: unified },
           ],
         ];
@@ -644,7 +656,7 @@ function reduceInboundCommand(
           messageHistory: nextHistory,
           pendingMessages: [...data.pendingMessages, unified],
         },
-        [{ type: "BROADCAST", message: userMsg }, { type: "PERSIST_NOW" }],
+        [{ type: "BROADCAST", message: userMsg }, { type: "PERSIST_NOW" }, t1Event],
       ];
     }
 
@@ -763,6 +775,33 @@ function reduceBackendMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function translationEffect(
+  boundary: "T1" | "T2" | "T3" | "T4",
+  translator: string,
+  from: { format: string; body: unknown },
+  to: { format: string; body: unknown },
+  traceId: string | undefined,
+  sessionId: string,
+): Effect {
+  return {
+    type: "EMIT_TRANSLATION",
+    event: {
+      type: "translation_event",
+      boundary,
+      translator,
+      from,
+      to,
+      traceId,
+      timestamp: Date.now(),
+      sessionId,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Effect builder — pure, depends only on prev/next data and the message
 // ---------------------------------------------------------------------------
 
@@ -824,6 +863,16 @@ function buildEffects(
       if (nextData.messageHistory !== prevData.messageHistory) {
         const mapped = mapAssistantMessage(message);
         if (mapped.type === "assistant") {
+          effects.push(
+            translationEffect(
+              "T4",
+              "mapAssistantMessage",
+              { format: "UnifiedMessage", body: message },
+              { format: "ConsumerMessage", body: mapped },
+              message.metadata?.trace_id as string | undefined,
+              prevData.state.session_id,
+            ),
+          );
           effects.push({ type: "BROADCAST", message: mapped });
         }
       }
@@ -831,7 +880,18 @@ function buildEffects(
     }
 
     case "result": {
-      effects.push({ type: "BROADCAST", message: mapResultMessage(message) });
+      const resultMsg = mapResultMessage(message);
+      effects.push(
+        translationEffect(
+          "T4",
+          "mapResultMessage",
+          { format: "UnifiedMessage", body: message },
+          { format: "ConsumerMessage", body: resultMsg },
+          message.metadata?.trace_id as string | undefined,
+          prevData.state.session_id,
+        ),
+      );
+      effects.push({ type: "BROADCAST", message: resultMsg });
       effects.push({ type: "AUTO_SEND_QUEUED" });
       // Emit first-turn completion event when num_turns reaches 1
       const numTurns = message.metadata?.num_turns as number | undefined;
@@ -874,6 +934,16 @@ function buildEffects(
           type: "EMIT_EVENT",
           eventType: "permission:requested",
           payload: { request: mapped.cliPerm },
+        });
+      } else {
+        effects.push({
+          type: "BROADCAST",
+          message: {
+            type: "adapter_drop",
+            reason: `permission_request subtype '${String(message.metadata?.subtype ?? "unknown")}' is not supported (only 'can_use_tool' is handled)`,
+            dropped_type: "permission_request",
+            dropped_metadata: message.metadata as Record<string, unknown>,
+          },
         });
       }
       break;
@@ -928,6 +998,11 @@ function buildEffects(
 
     case "session_lifecycle": {
       effects.push({ type: "BROADCAST", message: mapSessionLifecycle(message) });
+      break;
+    }
+
+    case "translation_event": {
+      effects.push({ type: "BROADCAST", message: mapTranslationEvent(message) });
       break;
     }
   }

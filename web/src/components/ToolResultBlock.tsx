@@ -1,10 +1,12 @@
 import { useState } from "react";
 import type { ConsumerContentBlock } from "../../../shared/consumer-types";
 import { stripAnsi } from "../utils/ansi-strip";
+import { isPersistedOutput, parsePersistedOutput } from "../utils/persisted-output";
 import { truncateLines } from "../utils/truncate";
 import { containsUnifiedDiff } from "../utils/unified-diff";
 import { CopyButton } from "./CopyButton";
 import { MarkdownContent } from "./MarkdownContent";
+import { PersistedOutputBlock } from "./PersistedOutputBlock";
 import { UnifiedDiffBlock } from "./UnifiedDiffBlock";
 
 interface ToolResultBlockProps {
@@ -180,6 +182,14 @@ function renderContent(
   content: string | ConsumerContentBlock[],
   isError?: boolean,
 ): React.ReactNode {
+  // Check for persisted-output wrapper before tool-specific rendering
+  if (typeof content === "string" && isPersistedOutput(text)) {
+    const parsed = parsePersistedOutput(text);
+    if (parsed) {
+      return <PersistedOutputBlock parsed={parsed} isError={isError} />;
+    }
+  }
+
   switch (toolName) {
     case "Bash": {
       const stripped = stripAnsi(text);

@@ -59,6 +59,13 @@ export function useKeyboardShortcuts(): void {
         }
       }
 
+      // Alt+M: toggle message flow panel
+      if (e.altKey && (e.key === "m" || e.key === "M")) {
+        e.preventDefault();
+        state.setMessageFlowOpen(!state.messageFlowOpen);
+        return;
+      }
+
       // ?: open shortcuts modal (only when not typing in input)
       if (e.key === "?" && !meta && !e.altKey && !isInputFocused()) {
         e.preventDefault();

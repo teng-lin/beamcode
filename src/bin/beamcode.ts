@@ -560,8 +560,11 @@ export async function runBeamcode(argv: string[] = process.argv): Promise<void> 
   await sessionCoordinator.start();
   setActiveSessionId(pickMostRecentSessionId(sessionCoordinator.registry.listSessions()));
 
-  // 7. Auto-launch a session AFTER WS is ready so the CLI can connect
-  if (!config.noAutoLaunch) {
+  // 7. Auto-launch a session AFTER WS is ready so the CLI can connect.
+  // Skip if sessions were already restored from storage — the consumer UI will
+  // show them and the user can create new ones via the dialog.
+  const existingSessions = sessionCoordinator.registry.listSessions();
+  if (!config.noAutoLaunch && existingSessions.length === 0) {
     try {
       const session = await sessionCoordinator.createSession({
         cwd: config.cwd,

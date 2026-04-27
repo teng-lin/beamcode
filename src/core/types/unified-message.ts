@@ -46,6 +46,7 @@ export type UnifiedMessageType =
   | "team_task_update"
   | "team_state_change"
   | "session_lifecycle"
+  | "translation_event"
   | "unknown";
 
 /**
@@ -217,6 +218,7 @@ const VALID_MESSAGE_TYPES = new Set<string>([
   "team_task_update",
   "team_state_change",
   "session_lifecycle",
+  "translation_event",
   "unknown",
 ]);
 

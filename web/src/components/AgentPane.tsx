@@ -13,9 +13,14 @@ import { MessageBubble } from "./MessageBubble";
 
 function AgentStreamingIndicator({ sessionId, agentId }: { sessionId: string; agentId: string }) {
   const stream = useStore((s) => s.sessionData[sessionId]?.agentStreaming[agentId]);
-  if (!stream?.text && !stream?.startedAt) return null;
+  if (!stream?.text && !stream?.thinking && !stream?.startedAt) return null;
   return (
     <div className="mx-auto w-full max-w-3xl px-3">
+      {stream.thinking && (
+        <pre className="mb-1.5 max-h-60 overflow-auto rounded-lg border border-bc-border/40 bg-bc-surface/50 p-3 font-mono-code text-xs text-bc-text-muted/80 leading-relaxed">
+          {stream.thinking}
+        </pre>
+      )}
       {stream.text && <MarkdownContent content={stream.text} />}
       <div className="flex items-center gap-2 py-1.5 text-xs text-bc-text-muted">
         <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bc-accent" />
